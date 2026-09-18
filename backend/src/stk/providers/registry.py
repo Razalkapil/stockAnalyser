@@ -13,7 +13,7 @@ from __future__ import annotations
 from datetime import date
 
 from stk.core.errors import ConfigError
-from stk.providers.base import PriceProvider
+from stk.providers.base import PriceProvider, SecurityMasterProvider
 
 # Confirmed by the phase-0 history spike (docs/adr/0003): sec_bhavdata_full
 # is available from this date onward and is preferred over the legacy
@@ -88,3 +88,19 @@ def get_bse_price_provider_for_date(business_date: date) -> PriceProvider:
     if business_date >= BSE_UDIFF_AVAILABLE_FROM:
         return get_price_provider("bse_udiff")
     return get_price_provider("bse_legacy_bhavcopy")
+
+
+def get_security_master_provider(name: str) -> SecurityMasterProvider:
+    """Construct a SecurityMasterProvider by its config name (see
+    providers.security_master in defaults.yaml)."""
+    if name == "nse_equity_l":
+        from stk.providers.nse.master import NseSecurityMasterProvider  # noqa: PLC0415
+
+        return NseSecurityMasterProvider()
+
+    if name == "bse_scrip_api":
+        from stk.providers.bse.master import BseSecurityMasterProvider  # noqa: PLC0415
+
+        return BseSecurityMasterProvider()
+
+    raise ConfigError(f"unknown security master provider: {name!r}")

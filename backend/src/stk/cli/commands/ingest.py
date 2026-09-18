@@ -22,6 +22,7 @@ from stk.ingest.daily import (
     resolve_business_date,
 )
 from stk.ingest.liquidity import compute_liquidity_for_date
+from stk.ingest.master import ingest_security_master
 
 app = typer.Typer(help="Nightly data ingest.")
 
@@ -88,6 +89,25 @@ def daily(
 
     if not (nse_ok and bse_ok):
         raise typer.Exit(code=1)
+
+
+@app.command("master")
+def master() -> None:
+    """Refresh securities/listings/symbol_history from NSE + BSE's
+    security masters, merged by ISIN.
+
+    Not on the nightly `daily` path yet (weekly/on-demand cadence per
+    the build plan) -- run explicitly.
+    """
+    settings = get_settings()
+    result = ingest_security_master(
+        sqlite_path=settings.paths.sqlite, exchanges=settings.ingest.exchanges
+    )
+    typer.secho(
+        f"OK: {result.securities_upserted} securities, "
+        f"{result.listings_upserted} listings, {result.renames} rename(s)",
+        fg="green",
+    )
 
 
 @app.command("liquidity")
