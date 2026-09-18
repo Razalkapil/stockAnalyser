@@ -66,3 +66,13 @@ All four previously-open Phase 1 items are now addressed (BSE history, liquidity
   **New constraints Phase 2 must plan around, both live-verified:** the index archive starts **2012-02-21**, roughly two years *after* the price lake begins — a backtest starting in 2010 has prices but no benchmark for its first two years. And NSE has renamed the Nifty twice inside the range (`S&P CNX Nifty` → `CNX Nifty` → `Nifty 50`), so a benchmark series must key on the canonical `index_code`, never the printed name.
 
 - **Phases 2-8:** not started.
+
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+Rules:
+- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
