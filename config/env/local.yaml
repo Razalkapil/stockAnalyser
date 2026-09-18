@@ -1,0 +1,3 @@
+app:
+  env: local
+  log_level: DEBUG

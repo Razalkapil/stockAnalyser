@@ -1,0 +1,70 @@
+[project]
+name = "stockanalyser"
+version = "0.1.0"
+description = "Indian stock suggester + virtual playground (personal, single-user)"
+requires-python = ">=3.12,<3.13"
+dependencies = ["stk"]
+
+[tool.uv.workspace]
+members = ["backend"]
+
+[tool.uv.sources]
+stk = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-cov>=6.0",
+    "respx>=0.22",
+    "mypy>=1.13",
+    "ruff>=0.8",
+    "types-requests",
+    "types-pyyaml",
+    "freezegun>=1.5",
+    "hypothesis>=6.122",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["backend/src", "tests", "scripts"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "PL", "RUF"]
+ignore = ["PLR0913", "PLR2004"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["stk"]
+
+[tool.mypy]
+python_version = "3.12"
+mypy_path = "backend/src"
+namespace_packages = true
+explicit_package_bases = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+
+[[tool.mypy.overrides]]
+module = "stk.domain.*"
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+
+[[tool.mypy.overrides]]
+module = "stk.ingest.*"
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+
+[[tool.mypy.overrides]]
+module = ["pyarrow.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "live: hits real external endpoints, excluded from default run",
+]
+addopts = "-m 'not live' --strict-markers"
+
+[tool.coverage.run]
+source = ["backend/src/stk"]

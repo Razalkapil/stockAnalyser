@@ -1,0 +1,9 @@
+# Holding-period windows per horizon, as named in the brief (Section 5).
+# hold_days is the target/maximum holding window used by the backtest
+# engine's time-based exit rule; lookback_days is how much history a
+# strategy's indicators are allowed to look back over.
+horizons:
+  short_term:  { hold_days_min: 1,   hold_days_max: 10,   lookback_days: 60 }
+  swing:       { hold_days_min: 10,  hold_days_max: 30,   lookback_days: 120 }
+  momentum:    { hold_days_min: 20,  hold_days_max: 65,   lookback_days: 300 }
+  long_term:   { hold_days_min: 250, hold_days_max: 1500, lookback_days: 1500 }

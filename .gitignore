@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# uv
+.uv/
+
+# Data (never commit market data or app state)
+data/raw/*
+data/parquet/*
+data/cache/*
+data/*.db
+data/*.db-wal
+data/*.db-shm
+!data/raw/.gitkeep
+!data/parquet/.gitkeep
+!data/cache/.gitkeep
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Web (phase 4)
+web/node_modules/
+web/dist/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+.hypothesis/

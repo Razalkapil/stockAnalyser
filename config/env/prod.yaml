@@ -1,0 +1,8 @@
+# Overlay applied on the Oracle VM (phase 8). Data root moves to a
+# persistent volume outside the repo checkout.
+app:
+  env: prod
+  log_level: INFO
+
+paths:
+  data_root: /srv/stockanalyser/data

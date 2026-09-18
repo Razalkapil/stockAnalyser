@@ -1,0 +1,90 @@
+# Indian equity transaction cost schedule, as DATED lists resolved by
+# effective-from date. A backtest spanning 2010-2026 must apply the rate
+# that was actually in force on each trade's date -- rates below are
+# NOT hardcoded constants, they are a history.
+#
+# STATUS: rates sourced from broker-published schedules (Zerodha) and
+# secondary reporting on SEBI/exchange circulars, NOT primary circulars
+# directly. The brief requires verifying current rates before relying
+# on them for real money decisions -- this file is a scaffold for
+# phase 2, not a verified-final source. See docs/adr for the
+# verification pass before phase 2 begins.
+#
+# Compute order (see domain/costs.py, phase 2):
+#   turnover -> stt -> stamp_duty -> exchange_txn -> ipft -> sebi_turnover_fee
+#   -> gst (on the taxable subset only) -> dp_charge (sell leg, flat, OUTSIDE
+#   the per-order pipeline -- it is per-scrip-per-day, not per-order)
+
+gst_rate: 0.18
+# GST applies to brokerage + exchange_txn + sebi_turnover_fee + ipft.
+# It does NOT apply to STT or stamp duty. Getting this wrong is a
+# one-line bug with a persistent small bias -- see tests/unit/test_costs.py.
+gst_applies_to: [brokerage, exchange_txn, sebi_turnover_fee, ipft]
+
+brokerage:
+  # Flat-fee discount-broker model (Zerodha-shaped). VERIFY: this is a
+  # placeholder default -- confirm your actual broker's schedule before
+  # phase 2 backtests are used for real decisions (see plan's open items).
+  - from: "2010-01-01"
+    delivery:
+      model: flat_per_order
+      amount_inr: 0.0
+    intraday:
+      model: min_of_pct_and_flat
+      pct: 0.0003
+      flat_inr: 20.0
+
+stt:
+  # Securities Transaction Tax. Delivery: both legs. Intraday: sell leg only.
+  - from: "2010-01-01"
+    delivery: { buy: 0.001, sell: 0.001 }
+    intraday: { buy: 0.0,   sell: 0.00025 }
+
+stamp_duty:
+  # Buy-side only. Uniform nationwide rate since 1 Jul 2020 (Finance Act
+  # 2019 + Collection of Stamp Duty Rules 2019). Pre-2020 rates varied by
+  # state and are NOT modelled here -- backtests before 2020-07-01 will
+  # use the post-2020 rate as an approximation until verified otherwise.
+  - from: "2020-07-01"
+    delivery: { buy: 0.00015, sell: 0.0 }
+    intraday: { buy: 0.00003, sell: 0.0 }
+
+exchange_txn_charge:
+  # Per-crore-of-turnover, both legs. SEBI mandated uniform slab-free
+  # rates from 1 Oct 2024. VERIFY the 2026-03-01 rate against the
+  # primary NSE circular before relying on it.
+  NSE:
+    - { from: "2024-10-01", rate: 0.0000297 }
+    - { from: "2026-03-01", rate: 0.0000307 }
+  BSE:
+    - { from: "2024-10-01", rate: 0.0000375 }
+
+sebi_turnover_fee:
+  # Rs 10 per crore = 0.0001%, both legs.
+  - from: "2010-01-01"
+    rate: 0.000001
+
+ipft:
+  # Investor Protection Fund Trust charge, NSE only, both legs.
+  # VERIFY the 2026-03-01 rate change against the primary NSE circular.
+  NSE:
+    - { from: "2010-01-01", per_crore_inr: 10.0 }
+    - { from: "2026-03-01", per_crore_inr: 0.01 }
+
+dp_charge:
+  # Flat, per-scrip, per-day, SELL leg only (depository debit). Dominates
+  # cost on small delivery sells -- e.g. ~31 bps on a Rs 5,000 sell.
+  # Applied OUTSIDE the per-order cost pipeline (see domain/costs.py).
+  - from: "2010-01-01"
+    per_scrip_inr: 13.0
+    gst_applicable: true
+
+circuit_bands:
+  # Reference values only -- the authoritative per-symbol band comes
+  # from NSE's daily sec_list.csv (see providers/nse/master.py), which
+  # is what circuit-lock detection in the backtest engine actually uses.
+  allowed_pct: [2, 5, 10, 20]
+  fno_dynamic_band_pct: 10   # F&O-eligible stocks: no fixed band, dynamic +/-10% flex range
+
+settlement:
+  cycle: "T+1"    # standard since 27 Jan 2023

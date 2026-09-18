@@ -1,0 +1,55 @@
+app:
+  env: local
+  timezone: Asia/Kolkata
+  currency: INR
+  log_level: INFO
+
+paths:
+  data_root: ./data
+  # raw/parquet/sqlite paths are derived from data_root in settings.py
+  # (kept as plain suffixes here rather than YAML anchors so env overrides
+  # of data_root propagate without needing to override each path too)
+
+ingest:
+  backfill_start: "2010-01-01"        # provisional -- confirmed by the phase-0 history spike (ADR 0003)
+  udiff_available_from: "2024-07-08"  # NSE UDiFF bhavcopy cutover; before this, use sec_bhavdata_full
+  exchanges: [NSE, BSE]
+  primary_exchange: NSE               # ISIN-collision tie-breaker
+  max_parallel_downloads: 4
+  fail_on_unparsed_corp_action: true  # a missed 1:1 bonus silently doubles an apparent price crash
+  eod_publish_time_ist: "18:30"       # earliest we should expect today's bhavcopy
+
+providers:
+  prices:
+    NSE: nse_sec_bhavdata
+    BSE: bse_udiff
+  security_master:
+    NSE: nse_equity_l
+    BSE: bse_scrip_api
+  calendar: nse_holiday_master
+  corp_actions: nse_corp_actions
+  fundamentals: [nse_filings, yfinance]   # ordered: authoritative first, approximate fallback
+
+http:
+  nse_archives:
+    base: "https://nsearchives.nseindia.com"
+    timeout_s: 30
+    retries: 3
+    backoff_s: [2, 8, 30]
+  nse_api:
+    base: "https://www.nseindia.com"
+    prime_url: "https://www.nseindia.com/"
+    cookie_ttl_s: 900
+    timeout_s: 30
+    retries: 3
+    backoff_s: [2, 8, 30]
+  bse:
+    base: "https://www.bseindia.com"       # never the apex bseindia.com -- it redirects
+    api_base: "https://api.bseindia.com"
+    referer: "https://www.bseindia.com/"
+    timeout_s: 30
+    retries: 3
+    backoff_s: [2, 8, 30]
+  yfinance:
+    impersonate: chrome                    # curl_cffi session impersonation
+    min_interval_ms: 1500                  # client-side throttle vs YFRateLimitError

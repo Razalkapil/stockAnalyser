@@ -1,0 +1,17 @@
+liquidity:
+  lookback_days: 20
+  min_median_turnover_inr: 20000000     # Rs 2 crore
+  min_median_trades: 500
+  min_price_inr: 10
+  min_listed_days: 120
+
+# NSE series / BSE groups excluded from the tradeable universe outright.
+# BE/BZ are T2T (trade-to-trade): no intraday, no netting -- kept in
+# listings but flagged, not excluded, since delivery-only strategies can
+# still use them (see flag_only_series below).
+excluded_nse_series: [SM, ST, MF, GB, IV]
+excluded_bse_groups: [Z, ZP, ZY]
+
+# Present in the universe but flagged: is_tradeable_intraday=false.
+flag_only_nse_series: [BE, BZ]
+flag_only_bse_groups: [T, TS, XT, MT]
