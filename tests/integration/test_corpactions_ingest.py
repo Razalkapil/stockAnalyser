@@ -7,7 +7,7 @@ import pytest
 import respx
 
 from stk.core.errors import ParseError
-from stk.ingest.corpactions import ingest_corporate_actions
+from stk.ingest.corpactions import UnparsedCorporateActionsError, ingest_corporate_actions
 from stk.store.db.engine import connect, migrate
 
 URL = "https://www.nseindia.com/api/corporates-corporateActions"
@@ -66,7 +66,41 @@ class TestIngestCorporateActions:
         finally:
             conn.close()
         assert job["status"] == "failed"
-        assert job["error_type"] == "ParseError"
+        assert job["error_type"] == "UnparsedCorporateActionsError"  # a ParseError subclass
+
+    @respx.mock
+    def test_one_unparsed_subject_never_hides_the_real_split_behind_it(self, tmp_path):
+        """Regression, found on real data: the ingest used to raise on the FIRST unparsed
+        subject, so every row after it -- including real splits -- was never stored. It must
+        finish storing everything and only THEN fail, naming every offender."""
+        sqlite_path = tmp_path / "app.db"
+        migrate(sqlite_path)
+        respx.get(URL).mock(return_value=httpx.Response(200, json=[
+            _row(symbol="AAA", subject="Something Unrecognisable Happened"),
+            _row(symbol="SPLITCO", isin="INE000B00000",
+                 subject="Face Value Split (Sub-Division) - From Rs 10/- Per Share To Rs 2/- "
+                         "Per Share"),
+            _row(symbol="BBB", isin="INE000C00000", subject="Another Mystery"),
+            _row(symbol="BONUSCO", isin="INE000D00000", subject="Bonus 1:1"),
+        ]))
+
+        with pytest.raises(UnparsedCorporateActionsError) as exc_info:
+            ingest_corporate_actions(sqlite_path=sqlite_path, fail_on_unparsed=True)
+
+        err = exc_info.value
+        assert isinstance(err, ParseError)  # existing handlers still catch it
+        assert {sym for sym, _ in err.unparsed} == {"AAA", "BBB"}  # ALL offenders, not just one
+        assert err.result.upserted == 4 and err.result.unparsed == 2
+        assert err.result.new_ex_dates  # the caller can still tell the price series is stale
+
+        conn = connect(sqlite_path)
+        try:
+            stored = {r["symbol"]: r["parse_status"] for r in
+                      conn.execute("SELECT symbol, parse_status FROM corporate_actions")}
+        finally:
+            conn.close()
+        assert stored == {"AAA": "unparsed", "SPLITCO": "parsed", "BBB": "unparsed",
+                          "BONUSCO": "parsed"}
 
     @respx.mock
     def test_unparsed_subject_recorded_when_fail_on_unparsed_false(self, tmp_path):

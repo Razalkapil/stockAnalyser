@@ -20,7 +20,7 @@ from stk.core.errors import IngestAssertionError, ParseError, ProviderError
 from stk.core.time import today_ist
 from stk.ingest.adjustments import rebuild_adjusted_bars_job
 from stk.ingest.calendar import ingest_calendar_from_bars, ingest_calendar_year
-from stk.ingest.corpactions import ingest_corporate_actions
+from stk.ingest.corpactions import UnparsedCorporateActionsError, ingest_corporate_actions
 from stk.ingest.daily import (
     IngestResult,
     ingest_bse_prices_for_date,
@@ -263,6 +263,16 @@ def corpactions(
             since=since,
             fail_on_unparsed=settings.ingest.fail_on_unparsed_corp_action,
         )
+    except UnparsedCorporateActionsError as exc:
+        typer.secho(f"FAILED: {exc}", fg="red", bold=True)
+        typer.echo(f"{exc.result.upserted}/{exc.result.fetched} actions were stored anyway.")
+        if exc.result.new_ex_dates:
+            typer.echo(
+                f"{len(exc.result.new_ex_dates)} new ex-date(s) landed -- run "
+                "`stk ingest adjustments` to rebuild the adjusted series (it will be flagged "
+                "degraded until the unparsed subjects are handled)."
+            )
+        raise typer.Exit(code=1) from exc
     except (ProviderError, IngestAssertionError, ParseError) as exc:
         typer.secho(f"FAILED: {exc}", fg="red", bold=True)
         raise typer.Exit(code=1) from exc

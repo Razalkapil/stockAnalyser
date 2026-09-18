@@ -72,6 +72,15 @@ from stk.store.parquet.schema import (
 )
 from stk.store.parquet.writer import upsert_partition
 
+#: Action types that do NOT move a price series and so legitimately carry no price factor:
+#: cash to the holder (dividends, InvIT/REIT distributions, bond interest), and events with no
+#: price effect at all (buybacks -- shares are extinguished, the exchange applies no adjustment
+#: -- and AGMs, which are purely informational). Anything else without a factor (rights,
+#: demergers, an unparsed split...) is a known hole in the adjusted series and counts as
+#: degradation. Real counts over ~15 months: 202 distributions, 35 buybacks, 1 AGM -- flagging
+#: those would raise a permanent false alarm.
+NON_PRICE_EVENT_TYPES = frozenset({"DIVIDEND", "DISTRIBUTION", "BUYBACK", "AGM"})
+
 #: Price columns scaled by the cumulative price factor.
 PRICE_COLUMNS = ("open", "high", "low", "close", "prev_close", "last", "vwap", "settle_price")
 
@@ -246,7 +255,7 @@ def load_actions(conn: sqlite3.Connection, *, exchange: str) -> _LoadedActions:
             # A dividend legitimately has no price factor under this
             # project's convention and is not a degradation; anything
             # else we could not parse IS one.
-            if row["action_type"] != "DIVIDEND":
+            if row["action_type"] not in NON_PRICE_EVENT_TYPES:
                 excluded += 1
             continue
 

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from collections.abc import Callable
 from datetime import date
 from decimal import Decimal
 from enum import StrEnum
@@ -37,11 +38,15 @@ from stk.providers.base import RawCorporateAction
 from stk.providers.registry import get_corporate_actions_provider
 from stk.store.db.engine import connect
 
-PARSER_VERSION = 1
+#: 2: real-data pass over 3,180 NSE subjects -- singular "Re", truncated "Per Sh", the
+#: "(Sub-Division)" split wording, face-value consolidations, InvIT/REIT distributions,
+#: bond interest payments. v1 rows (none survive in a fresh DB) parsed ~2/3 of real subjects.
+PARSER_VERSION = 2
 
 
 class ActionType(StrEnum):
     DIVIDEND = "DIVIDEND"
+    DISTRIBUTION = "DISTRIBUTION"  # InvIT/REIT unit payouts, bond interest: cash, like a dividend
     BONUS = "BONUS"
     SPLIT = "SPLIT"
     RIGHTS = "RIGHTS"
@@ -80,23 +85,45 @@ class ParseResult(BaseModel):
 
 # --- Regexes, ordered from most to least specific -------------------------
 
+# "Rs", "Rs." and the SINGULAR "Re" all appear ("Dividend - Re 1 Per Share" is ~600 of the real
+# subjects); NSE also truncates some subjects to "Per Sh". Cash events never adjust prices, so
+# being liberal on them cannot corrupt a series -- unlike splits/bonuses, matched strictly below.
+_RUPEE = r"(?:rs|re)\.?"
+_AMOUNT = r"([\d,]+(?:\.\d+)?)"
 _DIVIDEND_RE = re.compile(
-    r"(?:interim\s+|final\s+|special\s+)?dividend\s*-?\s*rs\.?\s*([\d,]+(?:\.\d+)?)\s*per\s*share",
+    rf"(?:interim\s+|final\s+|special\s+)?dividend\s*(?:-|of)?\s*{_RUPEE}\s*{_AMOUNT}",
     re.IGNORECASE,
 )
+# Checked BEFORE dividends: a distribution's own text contains "Dividend Re 0.32 Per Unit",
+# which would otherwise be misread as the whole payout.
+_DISTRIBUTION_RE = re.compile(
+    rf"distribution\s*(?:-|of)?\s*(?:{_RUPEE}\s*)?{_AMOUNT}", re.IGNORECASE
+)
+_INTEREST_PAYMENT_RE = re.compile(r"^\s*interest\s+payment\b", re.IGNORECASE)
 _BONUS_RE = re.compile(
     r"bonus(?:\s+issue)?\s+(\d+)\s*:\s*(\d+)",
     re.IGNORECASE,
 )
+_FROM_TO = (
+    rf"from\s+{_RUPEE}\s*{_AMOUNT}\s*/?-?\s*(?:per\s*sh(?:are)?\s+)?to\s+{_RUPEE}\s*{_AMOUNT}"
+)
 _FACE_VALUE_SPLIT_RE = re.compile(
-    r"face\s+value\s+split\s+from\s+rs\.?\s*([\d,]+(?:\.\d+)?)/?-?\s+to\s+rs\.?\s*([\d,]+(?:\.\d+)?)/?-?",
+    rf"face\s+value\s+split(?:\s*\(\s*sub-?\s*division\s*\))?\s*-?\s*{_FROM_TO}",
     re.IGNORECASE,
+)
+_CONSOLIDATION_VALUES_RE = re.compile(
+    rf"consolidation\s+of\s+(?:equity\s+)?shares\s+{_FROM_TO}", re.IGNORECASE
 )
 _RIGHTS_RE = re.compile(
     r"rights\s+(\d+)\s*:\s*(\d+)",
     re.IGNORECASE,
 )
-_CONSOLIDATION_RE = re.compile(r"consolidation\s+of\s+shares", re.IGNORECASE)
+# ANY subject that opens with "Rights" is a rights issue, whatever the wording (real example:
+# "Rights - 7 Ccps And 7 Warrants:40"). We cannot compute a factor for one either way, so the
+# exact ratio text is irrelevant to the limitation; what matters is that it is RECOGNISED
+# (counted, run degraded) rather than treated as an unknown subject that fails the whole run.
+_RIGHTS_ANY_RE = re.compile(r"^\s*rights\b", re.IGNORECASE)
+_CONSOLIDATION_RE = re.compile(r"consolidation\s+of\s+(?:equity\s+)?shares", re.IGNORECASE)
 _BUYBACK_RE = re.compile(r"buy\s*-?\s*back", re.IGNORECASE)
 _DEMERGER_RE = re.compile(r"demerger|scheme\s+of\s+arrangement", re.IGNORECASE)
 _AGM_RE = re.compile(
@@ -119,6 +146,13 @@ def _parse_dividend(match: re.Match) -> ParsedAction:
     )
 
 
+def _parse_distribution(match: re.Match) -> ParsedAction:
+    # Cash to unit holders: no price factor, same convention as a dividend.
+    return ParsedAction(
+        action_type=ActionType.DISTRIBUTION, dividend_per_share=_parse_decimal(match.group(1))
+    )
+
+
 def _parse_bonus(match: re.Match) -> ParsedAction:
     num, den = int(match.group(1)), int(match.group(2))
     # Bonus N:M means holders of M shares get N additional shares.
@@ -137,20 +171,26 @@ def _parse_bonus(match: re.Match) -> ParsedAction:
     )
 
 
-def _parse_face_value_split(match: re.Match) -> ParsedAction:
+def _parse_face_value_split(
+    match: re.Match, action_type: ActionType = ActionType.SPLIT
+) -> ParsedAction:
+    """A face-value change, used for both splits (10 -> 2) and consolidations (1 -> 10).
+
+    The same arithmetic covers both: old/new face value is how many NEW shares one OLD share
+    becomes, so prices before the ex-date scale by its inverse and volumes by it. A
+    consolidation is just a ratio below 1 (Re 1 -> Rs 10 gives price x10, volume x0.1).
+    """
     fv_from = _parse_decimal(match.group(1))
     fv_to = _parse_decimal(match.group(2))
     if fv_from <= 0 or fv_to <= 0:
         # Malformed numbers (e.g. a zero face value) -- recognised the
         # pattern but cannot compute a safe factor. Ambiguous, not parsed.
-        return ParsedAction(
-            action_type=ActionType.SPLIT, face_value_from=fv_from, face_value_to=fv_to
-        )
+        return ParsedAction(action_type=action_type, face_value_from=fv_from, face_value_to=fv_to)
     ratio = fv_from / fv_to  # e.g. 10 -> 2 means each old share becomes 5 new shares
     price_factor = Decimal(1) / ratio
     volume_factor = ratio
     return ParsedAction(
-        action_type=ActionType.SPLIT,
+        action_type=action_type,
         face_value_from=fv_from,
         face_value_to=fv_to,
         price_factor=price_factor,
@@ -184,22 +224,61 @@ class _ClauseResult(BaseModel):
     ambiguous: bool = False
 
 
-def _parse_clause(clause: str) -> _ClauseResult:
-    """Parse one clause (a compound subject split on "and"/"&") in isolation."""
-    if m := _DIVIDEND_RE.search(clause):
-        return _ClauseResult(action=_parse_dividend(m), recognised=True)
+def _cash_dividend(m: re.Match) -> _ClauseResult:
+    return _ClauseResult(action=_parse_dividend(m), recognised=True)
 
-    if m := _BONUS_RE.search(clause):
-        return _ClauseResult(action=_parse_bonus(m), recognised=True)
 
-    if m := _FACE_VALUE_SPLIT_RE.search(clause):
-        parsed = _parse_face_value_split(m)
+def _cash_distribution(m: re.Match) -> _ClauseResult:
+    return _ClauseResult(action=_parse_distribution(m), recognised=True)
+
+
+def _bond_interest(_m: re.Match) -> _ClauseResult:
+    # A bond coupon: cash to holders, amount not in the subject. Not an equity price event.
+    return _ClauseResult(action=ParsedAction(action_type=ActionType.DISTRIBUTION), recognised=True)
+
+
+def _bonus(m: re.Match) -> _ClauseResult:
+    return _ClauseResult(action=_parse_bonus(m), recognised=True)
+
+
+def _face_value_change(action_type: ActionType) -> Callable[[re.Match], _ClauseResult]:
+    def build(m: re.Match) -> _ClauseResult:
+        parsed = _parse_face_value_split(m, action_type)
         return _ClauseResult(action=parsed, recognised=True, ambiguous=parsed.price_factor is None)
 
-    if m := _RIGHTS_RE.search(clause):
-        # Rights issues always lack a computable factor here (need the
-        # subscription price, which this parser does not yet consume).
-        return _ClauseResult(action=_parse_rights(m), recognised=True, ambiguous=True)
+    return build
+
+
+def _rights_any(_m: re.Match) -> _ClauseResult:
+    return _ClauseResult(action=ParsedAction(action_type=ActionType.RIGHTS), recognised=True,
+                         ambiguous=True)
+
+
+def _rights(m: re.Match) -> _ClauseResult:
+    # Rights issues always lack a computable factor here (need the subscription price, which
+    # this parser does not yet consume).
+    return _ClauseResult(action=_parse_rights(m), recognised=True, ambiguous=True)
+
+
+#: ORDER MATTERS. A distribution's own text contains "Dividend Re 0.32 Per Unit", so
+#: distributions are tried before dividends or that fragment would be read as the payout.
+_CLAUSE_RULES: list[tuple[re.Pattern, Callable[[re.Match], _ClauseResult]]] = [
+    (_DISTRIBUTION_RE, _cash_distribution),
+    (_INTEREST_PAYMENT_RE, _bond_interest),
+    (_DIVIDEND_RE, _cash_dividend),
+    (_BONUS_RE, _bonus),
+    (_FACE_VALUE_SPLIT_RE, _face_value_change(ActionType.SPLIT)),
+    (_CONSOLIDATION_VALUES_RE, _face_value_change(ActionType.CONSOLIDATION)),
+    (_RIGHTS_RE, _rights),
+    (_RIGHTS_ANY_RE, _rights_any),  # after the ratio form, so a parseable ratio is kept
+]
+
+
+def _parse_clause(clause: str) -> _ClauseResult:
+    """Parse one clause (a compound subject split on "and"/"&") in isolation."""
+    for pattern, build in _CLAUSE_RULES:
+        if m := pattern.search(clause):
+            return build(m)
 
     for pattern, action_type in _SIMPLE_MATCHERS:
         if pattern.search(clause):
@@ -253,6 +332,26 @@ def parse_subject(subject: str) -> ParseResult:
 # --- Fetch/parse/upsert orchestration --------------------------------------
 
 
+class UnparsedCorporateActionsError(ParseError):
+    """Raised AFTER every row has been stored, naming every subject that matched nothing.
+
+    A ParseError subclass so existing handlers keep working. Carries the full result so a
+    caller can still see what landed (notably ``new_ex_dates``, which say the adjusted price
+    series is stale even though the run failed).
+    """
+
+    def __init__(self, unparsed: list[tuple[str, str]], result: CorpActionIngestResult) -> None:
+        self.unparsed = unparsed
+        self.result = result
+        shown = "; ".join(f"{sym}: {subject!r}" for sym, subject in unparsed[:5])
+        more = f" (+{len(unparsed) - 5} more)" if len(unparsed) > 5 else ""
+        super().__init__(
+            f"{len(unparsed)} unparsed corporate-action subject(s) -- {shown}{more}. All rows "
+            "were stored (unparsed ones as parse_status='unparsed'); extend the parser or review "
+            "them before trusting the adjusted price series."
+        )
+
+
 class CorpActionIngestResult:
     def __init__(
         self,
@@ -277,9 +376,7 @@ def _resolve_security_id(conn: sqlite3.Connection, *, exchange: str, symbol: str
     return int(row["security_id"]) if row is not None else None
 
 
-def _upsert_action(
-    conn: sqlite3.Connection, raw: RawCorporateAction, *, fail_on_unparsed: bool
-) -> tuple[str, bool]:
+def _upsert_action(conn: sqlite3.Connection, raw: RawCorporateAction) -> tuple[str, bool]:
     """Parse raw.subject_raw and upsert one corporate_actions row keyed
     on (source, source_hash) -- re-ingesting an unchanged action is a
     no-op; NSE correcting a date or subject produces a NEW source_hash
@@ -287,17 +384,13 @@ def _upsert_action(
 
     Returns (parse_status, inserted). ``inserted`` distinguishes a
     genuinely new action from a re-seen one, which is what tells the
-    caller whether the adjusted price series needs rebuilding. Raises
-    ParseError if
-    fail_on_unparsed is True and the subject matched nothing -- see
-    this module's own top docstring for why an unparsed subject must
-    never fall back to a silent no-op.
+    caller whether the adjusted price series needs rebuilding.
+
+    An unparsed subject is STORED (parse_status='unparsed'), never dropped and never turned
+    into a no-op. Failing on it is the caller's job, and happens only after the whole batch
+    has been stored -- see ``ingest_corporate_actions``.
     """
     result = parse_subject(raw.subject_raw)
-    if result.status == "unparsed" and fail_on_unparsed:
-        raise ParseError(
-            f"unparsed corporate-action subject for {raw.symbol}: {raw.subject_raw!r}"
-        )
 
     # A compound subject can produce multiple ParsedAction rows; only
     # the first is used for the typed factor columns (price/volume
@@ -356,7 +449,7 @@ def ingest_corporate_actions(
 
     fail_on_unparsed defaults to True, matching
     config/defaults.yaml's ingest.fail_on_unparsed_corp_action -- an
-    unrecognised subject aborts the whole run rather than silently
+    unrecognised subject FAILS the run (after storing every row) rather than silently
     defaulting to a no-op action (see this module's top docstring).
     """
     conn = connect(sqlite_path)
@@ -366,23 +459,28 @@ def ingest_corporate_actions(
             raw_actions = provider.fetch_actions(since)
 
             upserted = 0
-            unparsed = 0
+            unparsed_rows: list[tuple[str, str]] = []
             new_ex_dates: set[date] = set()
             for raw in raw_actions:
-                status, inserted = _upsert_action(
-                    conn, raw, fail_on_unparsed=fail_on_unparsed
-                )
+                status, inserted = _upsert_action(conn, raw)
                 upserted += 1
                 if status == "unparsed":
-                    unparsed += 1
+                    unparsed_rows.append((raw.symbol, raw.subject_raw))
                 if inserted and raw.ex_date is not None:
                     new_ex_dates.add(raw.ex_date)
 
             handle.rows_in = len(raw_actions)
             handle.rows_written = upserted
-            handle.metrics["unparsed"] = unparsed
+            handle.metrics["unparsed"] = len(unparsed_rows)
             handle.metrics["new_ex_dates"] = len(new_ex_dates)
+            result = CorpActionIngestResult(
+                len(raw_actions), upserted, len(unparsed_rows), new_ex_dates
+            )
+            # Fail LOUDLY, but only now that every good row behind a bad one is safely stored:
+            # raising on the first unparsed subject used to discard the real splits after it.
+            if unparsed_rows and fail_on_unparsed:
+                raise UnparsedCorporateActionsError(unparsed_rows, result)
 
-        return CorpActionIngestResult(len(raw_actions), upserted, unparsed, new_ex_dates)
+        return result
     finally:
         conn.close()

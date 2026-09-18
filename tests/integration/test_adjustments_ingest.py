@@ -338,6 +338,33 @@ class TestDegradation:
         assert result.excluded_actions == 0
         assert not result.degraded
 
+    @pytest.mark.parametrize("action_type", ["DISTRIBUTION", "BUYBACK", "AGM"])
+    def test_events_that_do_not_move_the_price_series_never_degrade_the_run(
+        self, env, action_type
+    ):
+        """Real data: 35 buybacks, 1 AGM and 202 InvIT/bond distributions in ~15 months. None of
+        them changes the price series, so flagging the run 'degraded' for them would be a
+        permanent false alarm -- and a flag that is always on is a flag nobody reads."""
+        sqlite_path, parquet_root = env
+        _write_bars(parquet_root, "AAA", [BEFORE, AFTER])
+        _insert_action(sqlite_path, action_type=action_type, price_factor=None,
+                       volume_factor=None)
+        result = rebuild_adjusted_bars_job(
+            exchange="NSE", sqlite_path=sqlite_path, parquet_root=parquet_root)
+        assert result.excluded_actions == 0 and not result.degraded
+
+    @pytest.mark.parametrize("action_type", ["RIGHTS", "DEMERGER", "CONSOLIDATION", "SPLIT",
+                                             "BONUS"])
+    def test_price_affecting_events_with_no_factor_still_degrade_the_run(self, env, action_type):
+        """The other side of the line: these DO move prices, so lacking a factor is a real hole."""
+        sqlite_path, parquet_root = env
+        _write_bars(parquet_root, "AAA", [BEFORE, AFTER])
+        _insert_action(sqlite_path, parse_status="ambiguous", action_type=action_type,
+                       price_factor=None, volume_factor=None)
+        result = rebuild_adjusted_bars_job(
+            exchange="NSE", sqlite_path=sqlite_path, parquet_root=parquet_root)
+        assert result.excluded_actions == 1 and result.degraded
+
     def test_unresolved_security_still_adjusts_but_degrades(self, env):
         """With no securities master, the factor still applies to the
         announced symbol -- but a rename could be missed, so say so."""
