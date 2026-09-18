@@ -106,3 +106,23 @@ def validate_json_response(response: httpx.Response, *, url: str) -> dict | list
         return json.loads(body)
     except json.JSONDecodeError as exc:
         raise ContentValidationError(url, f"invalid JSON: {exc}", body) from exc
+
+
+def validate_xml_response(response: httpx.Response, *, url: str) -> bytes:
+    """Validate a response that is expected to be an XBRL/XML document.
+
+    Guards the same "HTTP 200 carrying an HTML shell" trap as the BSE
+    validators: an error page or SPA shell served as 200 must not reach the
+    XML parser looking like a filing.
+    """
+    body = response.content
+    if response.status_code != 200:
+        raise ContentValidationError(url, f"unexpected status {response.status_code}", body)
+    if not body:
+        raise ContentValidationError(url, "empty response body", body)
+    head = body.lstrip()[:200].lower()
+    if not head.startswith(b"<"):
+        raise ContentValidationError(url, "response does not look like XML", body)
+    if head.startswith((b"<!doctype html", b"<html")):
+        raise ContentValidationError(url, "got an HTML page where XML was expected", body)
+    return body

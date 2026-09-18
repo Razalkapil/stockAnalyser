@@ -1,0 +1,36 @@
+# Which XBRL element (matched by LOCAL name, namespace ignored) feeds which
+# line item. First candidate present wins. Verified against real NSE filings
+# (tests/fixtures/nse/xbrl/): Reliance Q3 FY25 consolidated and FY24 annual
+# consolidated -- both use the in-bse-fin taxonomy.
+#
+# CONTEXT IDS, not dates, carry meaning in this template -- see
+# stk.ingest.xbrl's docstring for why the printed dates cannot be trusted.
+
+# Facts under context OneD -> the discrete quarter; FourD -> year-to-date
+# (the full year in an annual filing).
+flow:
+  revenue:        [RevenueFromOperations]
+  total_income:   [Income]
+  finance_costs:  [FinanceCosts]
+  depreciation:   [DepreciationDepletionAndAmortisationExpense]
+  pbt:            [ProfitBeforeTax]
+  tax_expense:    [TaxExpense]
+  pat:            [ProfitLossForPeriod]
+  pat_owners:     [ProfitOrLossAttributableToOwnersOfParent]
+  eps:            [BasicEarningsLossPerShareFromContinuingAndDiscontinuedOperations,
+                   BasicEarningsLossPerShareFromContinuingOperations]
+  paid_up_capital: [PaidUpValueOfEquityShareCapital]
+  face_value:     [FaceValueOfEquityShareCapital]
+
+# Facts under context OneI -> the balance sheet at period end. Only half-year
+# and annual filings carry these; a quarterly filing has none.
+instant:
+  equity:                [Equity]
+  equity_owners:         [EquityAttributableToOwnersOfParent]
+  borrowings_noncurrent: [BorrowingsNoncurrent]
+  borrowings_current:    [BorrowingsCurrent]
+  total_assets:          [Assets]
+
+# DELIBERATELY NOT USED: `DebtEquityRatio` is present in these filings but reads
+# 0.00 for companies that plainly have debt (Reliance reports 0.00 while carrying
+# Rs 3.2 trn of borrowings). D/E is derived from borrowings and equity instead.

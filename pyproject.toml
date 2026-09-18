@@ -52,7 +52,7 @@ disallow_untyped_defs = true
 disallow_incomplete_defs = true
 
 [[tool.mypy.overrides]]
-module = "stk.backtest.*"
+module = ["stk.backtest.*", "stk.strategies.*"]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
 
@@ -97,7 +97,9 @@ type = "forbidden"
 # job is to be the single module that knows concrete classes -- so an
 # indirect chain via the registry must not trip this contract.
 allow_indirect_imports = "true"
-source_modules = ["stk.ingest", "stk.domain", "stk.cli", "stk.store", "stk.backtest"]
+source_modules = [
+    "stk.ingest", "stk.domain", "stk.cli", "stk.store", "stk.backtest", "stk.strategies",
+]
 forbidden_modules = [
     "stk.providers.nse",
     "stk.providers.bse",
@@ -128,10 +130,11 @@ forbidden_modules = [
 # ingest/ imports stk.providers.base + registry, so the two are
 # mutually dependent by design and cannot be strictly layered.
 [[tool.importlinter.contracts]]
-name = "Layering: cli > backtest > ingest > store > config > domain > core"
+name = "Layering: cli > strategies > backtest > ingest > store > config > domain > core"
 type = "layers"
 layers = [
     "stk.cli",
+    "stk.strategies",
     "stk.backtest",
     "stk.ingest",
     "stk.store",

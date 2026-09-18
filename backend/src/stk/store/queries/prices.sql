@@ -69,14 +69,34 @@ WHERE index_code = ?
 ORDER BY date
 
 -- name: backtest_panel
--- Adjusted daily bars for one exchange over a date range: the raw
--- material of a backtest. Params: exchange, start, end. Only EQ-type
--- rows in tradeable series are kept (BE/BZ trade-to-trade names are
--- delivery-only and stay in; SM/ST/etc. are excluded by the caller via
--- the universe config, not here).
+-- Adjusted daily bars for one exchange over a date range: the raw material of a
+-- backtest. Params: tradeable_series (a list, in PRECEDENCE order), exchange,
+-- start, end.
+--
+-- ONE ROW PER (symbol, date), by construction. bars_daily_adjusted is keyed by
+-- (exchange, symbol, SERIES, date), and NSE really does publish several series for
+-- one symbol on one day (WIPRO: EQ plus T0; also P1, N3, ...), so reading the table
+-- raw would hand the engine two bars for one stock -- one of them a 3-share stub.
+-- Only the tradeable series are kept, and where a symbol has several the earliest in
+-- the precedence list wins (EQ over BE over BZ).
+--
+-- cumulative_price_factor rides along so the unadjusted close (close_raw, used for
+-- absolute-rupee filters) can be recovered; without it close_raw is silently just
+-- the adjusted close.
+WITH p AS (SELECT ?::VARCHAR[] AS series_list),
+ranked AS (
+    SELECT b.date, b.symbol, b.series, b.open, b.high, b.low, b.close, b.volume, b.turnover,
+           b.delivery_pct, b.trades, b.cumulative_price_factor,
+           row_number() OVER (
+               PARTITION BY b.symbol, b.date ORDER BY list_position(p.series_list, b.series)
+           ) AS rn
+    FROM bars_daily_adjusted b CROSS JOIN p
+    WHERE b.exchange = ?
+      AND b.date BETWEEN ? AND ?
+      AND list_contains(p.series_list, b.series)
+)
 SELECT date, symbol, series, open, high, low, close, volume, turnover,
-       delivery_pct, trades
-FROM bars_daily_adjusted
-WHERE exchange = ?
-  AND date BETWEEN ? AND ?
+       delivery_pct, trades, cumulative_price_factor
+FROM ranked
+WHERE rn = 1
 ORDER BY date, symbol

@@ -17,9 +17,28 @@ from stk.core.errors import IngestAssertionError
 from stk.ingest.normalise import IndexBar
 from stk.providers.base import CanonicalBar
 
+#: Series where an OHLC ordering violation means a parsing/units bug and must abort the day.
+#: EQ/BE/BZ are the equity series we trade (BE/BZ are trade-for-trade); SM/ST are the SME
+#: segments. Anything else in the file is an AUXILIARY series -- see ``assert_bars_sane``.
+OHLC_STRICT_SERIES = frozenset({"EQ", "BE", "BZ", "SM", "ST"})
 
-def assert_bars_sane(bars: list[CanonicalBar], *, context: str) -> None:
+
+def assert_bars_sane(bars: list[CanonicalBar], *, context: str) -> list[str]:
     """Cheap, fast invariant checks over a batch of parsed bars.
+
+    Returns a list of NON-FATAL anomaly descriptions (empty when clean); every
+    other violation raises ``IngestAssertionError``.
+
+    THE ONE RELAXATION. ``high >= max(open, close, low)`` is fatal for the equity
+    series in ``OHLC_STRICT_SERIES`` but only an anomaly for auxiliary series.
+    Found by a live backfill: sec_bhavdata_full carries rows such as WIPRO's ``T0``
+    (T+0 settlement) beside the real ``EQ`` row -- 3 shares traded, open=high=low=
+    269.00, but CLOSE_PRICE carrying the EQ close of 269.65. That row is internally
+    inconsistent by NSE's own construction, and aborting the whole day over it blocked
+    about a third of real trading days. A check that cries wolf that often teaches you
+    to ignore it, which is worse than no check. The rows are still STORED (raw data is
+    kept whole); they are counted and returned so the caller can log and record them.
+    Every other invariant below applies to every series.
 
     Deliberately does NOT include the "row count within 30% of trailing
     20-day median" check from the build plan -- that needs historical
@@ -30,6 +49,7 @@ def assert_bars_sane(bars: list[CanonicalBar], *, context: str) -> None:
     if not bars:
         raise IngestAssertionError(f"{context}: zero bars parsed")
 
+    anomalies: list[str] = []
     seen_keys: set[tuple[str, str, str, str]] = set()
     for bar in bars:
         key = (bar.exchange, bar.symbol, bar.series or "", bar.date.isoformat())
@@ -38,9 +58,12 @@ def assert_bars_sane(bars: list[CanonicalBar], *, context: str) -> None:
         seen_keys.add(key)
 
         if bar.high < max(bar.open, bar.close, bar.low):
-            raise IngestAssertionError(
+            message = (
                 f"{context}: {bar.symbol} high={bar.high} < max(open,close,low) on {bar.date}"
             )
+            if (bar.series or "") in OHLC_STRICT_SERIES:
+                raise IngestAssertionError(message)
+            anomalies.append(f"{message} (series {bar.series!r}, auxiliary: kept, not fatal)")
         if bar.close <= 0:
             raise IngestAssertionError(f"{context}: {bar.symbol} close<=0 on {bar.date}")
         if bar.volume < 0:
@@ -53,6 +76,7 @@ def assert_bars_sane(bars: list[CanonicalBar], *, context: str) -> None:
         if bar.turnover < 0:
             raise IngestAssertionError(f"{context}: {bar.symbol} negative turnover on {bar.date}")
         _assert_turnover_plausible(bar, context)
+    return anomalies
 
 
 # Below this absolute rupee value, turnover/volume/vwap rounding noise

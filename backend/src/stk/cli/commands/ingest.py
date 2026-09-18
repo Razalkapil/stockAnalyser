@@ -9,9 +9,11 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import date, datetime
+from typing import Annotated
 
 import typer
 
+from stk.config.loader import load_named_yaml
 from stk.config.settings import AppSettings, get_settings
 from stk.config.universe import load_universe_config
 from stk.core.errors import IngestAssertionError, ParseError, ProviderError
@@ -26,6 +28,8 @@ from stk.ingest.daily import (
     resolve_business_date,
 )
 from stk.ingest.fundamentals import ingest_fundamentals_for_security
+from stk.ingest.fundamentals_sweep import sweep_liquid_universe
+from stk.ingest.fundamentals_xbrl import ingest_xbrl_documents
 from stk.ingest.indices import ingest_indices_for_date
 from stk.ingest.liquidity import compute_liquidity_for_date
 from stk.ingest.master import ingest_security_master
@@ -380,3 +384,64 @@ def fundamentals(
         raise typer.Exit(code=1) from exc
 
     typer.secho(f"OK: {result.upserted}/{result.fetched} filings upserted", fg="green")
+
+
+@app.command("fundamentals-sweep")
+def fundamentals_sweep(
+    limit: int | None = typer.Option(None, "--limit", help="Only the first N liquid securities"),
+    throttle_s: float = typer.Option(1.0, "--throttle-s", help="Delay between requests"),
+) -> None:
+    """Fetch filing metadata (quarterly + annual) for the whole liquid universe.
+
+    Run `stk ingest liquidity` and `stk ingest master` first so the universe
+    exists. Follow with `stk ingest xbrl` to parse the documents. Safe to re-run.
+    """
+    settings = get_settings()
+    result = sweep_liquid_universe(
+        sqlite_path=settings.paths.sqlite, limit=limit, throttle_s=throttle_s
+    )
+    colour = "yellow" if result.failures else "green"
+    typer.secho(
+        f"{result.securities} securities, {result.filings_upserted} new filings, "
+        f"{result.failures} failed fetches",
+        fg=colour,
+    )
+    if result.securities == 0:
+        typer.secho("The universe is empty -- run `stk ingest master` and `stk ingest liquidity`.",
+                    fg="yellow")
+
+
+@app.command("xbrl")
+def xbrl(
+    limit: int | None = typer.Option(None, "--limit", help="Parse at most N pending filings"),
+    symbol: Annotated[
+        list[str] | None, typer.Option("--symbol", help="Only these symbols (repeatable)")
+    ] = None,
+    throttle_s: float = typer.Option(1.0, "--throttle-s", help="Delay between downloads"),
+) -> None:
+    """Download and parse the XBRL behind every filing not yet parsed.
+
+    Raw documents are stored content-addressed before parsing, so fixing the
+    parser never needs the network again. Definitive outcomes (unsupported,
+    malformed, partial) are recorded and not re-fetched; network failures are
+    retried on the next run and mark the job degraded.
+    """
+    settings = get_settings()
+    result = ingest_xbrl_documents(
+        sqlite_path=settings.paths.sqlite,
+        raw_root=settings.paths.raw,
+        tag_map=load_named_yaml("xbrl_tags"),
+        limit=limit,
+        symbols=set(symbol or []) or None,
+        throttle_s=throttle_s,
+    )
+    typer.echo(
+        f"{result.attempted} attempted: {result.parsed} parsed, {result.partial} partial, "
+        f"{result.unsupported} unsupported, {result.malformed} malformed, "
+        f"{result.transient_failures} fetch failures; {result.line_items} line items"
+    )
+    if result.partial:
+        typer.secho(f"{result.partial} partial parse(s) were kept OUT of metrics -- see "
+                    "fundamentals_parse_status.detail_json", fg="yellow")
+    if result.transient_failures:
+        raise typer.Exit(code=2)

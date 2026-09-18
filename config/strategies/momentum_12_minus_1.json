@@ -1,0 +1,59 @@
+{
+  "dsl_version": 1,
+  "slug": "momentum_12_minus_1",
+  "name": "12-minus-1 month return",
+  "horizon": "momentum",
+  "universe": {
+    "exchange": "NSE",
+    "min_price_raw": 20,
+    "min_median_turnover_inr": 20000000,
+    "min_listed_days": 120,
+    "exclude_series": [
+      "SM",
+      "ST",
+      "MF",
+      "GB",
+      "IV"
+    ]
+  },
+  "entry": {
+    "all": [
+      {
+        "left": {
+          "ind": "mom_12_1"
+        },
+        "op": ">=",
+        "right": 0.25
+      },
+      {
+        "left": {
+          "ind": "close"
+        },
+        "op": ">",
+        "right": {
+          "ind": "sma",
+          "period": 200
+        }
+      }
+    ]
+  },
+  "exit": {
+    "stop": {
+      "type": "pct",
+      "value": 0.15
+    },
+    "max_hold_days": 42
+  },
+  "rank": {
+    "by": [
+      {
+        "ind": "mom_12_1",
+        "dir": "desc"
+      }
+    ],
+    "max_new_per_day": 3
+  },
+  "sizing": {
+    "max_positions": 15
+  }
+}

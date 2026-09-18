@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import typer
 
-from stk.cli.commands import backfill, backtest, costs, db, doctor, ingest
+from stk.cli.commands import backfill, backtest, costs, db, doctor, ingest, strategies
 from stk.config.settings import get_settings
 from stk.core.logging import configure_logging
 
@@ -19,6 +19,7 @@ app.add_typer(ingest.app, name="ingest")
 app.add_typer(backfill.app, name="backfill")
 app.add_typer(backtest.app, name="backtest")
 app.add_typer(costs.app, name="costs")
+app.add_typer(strategies.app, name="strategies")
 app.add_typer(doctor.app)
 
 

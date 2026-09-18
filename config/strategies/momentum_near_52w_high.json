@@ -1,0 +1,57 @@
+{
+  "dsl_version": 1,
+  "slug": "momentum_near_52w_high",
+  "name": "Proximity to 52-week high",
+  "horizon": "momentum",
+  "universe": {
+    "exchange": "NSE",
+    "min_price_raw": 20,
+    "min_median_turnover_inr": 20000000,
+    "min_listed_days": 120,
+    "exclude_series": [
+      "SM",
+      "ST",
+      "MF",
+      "GB",
+      "IV"
+    ]
+  },
+  "entry": {
+    "all": [
+      {
+        "left": {
+          "ind": "high_252_prox"
+        },
+        "op": ">=",
+        "right": 0.95
+      },
+      {
+        "left": {
+          "ind": "ret",
+          "period": 120
+        },
+        "op": ">",
+        "right": 0
+      }
+    ]
+  },
+  "exit": {
+    "stop": {
+      "type": "pct",
+      "value": 0.12
+    },
+    "max_hold_days": 63
+  },
+  "rank": {
+    "by": [
+      {
+        "ind": "high_252_prox",
+        "dir": "desc"
+      }
+    ],
+    "max_new_per_day": 3
+  },
+  "sizing": {
+    "max_positions": 15
+  }
+}

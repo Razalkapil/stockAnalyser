@@ -26,7 +26,18 @@ from stk.store import duck
 
 
 def prepare_bars(bars: pd.DataFrame, adv_lookback_days: int) -> pd.DataFrame:
-    """Add prev_close and adv_turnover (both past-only) to a raw adjusted-bars frame."""
+    """Add prev_close and adv_turnover (both past-only) to a raw adjusted-bars frame.
+
+    Requires ONE row per (symbol, date) and raises otherwise: a second row for the same
+    stock-day would make every shift/rolling window wrong without any visible error.
+    """
+    dupes = bars.duplicated(subset=["symbol", "date"], keep=False)
+    if dupes.any():
+        sample = bars.loc[dupes, ["symbol", "date"]].drop_duplicates().head(3).to_dict("records")
+        raise ValueError(
+            f"{int(dupes.sum())} rows share a (symbol, date) -- e.g. {sample}. The backtest "
+            "panel must have exactly one bar per symbol per day; check the tradeable_series filter"
+        )
     df = bars.sort_values(["symbol", "date"], kind="stable").copy()
     grouped = df.groupby("symbol", sort=False)
     df["prev_close"] = grouped["close"].shift(1)
@@ -44,12 +55,14 @@ def load_market_data(
     end: date,
     adv_lookback_days: int,
     warmup_days: int = 0,
+    tradeable_series: tuple[str, ...] = ("EQ", "BE", "BZ"),
 ) -> MarketData:
     """Adjusted bars for [start - warmup, end], prepared for the engine."""
     load_from = start - pd.Timedelta(days=warmup_days) if warmup_days else start
     with duck.connect(parquet_root) as session:
         raw = session.sql(
-            "backtest_panel", [exchange, load_from.isoformat(), end.isoformat()]
+            "backtest_panel",
+            [list(tradeable_series), exchange, load_from.isoformat(), end.isoformat()],
         ).df()
     if raw.empty:
         raise ValueError(

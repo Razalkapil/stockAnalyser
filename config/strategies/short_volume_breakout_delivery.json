@@ -1,0 +1,88 @@
+{
+  "dsl_version": 1,
+  "slug": "short_volume_breakout_delivery",
+  "name": "Volume breakout with high delivery %",
+  "horizon": "short_term",
+  "universe": {
+    "exchange": "NSE",
+    "min_price_raw": 20,
+    "min_median_turnover_inr": 20000000,
+    "min_listed_days": 120,
+    "exclude_series": [
+      "SM",
+      "ST",
+      "MF",
+      "GB",
+      "IV"
+    ]
+  },
+  "entry": {
+    "all": [
+      {
+        "left": {
+          "ind": "close"
+        },
+        "op": ">",
+        "right": {
+          "ind": "high_prior",
+          "period": 20
+        }
+      },
+      {
+        "left": {
+          "ind": "vol_ratio",
+          "period": 20
+        },
+        "op": ">=",
+        "right": 2
+      },
+      {
+        "left": {
+          "ind": "delivery_pct"
+        },
+        "op": ">=",
+        "right": 50
+      },
+      {
+        "left": {
+          "ind": "delivery_pct"
+        },
+        "op": ">=",
+        "right": {
+          "mul": [
+            1.3,
+            {
+              "ind": "delivery_pct_sma",
+              "period": 20
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "exit": {
+    "stop": {
+      "type": "atr",
+      "mult": 1.5
+    },
+    "target": {
+      "type": "atr",
+      "mult": 3.0
+    },
+    "max_hold_days": 7
+  },
+  "rank": {
+    "by": [
+      {
+        "ind": "vol_ratio",
+        "period": 20,
+        "dir": "desc"
+      }
+    ],
+    "max_new_per_day": 3
+  },
+  "sizing": {
+    "max_positions": 10
+  },
+  "notes": "Needs NSE delivery data: exists only from 2019-09-30, so every earlier bar evaluates this rule false. Backtests are labelled approximate."
+}

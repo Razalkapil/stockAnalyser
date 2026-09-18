@@ -1,0 +1,83 @@
+{
+  "dsl_version": 1,
+  "slug": "swing_consolidation_breakout",
+  "name": "Breakout from tight consolidation",
+  "horizon": "swing",
+  "universe": {
+    "exchange": "NSE",
+    "min_price_raw": 20,
+    "min_median_turnover_inr": 20000000,
+    "min_listed_days": 120,
+    "exclude_series": [
+      "SM",
+      "ST",
+      "MF",
+      "GB",
+      "IV"
+    ]
+  },
+  "entry": {
+    "all": [
+      {
+        "left": {
+          "ind": "range_pct_prior",
+          "period": 20
+        },
+        "op": "<=",
+        "right": 0.08
+      },
+      {
+        "left": {
+          "ind": "close"
+        },
+        "op": ">",
+        "right": {
+          "ind": "high_prior",
+          "period": 20
+        }
+      },
+      {
+        "left": {
+          "ind": "vol_ratio",
+          "period": 20
+        },
+        "op": ">=",
+        "right": 1.5
+      },
+      {
+        "left": {
+          "ind": "close"
+        },
+        "op": ">",
+        "right": {
+          "ind": "sma",
+          "period": 50
+        }
+      }
+    ]
+  },
+  "exit": {
+    "stop": {
+      "type": "atr",
+      "mult": 2.0
+    },
+    "target": {
+      "type": "atr",
+      "mult": 5.0
+    },
+    "max_hold_days": 30
+  },
+  "rank": {
+    "by": [
+      {
+        "ind": "vol_ratio",
+        "period": 20,
+        "dir": "desc"
+      }
+    ],
+    "max_new_per_day": 3
+  },
+  "sizing": {
+    "max_positions": 10
+  }
+}

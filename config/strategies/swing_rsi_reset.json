@@ -1,0 +1,76 @@
+{
+  "dsl_version": 1,
+  "slug": "swing_rsi_reset",
+  "name": "RSI reset in an uptrend",
+  "horizon": "swing",
+  "universe": {
+    "exchange": "NSE",
+    "min_price_raw": 20,
+    "min_median_turnover_inr": 20000000,
+    "min_listed_days": 120,
+    "exclude_series": [
+      "SM",
+      "ST",
+      "MF",
+      "GB",
+      "IV"
+    ]
+  },
+  "entry": {
+    "all": [
+      {
+        "left": {
+          "ind": "ema",
+          "period": 50
+        },
+        "op": ">",
+        "right": {
+          "ind": "ema",
+          "period": 200
+        }
+      },
+      {
+        "left": {
+          "ind": "close"
+        },
+        "op": ">",
+        "right": {
+          "ind": "sma",
+          "period": 200
+        }
+      },
+      {
+        "left": {
+          "ind": "rsi",
+          "period": 14
+        },
+        "op": "crosses_above",
+        "right": 40
+      }
+    ]
+  },
+  "exit": {
+    "stop": {
+      "type": "atr",
+      "mult": 2.0
+    },
+    "target": {
+      "type": "atr",
+      "mult": 4.0
+    },
+    "max_hold_days": 25
+  },
+  "rank": {
+    "by": [
+      {
+        "ind": "ret",
+        "period": 60,
+        "dir": "desc"
+      }
+    ],
+    "max_new_per_day": 3
+  },
+  "sizing": {
+    "max_positions": 10
+  }
+}

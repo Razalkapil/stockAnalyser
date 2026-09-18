@@ -1,0 +1,843 @@
+{
+  "$defs": {
+    "Add": {
+      "additionalProperties": false,
+      "properties": {
+        "add": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "$ref": "#/$defs/Ind"
+                },
+                {
+                  "$ref": "#/$defs/Param"
+                },
+                {
+                  "$ref": "#/$defs/Mul"
+                },
+                {
+                  "$ref": "#/$defs/Add"
+                },
+                {
+                  "$ref": "#/$defs/Sub"
+                },
+                {
+                  "$ref": "#/$defs/Div"
+                }
+              ]
+            },
+            {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "$ref": "#/$defs/Ind"
+                },
+                {
+                  "$ref": "#/$defs/Param"
+                },
+                {
+                  "$ref": "#/$defs/Mul"
+                },
+                {
+                  "$ref": "#/$defs/Add"
+                },
+                {
+                  "$ref": "#/$defs/Sub"
+                },
+                {
+                  "$ref": "#/$defs/Div"
+                }
+              ]
+            }
+          ],
+          "title": "Add",
+          "type": "array"
+        }
+      },
+      "required": [
+        "add"
+      ],
+      "title": "Add",
+      "type": "object"
+    },
+    "All": {
+      "additionalProperties": false,
+      "properties": {
+        "all": {
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/All"
+              },
+              {
+                "$ref": "#/$defs/Any"
+              },
+              {
+                "$ref": "#/$defs/Not"
+              },
+              {
+                "$ref": "#/$defs/Cond"
+              }
+            ]
+          },
+          "minItems": 1,
+          "title": "All",
+          "type": "array"
+        }
+      },
+      "required": [
+        "all"
+      ],
+      "title": "All",
+      "type": "object"
+    },
+    "Any": {
+      "additionalProperties": false,
+      "properties": {
+        "any": {
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/All"
+              },
+              {
+                "$ref": "#/$defs/Any"
+              },
+              {
+                "$ref": "#/$defs/Not"
+              },
+              {
+                "$ref": "#/$defs/Cond"
+              }
+            ]
+          },
+          "minItems": 1,
+          "title": "Any",
+          "type": "array"
+        }
+      },
+      "required": [
+        "any"
+      ],
+      "title": "Any",
+      "type": "object"
+    },
+    "Cond": {
+      "additionalProperties": false,
+      "properties": {
+        "left": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "$ref": "#/$defs/Ind"
+            },
+            {
+              "$ref": "#/$defs/Param"
+            },
+            {
+              "$ref": "#/$defs/Mul"
+            },
+            {
+              "$ref": "#/$defs/Add"
+            },
+            {
+              "$ref": "#/$defs/Sub"
+            },
+            {
+              "$ref": "#/$defs/Div"
+            }
+          ],
+          "title": "Left"
+        },
+        "op": {
+          "enum": [
+            ">",
+            ">=",
+            "<",
+            "<=",
+            "between",
+            "crosses_above",
+            "crosses_below"
+          ],
+          "title": "Op",
+          "type": "string"
+        },
+        "right": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "$ref": "#/$defs/Ind"
+            },
+            {
+              "$ref": "#/$defs/Param"
+            },
+            {
+              "$ref": "#/$defs/Mul"
+            },
+            {
+              "$ref": "#/$defs/Add"
+            },
+            {
+              "$ref": "#/$defs/Sub"
+            },
+            {
+              "$ref": "#/$defs/Div"
+            },
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "$ref": "#/$defs/Ind"
+                    },
+                    {
+                      "$ref": "#/$defs/Param"
+                    },
+                    {
+                      "$ref": "#/$defs/Mul"
+                    },
+                    {
+                      "$ref": "#/$defs/Add"
+                    },
+                    {
+                      "$ref": "#/$defs/Sub"
+                    },
+                    {
+                      "$ref": "#/$defs/Div"
+                    }
+                  ]
+                },
+                {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "$ref": "#/$defs/Ind"
+                    },
+                    {
+                      "$ref": "#/$defs/Param"
+                    },
+                    {
+                      "$ref": "#/$defs/Mul"
+                    },
+                    {
+                      "$ref": "#/$defs/Add"
+                    },
+                    {
+                      "$ref": "#/$defs/Sub"
+                    },
+                    {
+                      "$ref": "#/$defs/Div"
+                    }
+                  ]
+                }
+              ],
+              "type": "array"
+            }
+          ],
+          "title": "Right"
+        }
+      },
+      "required": [
+        "left",
+        "op",
+        "right"
+      ],
+      "title": "Cond",
+      "type": "object"
+    },
+    "Div": {
+      "additionalProperties": false,
+      "properties": {
+        "div": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "$ref": "#/$defs/Ind"
+                },
+                {
+                  "$ref": "#/$defs/Param"
+                },
+                {
+                  "$ref": "#/$defs/Mul"
+                },
+                {
+                  "$ref": "#/$defs/Add"
+                },
+                {
+                  "$ref": "#/$defs/Sub"
+                },
+                {
+                  "$ref": "#/$defs/Div"
+                }
+              ]
+            },
+            {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "$ref": "#/$defs/Ind"
+                },
+                {
+                  "$ref": "#/$defs/Param"
+                },
+                {
+                  "$ref": "#/$defs/Mul"
+                },
+                {
+                  "$ref": "#/$defs/Add"
+                },
+                {
+                  "$ref": "#/$defs/Sub"
+                },
+                {
+                  "$ref": "#/$defs/Div"
+                }
+              ]
+            }
+          ],
+          "title": "Div",
+          "type": "array"
+        }
+      },
+      "required": [
+        "div"
+      ],
+      "title": "Div",
+      "type": "object"
+    },
+    "ExitRules": {
+      "additionalProperties": false,
+      "properties": {
+        "stop": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StopRule"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "target": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StopRule"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "max_hold_days": {
+          "exclusiveMinimum": 0,
+          "title": "Max Hold Days",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "max_hold_days"
+      ],
+      "title": "ExitRules",
+      "type": "object"
+    },
+    "Horizon": {
+      "enum": [
+        "short_term",
+        "swing",
+        "momentum",
+        "long_term"
+      ],
+      "title": "Horizon",
+      "type": "string"
+    },
+    "Ind": {
+      "additionalProperties": false,
+      "properties": {
+        "ind": {
+          "title": "Ind",
+          "type": "string"
+        },
+        "period": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Period"
+        }
+      },
+      "required": [
+        "ind"
+      ],
+      "title": "Ind",
+      "type": "object"
+    },
+    "Mul": {
+      "additionalProperties": false,
+      "properties": {
+        "mul": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "$ref": "#/$defs/Ind"
+                },
+                {
+                  "$ref": "#/$defs/Param"
+                },
+                {
+                  "$ref": "#/$defs/Mul"
+                },
+                {
+                  "$ref": "#/$defs/Add"
+                },
+                {
+                  "$ref": "#/$defs/Sub"
+                },
+                {
+                  "$ref": "#/$defs/Div"
+                }
+              ]
+            },
+            {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "$ref": "#/$defs/Ind"
+                },
+                {
+                  "$ref": "#/$defs/Param"
+                },
+                {
+                  "$ref": "#/$defs/Mul"
+                },
+                {
+                  "$ref": "#/$defs/Add"
+                },
+                {
+                  "$ref": "#/$defs/Sub"
+                },
+                {
+                  "$ref": "#/$defs/Div"
+                }
+              ]
+            }
+          ],
+          "title": "Mul",
+          "type": "array"
+        }
+      },
+      "required": [
+        "mul"
+      ],
+      "title": "Mul",
+      "type": "object"
+    },
+    "Not": {
+      "additionalProperties": false,
+      "properties": {
+        "not": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/All"
+            },
+            {
+              "$ref": "#/$defs/Any"
+            },
+            {
+              "$ref": "#/$defs/Not"
+            },
+            {
+              "$ref": "#/$defs/Cond"
+            }
+          ],
+          "title": "Not"
+        }
+      },
+      "required": [
+        "not"
+      ],
+      "title": "Not",
+      "type": "object"
+    },
+    "Param": {
+      "additionalProperties": false,
+      "properties": {
+        "param": {
+          "title": "Param",
+          "type": "string"
+        }
+      },
+      "required": [
+        "param"
+      ],
+      "title": "Param",
+      "type": "object"
+    },
+    "ParamDef": {
+      "additionalProperties": false,
+      "properties": {
+        "default": {
+          "type": "number",
+          "title": "Default"
+        },
+        "grid": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Grid",
+          "type": "array"
+        }
+      },
+      "required": [
+        "default"
+      ],
+      "title": "ParamDef",
+      "type": "object"
+    },
+    "Rank": {
+      "additionalProperties": false,
+      "properties": {
+        "by": {
+          "items": {
+            "$ref": "#/$defs/RankKey"
+          },
+          "minItems": 1,
+          "title": "By",
+          "type": "array"
+        },
+        "max_new_per_day": {
+          "default": 3,
+          "exclusiveMinimum": 0,
+          "title": "Max New Per Day",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "by"
+      ],
+      "title": "Rank",
+      "type": "object"
+    },
+    "RankKey": {
+      "additionalProperties": false,
+      "properties": {
+        "ind": {
+          "title": "Ind",
+          "type": "string"
+        },
+        "period": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Period"
+        },
+        "dir": {
+          "default": "desc",
+          "enum": [
+            "asc",
+            "desc"
+          ],
+          "title": "Dir",
+          "type": "string"
+        },
+        "weight": {
+          "default": 1.0,
+          "title": "Weight",
+          "type": "number"
+        }
+      },
+      "required": [
+        "ind"
+      ],
+      "title": "RankKey",
+      "type": "object"
+    },
+    "Sizing": {
+      "additionalProperties": false,
+      "properties": {
+        "max_positions": {
+          "default": 10,
+          "exclusiveMinimum": 0,
+          "title": "Max Positions",
+          "type": "integer"
+        }
+      },
+      "title": "Sizing",
+      "type": "object"
+    },
+    "StopRule": {
+      "additionalProperties": false,
+      "description": "Distance from the entry fill: ``atr`` = mult x ATR14 %, ``pct`` = a fixed fraction.",
+      "properties": {
+        "type": {
+          "enum": [
+            "atr",
+            "pct"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "mult": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mult"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "StopRule",
+      "type": "object"
+    },
+    "Sub": {
+      "additionalProperties": false,
+      "properties": {
+        "sub": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "$ref": "#/$defs/Ind"
+                },
+                {
+                  "$ref": "#/$defs/Param"
+                },
+                {
+                  "$ref": "#/$defs/Mul"
+                },
+                {
+                  "$ref": "#/$defs/Add"
+                },
+                {
+                  "$ref": "#/$defs/Sub"
+                },
+                {
+                  "$ref": "#/$defs/Div"
+                }
+              ]
+            },
+            {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "$ref": "#/$defs/Ind"
+                },
+                {
+                  "$ref": "#/$defs/Param"
+                },
+                {
+                  "$ref": "#/$defs/Mul"
+                },
+                {
+                  "$ref": "#/$defs/Add"
+                },
+                {
+                  "$ref": "#/$defs/Sub"
+                },
+                {
+                  "$ref": "#/$defs/Div"
+                }
+              ]
+            }
+          ],
+          "title": "Sub",
+          "type": "array"
+        }
+      },
+      "required": [
+        "sub"
+      ],
+      "title": "Sub",
+      "type": "object"
+    },
+    "Universe": {
+      "additionalProperties": false,
+      "properties": {
+        "exchange": {
+          "const": "NSE",
+          "default": "NSE",
+          "title": "Exchange",
+          "type": "string"
+        },
+        "min_price_raw": {
+          "default": 0.0,
+          "title": "Min Price Raw",
+          "type": "number"
+        },
+        "min_median_turnover_inr": {
+          "default": 0.0,
+          "title": "Min Median Turnover Inr",
+          "type": "number"
+        },
+        "min_listed_days": {
+          "default": 0,
+          "title": "Min Listed Days",
+          "type": "integer"
+        },
+        "exclude_series": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Exclude Series",
+          "type": "array"
+        }
+      },
+      "title": "Universe",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "dsl_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Dsl Version",
+      "type": "integer"
+    },
+    "slug": {
+      "pattern": "^[a-z][a-z0-9_]{2,63}$",
+      "title": "Slug",
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 120,
+      "minLength": 3,
+      "title": "Name",
+      "type": "string"
+    },
+    "horizon": {
+      "$ref": "#/$defs/Horizon"
+    },
+    "universe": {
+      "$ref": "#/$defs/Universe"
+    },
+    "params": {
+      "additionalProperties": {
+        "$ref": "#/$defs/ParamDef"
+      },
+      "title": "Params",
+      "type": "object"
+    },
+    "entry": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/All"
+        },
+        {
+          "$ref": "#/$defs/Any"
+        },
+        {
+          "$ref": "#/$defs/Not"
+        },
+        {
+          "$ref": "#/$defs/Cond"
+        }
+      ],
+      "title": "Entry"
+    },
+    "exit": {
+      "$ref": "#/$defs/ExitRules"
+    },
+    "rank": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Rank"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "sizing": {
+      "$ref": "#/$defs/Sizing"
+    },
+    "notes": {
+      "default": "",
+      "title": "Notes",
+      "type": "string"
+    }
+  },
+  "required": [
+    "slug",
+    "name",
+    "horizon",
+    "entry",
+    "exit"
+  ],
+  "title": "StrategySpec",
+  "type": "object"
+}

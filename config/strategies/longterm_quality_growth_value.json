@@ -1,0 +1,95 @@
+{
+  "dsl_version": 1,
+  "slug": "longterm_quality_growth_value",
+  "name": "Quality + growth + valuation",
+  "horizon": "long_term",
+  "universe": {
+    "exchange": "NSE",
+    "min_price_raw": 20,
+    "min_median_turnover_inr": 20000000,
+    "min_listed_days": 120,
+    "exclude_series": [
+      "SM",
+      "ST",
+      "MF",
+      "GB",
+      "IV"
+    ]
+  },
+  "entry": {
+    "all": [
+      {
+        "left": {
+          "ind": "roce"
+        },
+        "op": ">=",
+        "right": 0.18
+      },
+      {
+        "left": {
+          "ind": "de_ratio"
+        },
+        "op": "<=",
+        "right": 0.5
+      },
+      {
+        "left": {
+          "ind": "sales_cagr",
+          "period": 3
+        },
+        "op": ">=",
+        "right": 0.12
+      },
+      {
+        "left": {
+          "ind": "profit_cagr",
+          "period": 3
+        },
+        "op": ">=",
+        "right": 0.12
+      },
+      {
+        "left": {
+          "ind": "pe_ttm"
+        },
+        "op": "between",
+        "right": [
+          5,
+          40
+        ]
+      },
+      {
+        "left": {
+          "ind": "fund_age_days"
+        },
+        "op": "<=",
+        "right": 200
+      }
+    ]
+  },
+  "exit": {
+    "stop": {
+      "type": "pct",
+      "value": 0.3
+    },
+    "max_hold_days": 250
+  },
+  "rank": {
+    "by": [
+      {
+        "ind": "roce",
+        "dir": "desc"
+      },
+      {
+        "ind": "profit_cagr",
+        "period": 3,
+        "dir": "desc"
+      }
+    ],
+    "max_new_per_day": 2
+  },
+  "sizing": {
+    "max_positions": 15
+  },
+  "notes": "Fundamentals come from NSE XBRL filings (point-in-time via broadcast date). The API history is shallow, so ROCE/CAGR exist only for recent years; always labelled approximate. P/E vs its own history is NOT used (needs 5y of EPS history we do not have) -- a plain P/E band stands in."
+}

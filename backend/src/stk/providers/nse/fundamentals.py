@@ -35,12 +35,13 @@ from datetime import UTC, date, datetime
 import httpx
 
 from stk.core.errors import NotSupportedError, ProviderUnavailable
-from stk.core.http import BROWSER_UA, validate_json_response
+from stk.core.http import BROWSER_UA, validate_json_response, validate_xml_response
 from stk.providers.base import (
     FilingRef,
     FundamentalsProvider,
     FundamentalsSnapshotIn,
     Period,
+    RawArtifact,
     SecurityRef,
 )
 
@@ -166,3 +167,29 @@ class NseFundamentalsProvider(FundamentalsProvider):
 
         snapshots.sort(key=lambda s: s.broadcast_at or datetime.min, reverse=True)
         return snapshots[:limit]
+
+    def fetch_document(self, url: str) -> RawArtifact:
+        """Download one filing's XBRL document from nsearchives (a browser UA suffices).
+
+        Verified live 2026-09-19: no cookie handshake is needed for
+        ``nsearchives.nseindia.com/corporate/xbrl/*``.
+        """
+        try:
+            response = httpx.get(
+                url,
+                headers={"User-Agent": BROWSER_UA},
+                timeout=60.0,
+                follow_redirects=True,
+            )
+        except httpx.HTTPError as exc:
+            raise ProviderUnavailable(f"transport error fetching {url}: {exc}") from exc
+        body = validate_xml_response(response, url=url)
+        return RawArtifact(
+            source="nse_xbrl",
+            business_date=None,
+            url=url,
+            content=body,
+            content_type=response.headers.get("content-type"),
+            http_status=response.status_code,
+            fetched_at=datetime.now(UTC),
+        )

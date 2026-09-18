@@ -310,3 +310,12 @@ class FundamentalsProvider(ABC):
         limit: int = 12,
     ) -> list[FundamentalsSnapshotIn]:
         """Normalised statements ready for fundamentals_snapshots insertion."""
+
+    def fetch_document(self, url: str) -> RawArtifact:
+        """The verbatim filing document (e.g. XBRL) behind a ``FilingRef.source_url``.
+
+        Optional capability: providers with no downloadable filing raise
+        NotSupportedError. The bytes are returned untouched so the caller can
+        persist them before parsing.
+        """
+        raise NotSupportedError(f"{type(self).__name__} cannot fetch filing documents")

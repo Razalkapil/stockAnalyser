@@ -1,0 +1,33 @@
+# The promotion gate: what a strategy must show before it can go live.
+# Applied identically to seed and AI-proposed strategies (the brief: no exceptions).
+#
+# A strategy passes only if, over its walk-forward OUT-OF-SAMPLE windows and
+# AFTER costs, it beats its benchmark in at least `min_pass_ratio` of the
+# scored windows, no window's drawdown is worse than `max_drawdown`, and it
+# made enough trades for the result to mean anything.
+#
+# Windows the benchmark did not cover are not counted (nothing to beat).
+default:
+  min_scored_windows: 6      # fewer than this -> "insufficient_evidence", not pass
+  min_pass_ratio: 0.6
+  max_drawdown: -0.25        # worst single window may lose at most 25%
+  min_total_trades: 30
+
+# Long-horizon strategies have far fewer, longer windows and trades.
+overrides:
+  long_term:
+    min_scored_windows: 3
+    min_pass_ratio: 0.6
+    max_drawdown: -0.35
+    min_total_trades: 10
+
+# Origins whose strategies go straight to `live` on a gate pass. Anything else
+# (e.g. AI proposals) becomes `candidate` and needs explicit approval in the UI.
+auto_live_origins: [seed]
+
+# Live-vs-backtest decay (used by pick tracking): a live strategy is flagged
+# `decaying` when, over at least this many closed picks, its live hit rate falls
+# this many points below its backtest win rate.
+decay:
+  min_closed_picks: 15
+  hit_rate_drop_pts: 15

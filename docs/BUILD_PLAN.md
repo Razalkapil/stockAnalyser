@@ -386,3 +386,16 @@ uv run pytest                                 # green
 1. **Which broker's fee schedule is the default** — needed before phase 2 costs mean anything; changes small-order economics more than anything except the DP charge. Config ships with a discount-broker (Zerodha-shaped) placeholder.
 2. **Does the free TradingView widget render NSE/BSE symbols** — 5-minute empirical test at the top of phase 4.
 3. **Benign corporate-action allowlist** — only if AGM-type subjects prove noisy in practice.
+
+## Amendments
+
+Decisions that changed after this plan was written. Newest last. The plan above is otherwise a snapshot; `CLAUDE.md`'s status section tracks progress.
+
+- **2026-09-19 — Phase 2/3 sequencing and scope.** Phase 2 (engine) shipped as planned. Phase 3 deviates in three deliberate ways:
+  1. **Indicators are computed on the fly**, not stored as a `features/indicators_daily/` parquet dataset. They are past-only by construction and proven so by a truncation-invariance test; persisting them is an optimisation to add if a full-history run proves too slow, not a correctness need.
+  2. **Fundamental metrics are derived, not stored.** There is no `fundamentals_metrics` table: ROCE / D-E / CAGR / TTM-EPS are computed from `fundamentals_line_items` by `stk.domain.fundamentals`, so a formula change can never leave a stale cached value.
+  3. **Ten seed strategies, not twelve.** The brief's list has ten distinct strategies (3 short-term, 3 swing, 3 momentum, 1 long-term); "twelve" in this plan was a miscount.
+- **2026-09-19 — Strategy statuses gain `rejected`** (failed the promotion gate) alongside `live | candidate | decaying | retired`; the UI can render it as retired. A gate that cannot decide (`insufficient_evidence`) leaves a strategy `candidate`, never `rejected`.
+- **2026-09-19 — Intraday poller uses its own provider switch** (`providers.intraday`), independent of `enable_yfinance_fallback`, so enabling intraday candles for the playground cannot put yfinance on the EOD price path. (Phase 5.)
+- **2026-09-19 — Backtests are NSE-only in v1.** BSE's legacy feed keys on scrip codes rather than tickers until 2024-07-08, so a cross-exchange symbol identity does not exist for most of the history. BSE bars stay in the lake.
+- **2026-09-19 — Design reference moved** to `docs/design/Stock Terminal Design.html` (was `web/Stock Terminal Standalone.html`), so `web/` can hold the Vite app.

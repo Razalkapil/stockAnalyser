@@ -87,3 +87,41 @@ def persist_artifact(raw_root: Path, conn: sqlite3.Connection, artifact: RawArti
         ),
     )
     return "ok"
+
+
+def persist_document(raw_root: Path, conn: sqlite3.Connection, artifact: RawArtifact) -> Path:
+    """Persist one of MANY documents that share a business date, content-addressed.
+
+    ``persist_artifact`` names files by (source, business_date) -- right for a
+    daily bhavcopy, wrong for filings, where dozens arrive on the same date
+    and would overwrite one another. Here the path is derived from the bytes
+    (``raw/<source>/by-sha/ab/ab12....xml``), so identical bytes are one file
+    (re-ingest is a no-op) and different bytes can never clobber each other.
+    """
+    sha256 = hashlib.sha256(artifact.content).hexdigest()
+    path = raw_root / artifact.source / "by-sha" / sha256[:2] / f"{sha256}.xml"
+    if not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(artifact.content)
+
+    business_date_str = artifact.business_date.isoformat() if artifact.business_date else None
+    conn.execute(
+        """INSERT INTO raw_artifacts
+           (source, business_date, url, path, sha256, bytes, content_type,
+            http_status, fetched_at, validation)
+           VALUES (?,?,?,?,?,?,?,?,?,?)
+           ON CONFLICT (source, business_date, sha256) DO NOTHING""",
+        (
+            artifact.source,
+            business_date_str,
+            artifact.url,
+            str(path.relative_to(raw_root.parent) if raw_root.parent in path.parents else path),
+            sha256,
+            len(artifact.content),
+            artifact.content_type,
+            artifact.http_status,
+            artifact.fetched_at.isoformat(),
+            "ok",
+        ),
+    )
+    return path

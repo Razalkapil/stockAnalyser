@@ -39,7 +39,7 @@ def _resolve_security_id(conn: sqlite3.Connection, isin: str) -> int | None:
     return int(row["security_id"]) if row is not None else None
 
 
-def _upsert_snapshot(conn: sqlite3.Connection, snapshot: FundamentalsSnapshotIn) -> bool:
+def upsert_snapshot(conn: sqlite3.Connection, snapshot: FundamentalsSnapshotIn) -> bool:
     security_id = _resolve_security_id(conn, snapshot.security_isin)
     if security_id is None:
         # No security master entry for this ISIN yet -- skip rather
@@ -89,7 +89,7 @@ def ingest_fundamentals_for_security(
             provider = get_fundamentals_provider(provider_name)
             snapshots = provider.fetch_statements(security, period_type, limit=limit)
 
-            upserted = sum(1 for snap in snapshots if _upsert_snapshot(conn, snap))
+            upserted = sum(1 for snap in snapshots if upsert_snapshot(conn, snap))
 
             handle.rows_in = len(snapshots)
             handle.rows_written = upserted

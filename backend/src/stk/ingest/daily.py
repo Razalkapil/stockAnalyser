@@ -22,6 +22,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pyarrow as pa
+import structlog
 
 from stk.core.errors import DataNotPublished
 from stk.core.time import today_ist
@@ -34,6 +35,8 @@ from stk.store.db.engine import connect
 from stk.store.parquet.layout import bars_daily_partition
 from stk.store.parquet.schema import BARS_DAILY_SCHEMA
 from stk.store.parquet.writer import upsert_partition
+
+log = structlog.get_logger(__name__)
 
 
 class IngestResult:
@@ -179,8 +182,14 @@ def _ingest_prices_for_date(
 
             bars = list(provider.parse_eod(artifact))
             context = f"{exchange} {business_date.isoformat()}"
-            assert_bars_sane(bars, context=context)
+            anomalies = assert_bars_sane(bars, context=context)
             assert_bars_match_requested_date(bars, business_date, context=context)
+            if anomalies:
+                # Not fatal (auxiliary series only) but never silent: logged, and counted
+                # on the job_runs row so `stk doctor` and a human can see the rate.
+                log.warning("auxiliary_series_ohlc_anomalies", context=context,
+                            count=len(anomalies), first=anomalies[:3])
+            handle.metrics["ohlc_anomalies_auxiliary_series"] = len(anomalies)
 
             # Cheap identity fill for freshly-parsed bars only. An empty
             # securities master is a normal early state, not an error --

@@ -28,6 +28,7 @@ class BacktestConfig(BaseModel):
     risk_free_annual: float = 0.0
     benchmark_index_code: str = "NIFTY_500"
     product: str = "delivery"
+    tradeable_series: list[str] = Field(default_factory=lambda: ["EQ", "BE", "BZ"])
     slippage_tiers: list[SlippageTierConfig] = Field(default_factory=list)
     participation_cap: Decimal = Decimal("0.05")
     circuit_band_pcts: list[Decimal] = Field(

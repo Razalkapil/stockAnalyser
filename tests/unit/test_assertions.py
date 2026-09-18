@@ -123,3 +123,50 @@ class TestAssertBarsMatchRequestedDate:
         bars = [_bar(date=date(2026, 9, 17)), _bar(symbol="INFY", date=date(2019, 6, 27))]
         with pytest.raises(IngestAssertionError):
             assert_bars_match_requested_date(bars, date(2026, 9, 17), context="test")
+
+
+class TestAuxiliarySeriesOhlc:
+    """Regression for a real failure found by a live backfill (2025-07 .. 2025-11).
+
+    NSE's sec_bhavdata_full carries auxiliary series rows alongside the EQ row, e.g.
+    WIPRO on 2025-07-08:
+        EQ  267.80 270.30 267.35 ... close 269.65     <- the real bar
+        T0  269.00 269.00 269.00 ... close 269.65     <- 3 shares; open=high=low=269.00
+                                                         but CLOSE carries the EQ close
+    The T0 row is internally inconsistent (high < close). Aborting the whole day over it
+    blocked ~1/3 of real trading days -- and a check that cries wolf that often hides the
+    real alarms. The check stays FATAL for equity series and becomes a counted anomaly
+    for the rest.
+    """
+
+    def t0_row(self, **kw):
+        fields = dict(series="T0", open=Decimal("269.00"), high=Decimal("269.00"),
+                      low=Decimal("269.00"), close=Decimal("269.65"), vwap=None, volume=3,
+                      turnover=Decimal("807"))
+        fields.update(kw)
+        return _bar(**fields)
+
+    def test_an_inconsistent_auxiliary_series_row_does_not_abort_the_day(self):
+        anomalies = assert_bars_sane([_bar(symbol="WIPRO"), self.t0_row(symbol="WIPRO")],
+                                     context="NSE 2025-07-08")
+        assert len(anomalies) == 1
+        assert "WIPRO" in anomalies[0] and "T0" in anomalies[0]
+
+    def test_the_same_inconsistency_on_an_EQ_row_is_still_fatal(self):
+        bad = _bar(series="EQ", high=Decimal("50"), close=Decimal("102"))
+        with pytest.raises(IngestAssertionError, match="high"):
+            assert_bars_sane([bad], context="test")
+
+    @pytest.mark.parametrize("series", ["EQ", "BE", "BZ", "SM", "ST"])
+    def test_every_equity_series_stays_strict(self, series):
+        bad = _bar(series=series, high=Decimal("50"), close=Decimal("102"))
+        with pytest.raises(IngestAssertionError):
+            assert_bars_sane([bad], context="test")
+
+    def test_clean_batches_report_no_anomalies(self):
+        assert assert_bars_sane([_bar()], context="test") == []
+
+    def test_other_invariants_still_apply_to_auxiliary_series(self):
+        """Only the OHLC-ordering check is relaxed -- a non-positive close is wrong anywhere."""
+        with pytest.raises(IngestAssertionError, match="close<=0"):
+            assert_bars_sane([self.t0_row(close=Decimal("0"))], context="test")

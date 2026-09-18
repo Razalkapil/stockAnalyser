@@ -9,6 +9,12 @@ risk_free_annual: 0.0               # Sharpe uses 0 by choice; set e.g. 0.065 to
 # and are flagged benchmark_missing rather than fabricated.
 benchmark_index_code: NIFTY_500
 
+# Series a backtest may trade, in PRECEDENCE order: where a symbol has several series on one
+# day (WIPRO publishes EQ and a 3-share T0 stub), the first listed wins. BE/BZ are
+# trade-for-trade names -- delivery-only, kept. Everything else (SME segments, T0, P1, N*,
+# government securities, ...) is not a backtest instrument.
+tradeable_series: [EQ, BE, BZ]
+
 # Which product the engine assumes for its trades. Delivery: multi-day holds.
 product: delivery
 

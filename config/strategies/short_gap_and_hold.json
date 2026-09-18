@@ -1,0 +1,77 @@
+{
+  "dsl_version": 1,
+  "slug": "short_gap_and_hold",
+  "name": "Gap-and-hold",
+  "horizon": "short_term",
+  "universe": {
+    "exchange": "NSE",
+    "min_price_raw": 20,
+    "min_median_turnover_inr": 20000000,
+    "min_listed_days": 120,
+    "exclude_series": [
+      "SM",
+      "ST",
+      "MF",
+      "GB",
+      "IV"
+    ]
+  },
+  "entry": {
+    "all": [
+      {
+        "left": {
+          "ind": "gap_pct"
+        },
+        "op": ">=",
+        "right": 2
+      },
+      {
+        "left": {
+          "ind": "close"
+        },
+        "op": ">=",
+        "right": {
+          "ind": "open"
+        }
+      },
+      {
+        "left": {
+          "ind": "close_location"
+        },
+        "op": ">=",
+        "right": 0.7
+      },
+      {
+        "left": {
+          "ind": "vol_ratio",
+          "period": 20
+        },
+        "op": ">=",
+        "right": 1.5
+      }
+    ]
+  },
+  "exit": {
+    "stop": {
+      "type": "atr",
+      "mult": 1.0
+    },
+    "target": {
+      "type": "atr",
+      "mult": 2.0
+    },
+    "max_hold_days": 5
+  },
+  "rank": {
+    "by": [
+      {
+        "ind": "gap_pct",
+        "dir": "desc"
+      }
+    ],
+    "max_new_per_day": 3
+  },
+  "sizing": {
+    "max_positions": 10
+  }
+}

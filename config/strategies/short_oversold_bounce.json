@@ -1,0 +1,89 @@
+{
+  "dsl_version": 1,
+  "slug": "short_oversold_bounce",
+  "name": "Oversold bounce near support",
+  "horizon": "short_term",
+  "universe": {
+    "exchange": "NSE",
+    "min_price_raw": 20,
+    "min_median_turnover_inr": 20000000,
+    "min_listed_days": 120,
+    "exclude_series": [
+      "SM",
+      "ST",
+      "MF",
+      "GB",
+      "IV"
+    ]
+  },
+  "entry": {
+    "all": [
+      {
+        "left": {
+          "ind": "rsi",
+          "period": 14
+        },
+        "op": "<=",
+        "right": 30
+      },
+      {
+        "left": {
+          "ind": "close"
+        },
+        "op": "<=",
+        "right": {
+          "mul": [
+            1.03,
+            {
+              "ind": "low_prior",
+              "period": 60
+            }
+          ]
+        }
+      },
+      {
+        "left": {
+          "ind": "close"
+        },
+        "op": ">",
+        "right": {
+          "ind": "open"
+        }
+      },
+      {
+        "left": {
+          "ind": "close"
+        },
+        "op": ">",
+        "right": {
+          "ind": "sma",
+          "period": 200
+        }
+      }
+    ]
+  },
+  "exit": {
+    "stop": {
+      "type": "atr",
+      "mult": 1.5
+    },
+    "target": {
+      "type": "atr",
+      "mult": 2.0
+    },
+    "max_hold_days": 10
+  },
+  "rank": {
+    "by": [
+      {
+        "ind": "rsi",
+        "period": 14,
+        "dir": "asc"
+      }
+    ],
+    "max_new_per_day": 3
+  },
+  "sizing": {
+    "max_positions": 10
+  }
+}
