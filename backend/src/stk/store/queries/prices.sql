@@ -67,3 +67,16 @@ FROM indices_daily
 WHERE index_code = ?
   AND date BETWEEN ? AND ?
 ORDER BY date
+
+-- name: backtest_panel
+-- Adjusted daily bars for one exchange over a date range: the raw
+-- material of a backtest. Params: exchange, start, end. Only EQ-type
+-- rows in tradeable series are kept (BE/BZ trade-to-trade names are
+-- delivery-only and stay in; SM/ST/etc. are excluded by the caller via
+-- the universe config, not here).
+SELECT date, symbol, series, open, high, low, close, volume, turnover,
+       delivery_pct, trades
+FROM bars_daily_adjusted
+WHERE exchange = ?
+  AND date BETWEEN ? AND ?
+ORDER BY date, symbol

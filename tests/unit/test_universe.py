@@ -60,6 +60,20 @@ class TestIsLiquid:
         passed, _reason = is_liquid(_metrics(median_turnover_20d=None), THRESHOLDS)
         assert passed is False
 
+    def test_unreported_trades_skips_only_the_trades_check(self):
+        """NSE's legacy bhavcopy (2010 to 2019-09) has no trades column, so the
+        median is null for that whole era. That must not blanket-reject the era."""
+        passed, reason = is_liquid(_metrics(median_trades_20d=None), THRESHOLDS)
+        assert passed is True
+        assert "trades check skipped" in reason
+
+    def test_unreported_trades_still_enforces_the_other_checks(self):
+        passed, reason = is_liquid(
+            _metrics(median_trades_20d=None, median_turnover_20d=1_000_000), THRESHOLDS
+        )
+        assert passed is False
+        assert "turnover" in reason
+
     def test_reason_always_populated(self):
         _, reason = is_liquid(_metrics(), THRESHOLDS)
         assert reason  # never empty, even on pass

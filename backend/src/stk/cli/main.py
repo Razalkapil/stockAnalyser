@@ -1,14 +1,15 @@
 """`stk` -- the project's single CLI entry point.
 
 Subcommands are grouped by responsibility, matching the package layout:
-db (schema management), ingest (nightly pipeline), doctor (health checks).
+db (schema management), ingest (nightly pipeline), backtest/costs (phase 2),
+doctor (health checks).
 """
 
 from __future__ import annotations
 
 import typer
 
-from stk.cli.commands import backfill, db, doctor, ingest
+from stk.cli.commands import backfill, backtest, costs, db, doctor, ingest
 from stk.config.settings import get_settings
 from stk.core.logging import configure_logging
 
@@ -16,6 +17,8 @@ app = typer.Typer(help="stk -- Indian stock suggester + virtual playground.", no
 app.add_typer(db.app, name="db")
 app.add_typer(ingest.app, name="ingest")
 app.add_typer(backfill.app, name="backfill")
+app.add_typer(backtest.app, name="backtest")
+app.add_typer(costs.app, name="costs")
 app.add_typer(doctor.app)
 
 

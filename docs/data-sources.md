@@ -191,6 +191,20 @@ The phase-0 history spike found NSE's and BSE's own archives sufficient back to 
 ## Things still to verify (do not treat as settled)
 
 1. ~~Exact pre-2024 history depth of `sec_bhavdata_full`~~ — resolved, see `docs/adr/0003-historical-price-source.md`: NSE prices are confirmed live back to 2010-01-04 via two combined sources.
-2. **Cost rates in `config/costs.yaml`** — sourced from broker-published schedules (Zerodha), not primary NSE/SEBI circulars. Flagged explicitly in that file; verify before using for real-money decisions.
+2. **Cost rates in `config/costs.yaml`** — *partially* verified; see the ledger below. Anything not marked verified there is still from broker-published schedules (Zerodha). Verify before using for real-money decisions.
 3. **BSE corporate actions and holiday calendar endpoints** — not yet implemented; NSE's are used as the sole source for both, which is a reasonable approximation since NSE and BSE trading calendars are effectively identical for equities. The approximation is now visible in the data rather than only in this document: `stk ingest calendar --exchange BSE` writes `source='nse_holiday_master(nse_proxy)'` on every row it creates.
 4. ~~BSE pre-UDiFF price history depth~~ — resolved, see `docs/adr/0003-historical-price-source.md`: BSE prices are confirmed live back to 2010-01-04 via the legacy `EQ*.CSV.ZIP` archive, same as NSE.
+
+## Transaction charges — verification ledger
+
+Rates live in `config/costs.yaml`; this table records which are checked against a **primary** document (read directly, not via a broker or news summary). The "unverified" warning in that file stays until the last row is closed.
+
+| Rate | Status | Source |
+|---|---|---|
+| NSE cash-market transaction charge: Rs 297/crore each side up to 28 Feb 2026 | **verified** | NSE circular NSE/FA/73061 (27 Feb 2026), "Existing outflow" column — `https://nsearchives.nseindia.com/content/circulars/FA73061.pdf` (needs a browser User-Agent) |
+| NSE cash-market transaction charge: Rs **306.99**/crore each side from 1 Mar 2026 (= 0.000030699) | **verified** — and *corrected*: config previously held Rs 307, double-counting the separate IPFT line by Rs 0.01/crore | same circular |
+| NSE IPFT: Rs 10/crore → Rs 0.01/crore on 1 Mar 2026 | **verified** | same circular |
+| Total NSE cash outflow (txn + IPFT) unchanged at Rs 307/crore across 1 Mar 2026 | **verified** (the circular's stated intent; pinned in `test_costs_compute.py`, which also caught a transcription slip while this table was being written) | same circular |
+| NSE txn charge uniform from 1 Oct 2024 | unverified — the circular above references NSE/FA/64323 (27 Sep 2024) and SEBI/HO/MRD/TPD-1/P/CIR/2024/92; neither read yet | — |
+| BSE transaction charge (0.00375%), STT, stamp duty, SEBI turnover fee, GST, DP charge, brokerage | unverified | broker schedules |
+| Pre-2020-07-01 stamp duty (varied by state) | not modelled — post-2020 rate used as an approximation | — |

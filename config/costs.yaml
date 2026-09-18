@@ -3,12 +3,11 @@
 # that was actually in force on each trade's date -- rates below are
 # NOT hardcoded constants, they are a history.
 #
-# STATUS: rates sourced from broker-published schedules (Zerodha) and
-# secondary reporting on SEBI/exchange circulars, NOT primary circulars
-# directly. The brief requires verifying current rates before relying
-# on them for real money decisions -- this file is a scaffold for
-# phase 2, not a verified-final source. See docs/adr for the
-# verification pass before phase 2 begins.
+# STATUS: PARTIALLY verified. Rates sourced from broker-published schedules
+# (Zerodha) and secondary reporting, except where marked VERIFIED below with
+# the primary document read directly. Everything not marked VERIFIED is
+# still unverified -- do not rely on it for real-money decisions. The full
+# verification ledger is in docs/data-sources.md ("Transaction charges").
 #
 # Compute order (see domain/costs.py, phase 2):
 #   turnover -> stt -> stamp_duty -> exchange_txn -> ipft -> sebi_turnover_fee
@@ -51,11 +50,17 @@ stamp_duty:
 
 exchange_txn_charge:
   # Per-crore-of-turnover, both legs. SEBI mandated uniform slab-free
-  # rates from 1 Oct 2024. VERIFY the 2026-03-01 rate against the
-  # primary NSE circular before relying on it.
+  # rates from 1 Oct 2024 (start date NOT independently verified).
+  #
+  # NSE VERIFIED against NSE circular NSE/FA/73061 (27 Feb 2026), cash market,
+  # each side: Rs 297/crore up to 28 Feb 2026, then Rs 306.99/crore from
+  # 1 Mar 2026 -- with IPFT (below) moving Rs 10 -> Rs 0.01/crore, so the
+  # TOTAL outflow is unchanged at Rs 307/crore. The rate here is the
+  # transaction charge ALONE (306.99), because IPFT is a separate line;
+  # entering 307 here would double-count Rs 0.01/crore.
   NSE:
     - { from: "2024-10-01", rate: 0.0000297 }
-    - { from: "2026-03-01", rate: 0.0000307 }
+    - { from: "2026-03-01", rate: 0.000030699 }
   BSE:
     - { from: "2024-10-01", rate: 0.0000375 }
 
@@ -66,7 +71,8 @@ sebi_turnover_fee:
 
 ipft:
   # Investor Protection Fund Trust charge, NSE only, both legs.
-  # VERIFY the 2026-03-01 rate change against the primary NSE circular.
+  # VERIFIED against NSE/FA/73061 (27 Feb 2026): Rs 10/crore before
+  # 1 Mar 2026 (rolled back to the pre-April-2023 level), Rs 0.01/crore after.
   NSE:
     - { from: "2010-01-01", per_crore_inr: 10.0 }
     - { from: "2026-03-01", per_crore_inr: 0.01 }

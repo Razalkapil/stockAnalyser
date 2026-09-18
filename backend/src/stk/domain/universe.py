@@ -44,14 +44,24 @@ def is_liquid(metrics: LiquidityMetrics, thresholds: LiquidityThresholds) -> tup
             f"median_turnover_20d={metrics.median_turnover_20d} < min={min_turnover}"
         )
 
+    # A trade COUNT is not published for every era: NSE's legacy bhavcopy
+    # (2010 to 2019-09-29) has no trades column, so the median is null for
+    # that whole period. Treating "unreported" as "zero trades" would mark
+    # every NSE symbol before late 2019 illiquid and leave backtests with an
+    # empty universe. When it is unreported the check cannot be evaluated,
+    # so it is skipped -- turnover, price and listing age still apply -- and
+    # the reason says so. A count that IS reported and low still rejects.
     min_trades = thresholds.min_median_trades
-    if metrics.median_trades_20d is None or metrics.median_trades_20d < min_trades:
+    trades_note = ""
+    if metrics.median_trades_20d is None:
+        trades_note = " (trades count unreported for this period: trades check skipped)"
+    elif metrics.median_trades_20d < min_trades:
         return False, f"median_trades_20d={metrics.median_trades_20d} < min={min_trades}"
 
     if metrics.avg_price_20d is None or metrics.avg_price_20d < thresholds.min_price_inr:
         return False, f"avg_price_20d={metrics.avg_price_20d} < min={thresholds.min_price_inr}"
 
-    return True, "passes all liquidity thresholds"
+    return True, "passes all liquidity thresholds" + trades_note
 
 
 def is_tradeable_intraday(series_or_group: str, flag_only: frozenset[str]) -> bool:

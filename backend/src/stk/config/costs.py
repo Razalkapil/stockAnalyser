@@ -4,9 +4,9 @@ Loads config/costs.yaml -- a history of transaction-cost rates, each
 tagged with the date it took effect -- into a typed ``RateSchedule``
 that resolves "what rate applied on date X" via ``as_of()``.
 
-Phase 1 scope: load, validate, and resolve. The actual cost-pipeline
-computation (``compute_costs()``) is phase 2 -- this module exists now
-so the dated-rate design is exercised and tested before it is load-bearing.
+``rates_for(date, exchange)`` flattens the schedule into the pure
+``stk.domain.costs.CostRates`` that ``compute_costs`` consumes -- the
+domain layer never sees YAML or dates.
 
 STATUS: rates in config/costs.yaml are sourced from broker-published
 schedules, not verified against primary NSE/SEBI circulars. See the
@@ -17,6 +17,7 @@ decisions until that verification pass (a phase-2 open item) is done.
 from __future__ import annotations
 
 from datetime import date
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,7 @@ from pydantic import BaseModel, Field
 
 from stk.config.loader import load_named_yaml
 from stk.core.errors import ConfigError
+from stk.domain.costs import BrokerageRule, CostRates, ProductRates
 
 
 class _DatedRate(BaseModel):
@@ -107,6 +109,49 @@ class RateSchedule:
     def ipft_as_of(self, exchange: str, as_of_date: date) -> _DatedRate | None:
         series = self._ipft.get(exchange)
         return series.as_of(as_of_date) if series else None
+
+    def rates_for(self, exchange: str, as_of_date: date) -> CostRates:
+        """Every rate in force for ``exchange`` on ``as_of_date``, as pure domain data."""
+        brokerage = self.brokerage_as_of(as_of_date)
+        stt = self.stt_as_of(as_of_date)
+        stamp = self.stamp_duty_as_of(as_of_date)
+        ipft = self.ipft_as_of(exchange, as_of_date)
+        dp = self.dp_charge_as_of(as_of_date)
+        txn = self.exchange_txn_as_of(exchange, as_of_date)
+        sebi = self.sebi_turnover_fee_as_of(as_of_date)
+
+        def product(name: str) -> ProductRates:
+            b = getattr(brokerage, name) or {}
+            s = getattr(stt, name) or {}
+            d = getattr(stamp, name) or {}
+            return ProductRates(
+                brokerage=BrokerageRule(
+                    model=b["model"],
+                    pct=_dec(b.get("pct", 0)),
+                    flat=_dec(b.get("flat_inr", b.get("amount_inr", 0))),
+                ),
+                stt_buy=_dec(s.get("buy", 0)),
+                stt_sell=_dec(s.get("sell", 0)),
+                stamp_buy=_dec(d.get("buy", 0)),
+                stamp_sell=_dec(d.get("sell", 0)),
+            )
+
+        return CostRates(
+            gst_rate=_dec(self.gst_rate),
+            gst_applies_to=frozenset(self.gst_applies_to),
+            delivery=product("delivery"),
+            intraday=product("intraday"),
+            exchange_txn_rate=_dec(txn.rate or 0),
+            ipft_per_crore=_dec(ipft.per_crore_inr or 0) if ipft else Decimal(0),
+            sebi_rate=_dec(sebi.rate or 0),
+            dp_charge_inr=_dec(dp.per_scrip_inr or 0),
+            dp_gst_applicable=bool(dp.gst_applicable),
+        )
+
+
+def _dec(value: float | int | str) -> Decimal:
+    """Decimal from a YAML number without inheriting float noise (0.1 -> Decimal('0.1'))."""
+    return Decimal(str(value))
 
 
 _schedule: RateSchedule | None = None

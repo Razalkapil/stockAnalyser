@@ -1,0 +1,40 @@
+# Backtest engine configuration. Everything a human would tune lives here.
+
+initial_capital_inr: 1000000        # Rs 10 lakh
+default_max_positions: 10
+risk_free_annual: 0.0               # Sharpe uses 0 by choice; set e.g. 0.065 to use a T-bill proxy
+
+# Canonical index_code (NEVER the printed name -- NSE renamed the Nifty twice).
+# NIFTY_500 in the archive starts 2012-02-21; earlier windows have no benchmark
+# and are flagged benchmark_missing rather than fabricated.
+benchmark_index_code: NIFTY_500
+
+# Which product the engine assumes for its trades. Delivery: multi-day holds.
+product: delivery
+
+# Slippage tiers keyed on trailing 20-day average daily turnover (rupees).
+# Highest matching min_adv_turnover_inr wins. Unknown ADV gets the worst tier.
+slippage_tiers:
+  - { min_adv_turnover_inr: 500000000, bps: 5 }    # >= Rs 50 cr/day
+  - { min_adv_turnover_inr: 100000000, bps: 10 }   # >= Rs 10 cr/day
+  - { min_adv_turnover_inr: 20000000,  bps: 20 }   # >= Rs 2 cr/day
+  - { min_adv_turnover_inr: 0,         bps: 40 }   # everything else
+
+# An order may not exceed this fraction of the fill day's traded volume.
+participation_cap: 0.05
+
+# Circuit-lock heuristic: allowed band percentages and rounding tolerance.
+circuit_band_pcts: [2, 5, 10, 20]
+circuit_tolerance_pct: 0.35
+
+adv_lookback_days: 20
+
+walk_forward:
+  train_months: 24
+  test_months: 6
+  step_months: 6
+
+# Fundamentals are treated as known only this many days after period end
+# when no real broadcast date exists (old history). Backtests that lean on
+# lagged fundamentals are labelled approximate.
+fundamentals_lag_days: 60

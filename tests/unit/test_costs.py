@@ -36,7 +36,8 @@ class TestExchangeTxnBoundary:
 
     def test_rate_on_second_transition_day(self, schedule):
         rate = schedule.exchange_txn_as_of("NSE", date(2026, 3, 1))
-        assert rate.rate == pytest.approx(0.0000307)
+        # NSE/FA/73061: Rs 306.99/crore (IPFT's Rs 0.01 is a separate line)
+        assert rate.rate == pytest.approx(0.000030699)
 
     def test_bse_rate_unaffected_by_nse_transition(self, schedule):
         rate = schedule.exchange_txn_as_of("BSE", date(2026, 3, 1))
