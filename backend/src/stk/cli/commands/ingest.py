@@ -13,6 +13,7 @@ from datetime import date, datetime
 import typer
 
 from stk.config.settings import AppSettings, get_settings
+from stk.config.universe import load_universe_config
 from stk.core.errors import IngestAssertionError, ProviderError
 from stk.ingest.daily import (
     IngestResult,
@@ -20,6 +21,7 @@ from stk.ingest.daily import (
     ingest_nse_prices_for_date,
     resolve_business_date,
 )
+from stk.ingest.liquidity import compute_liquidity_for_date
 
 app = typer.Typer(help="Nightly data ingest.")
 
@@ -86,3 +88,36 @@ def daily(
 
     if not (nse_ok and bse_ok):
         raise typer.Exit(code=1)
+
+
+@app.command("liquidity")
+def liquidity(
+    date_str: str | None = typer.Option(
+        None, "--date", help="YYYY-MM-DD, defaults to today (IST)"
+    ),
+) -> None:
+    """Recompute the liquidity feature set and universe_current for one date.
+
+    A pure derived step: reads already-ingested bars_daily parquet,
+    never fetches from the network. Safe to re-run -- see
+    ingest.liquidity's module docstring for the idempotency mechanism.
+    """
+    business_date = resolve_business_date(
+        datetime.strptime(date_str, "%Y-%m-%d").date() if date_str else None
+    )
+    settings = get_settings()
+    universe_config = load_universe_config()
+
+    for exchange in settings.ingest.exchanges:
+        result = compute_liquidity_for_date(
+            business_date,
+            exchange=exchange,
+            sqlite_path=settings.paths.sqlite,
+            parquet_root=settings.paths.parquet,
+            universe_config=universe_config,
+        )
+        typer.secho(
+            f"{exchange} liquidity {business_date.isoformat()}: "
+            f"{result.symbols_liquid}/{result.symbols_evaluated} symbols liquid",
+            fg="green",
+        )
