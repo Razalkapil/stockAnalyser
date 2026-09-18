@@ -1,4 +1,5 @@
-"""Free-text corporate-action subject parser.
+"""Free-text corporate-action subject parser, plus the fetch/parse/
+upsert orchestration that uses it.
 
 NSE's corporate-actions API returns a free-text ``subject`` field (e.g.
 "Dividend - Rs 17.70 Per Share", "Bonus 1:1", "Face Value Split From Rs
@@ -22,10 +23,19 @@ parse to TWO ParsedAction records, not one merged/lossy one.
 from __future__ import annotations
 
 import re
+import sqlite3
+from datetime import date
 from decimal import Decimal
 from enum import StrEnum
+from pathlib import Path
 
 from pydantic import BaseModel
+
+from stk.core.errors import ParseError
+from stk.ingest.jobs import job_run
+from stk.providers.base import RawCorporateAction
+from stk.providers.registry import get_corporate_actions_provider
+from stk.store.db.engine import connect
 
 PARSER_VERSION = 1
 
@@ -238,3 +248,118 @@ def parse_subject(subject: str) -> ParseResult:
     if any_ambiguous:
         return ParseResult(status="ambiguous", actions=actions)
     return ParseResult(status="parsed", actions=actions)
+
+
+# --- Fetch/parse/upsert orchestration --------------------------------------
+
+
+class CorpActionIngestResult:
+    def __init__(self, fetched: int, upserted: int, unparsed: int) -> None:
+        self.fetched = fetched
+        self.upserted = upserted
+        self.unparsed = unparsed
+
+
+def _resolve_security_id(conn: sqlite3.Connection, *, exchange: str, symbol: str) -> int | None:
+    row = conn.execute(
+        "SELECT security_id FROM listings WHERE exchange=? AND symbol=?", (exchange, symbol)
+    ).fetchone()
+    return int(row["security_id"]) if row is not None else None
+
+
+def _upsert_action(
+    conn: sqlite3.Connection, raw: RawCorporateAction, *, fail_on_unparsed: bool
+) -> str:
+    """Parse raw.subject_raw and upsert one corporate_actions row keyed
+    on (source, source_hash) -- re-ingesting an unchanged action is a
+    no-op; NSE correcting a date or subject produces a NEW source_hash
+    (a different, distinguishable row), never an in-place mutation.
+
+    Returns the parse_status recorded. Raises ParseError if
+    fail_on_unparsed is True and the subject matched nothing -- see
+    this module's own top docstring for why an unparsed subject must
+    never fall back to a silent no-op.
+    """
+    result = parse_subject(raw.subject_raw)
+    if result.status == "unparsed" and fail_on_unparsed:
+        raise ParseError(
+            f"unparsed corporate-action subject for {raw.symbol}: {raw.subject_raw!r}"
+        )
+
+    # A compound subject can produce multiple ParsedAction rows; only
+    # the first is used for the typed factor columns (price/volume
+    # adjustment only ever applies once per ex-date in this schema) --
+    # subject_raw itself is preserved verbatim regardless, so nothing
+    # about a second clause (e.g. "and Bonus 1:1") is lost to a reader.
+    action = result.actions[0] if result.actions else None
+    security_id = _resolve_security_id(conn, exchange=raw.exchange, symbol=raw.symbol)
+
+    conn.execute(
+        """INSERT INTO corporate_actions
+               (security_id, isin, symbol, exchange, ex_date, record_date, bc_start_date,
+                bc_end_date, subject_raw, action_type, dividend_per_share, ratio_numerator,
+                ratio_denominator, face_value_from, face_value_to, price_factor, volume_factor,
+                parse_status, parser_version, source, source_hash, captured_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+           ON CONFLICT (source, source_hash) DO NOTHING""",
+        (
+            security_id, raw.isin, raw.symbol, raw.exchange,
+            raw.ex_date.isoformat() if raw.ex_date else None,
+            raw.record_date.isoformat() if raw.record_date else None,
+            raw.bc_start_date.isoformat() if raw.bc_start_date else None,
+            raw.bc_end_date.isoformat() if raw.bc_end_date else None,
+            raw.subject_raw,
+            action.action_type.value if action else None,
+            float(action.dividend_per_share) if action and action.dividend_per_share else None,
+            action.ratio_numerator if action else None,
+            action.ratio_denominator if action else None,
+            float(action.face_value_from) if action and action.face_value_from else None,
+            float(action.face_value_to) if action and action.face_value_to else None,
+            float(action.price_factor) if action and action.price_factor is not None else None,
+            float(action.volume_factor) if action and action.volume_factor is not None else None,
+            result.status, PARSER_VERSION, raw.source, raw.source_hash,
+            raw.captured_at.isoformat(),
+        ),
+    )
+    return result.status
+
+
+def ingest_corporate_actions(
+    *,
+    sqlite_path: Path,
+    since: date | None = None,
+    fail_on_unparsed: bool = True,
+    provider_name: str = "nse_corp_actions",
+) -> CorpActionIngestResult:
+    """Fetch corporate actions, parse subjects, and upsert into
+    corporate_actions. One job_run scope covers fetch through upsert,
+    same single-scope pattern as ingest.daily -- see jobs.py's
+    docstring for why a failure during fetch must be just as visible
+    as one during parsing.
+
+    fail_on_unparsed defaults to True, matching
+    config/defaults.yaml's ingest.fail_on_unparsed_corp_action -- an
+    unrecognised subject aborts the whole run rather than silently
+    defaulting to a no-op action (see this module's top docstring).
+    """
+    conn = connect(sqlite_path)
+    try:
+        with job_run(conn, "ingest_corporate_actions", business_date=since) as handle:
+            provider = get_corporate_actions_provider(provider_name)
+            raw_actions = provider.fetch_actions(since)
+
+            upserted = 0
+            unparsed = 0
+            for raw in raw_actions:
+                status = _upsert_action(conn, raw, fail_on_unparsed=fail_on_unparsed)
+                upserted += 1
+                if status == "unparsed":
+                    unparsed += 1
+
+            handle.rows_in = len(raw_actions)
+            handle.rows_written = upserted
+            handle.metrics["unparsed"] = unparsed
+
+        return CorpActionIngestResult(len(raw_actions), upserted, unparsed)
+    finally:
+        conn.close()

@@ -7,7 +7,7 @@ Every endpoint below was verified live by direct `curl`/`httpx` request on **202
 | Host | Auth needed | Notes |
 |---|---|---|
 | `nsearchives.nseindia.com` | Any non-default User-Agent | No cookies, no Referer. A bare `curl/x.y` UA is blocked; even an empty UA string works. |
-| `www.nseindia.com/api/*` | Browser UA (cookie handshake not always required in practice, but code should still prime a cookie jar for robustness) | Some endpoints (holiday-master) worked with UA alone in testing; others (corporate-actions) are documented as needing a cookie jar from GETting the HTML page first, plus a plausible `Referer`. |
+| `www.nseindia.com/api/*` | Browser UA + `Referer` | Verified 2026-09-18 for `corporates-corporateActions` and `corporates-financial-results`: **no cookie handshake needed in practice** — a plain browser UA (with or without a `Referer`) got a 200 on a cold request, no priming GET, no cookie jar. Earlier notes in this file assumed a cookie jar was required; that assumption is now corrected. `Referer` is still sent defensively since other endpoints on this host may be stricter, but nothing in this codebase depends on cookies for this host. |
 | `www.bseindia.com` | Any UA | Use this exact host — the apex `bseindia.com` redirects. |
 | `api.bseindia.com` | `Referer: https://www.bseindia.com/` | |
 
@@ -83,7 +83,9 @@ https://www.nseindia.com/api/corporates-corporateActions?index=equities
 ```
 
 - Returns `{symbol, comp, series, isin, faceVal, subject, exDate, recDate, bcStartDate, bcEndDate, ndStartDate, ndEndDate, ind, caBroadcastDate}`.
+- Supports `from_date`/`to_date` query params (format `DD-MM-YYYY`) for a date range — confirmed live 2026-09-18 (1736 rows returned for a ~9-month range). Without them, the endpoint returns its own rolling window (observed: roughly the trailing/upcoming few weeks).
 - **`subject` is unstructured free text** — e.g. `"Dividend - Rs 17.70 Per Share"`, `"Bonus 1:1"`, `"Face Value Split From Rs 10 To Rs 2"`. Parsed by `stk.ingest.corpactions.parse_subject`, which must fail loudly (`parse_status="unparsed"`) rather than silently defaulting an unrecognised subject to a no-op — see that module's docstring.
+- Implemented in `stk.providers.nse.corpactions.NseCorporateActionsProvider`. Ingest (fetch + parse + upsert into `corporate_actions`, keyed on `(source, source_hash)` for idempotency): `stk.ingest.corpactions.ingest_corporate_actions`, CLI `stk ingest corpactions`.
 
 ### Fundamentals (official, no XBRL parsing needed)
 

@@ -1,8 +1,9 @@
-"""`stk ingest` -- nightly ingest commands.
+"""`stk ingest` -- nightly and on-demand ingest commands.
 
-Phase 1 scope: NSE and BSE prices. Corporate actions and fundamentals
-follow the same orchestration pattern (see ingest.daily) as their
-provider adapters land.
+`daily` (NSE + BSE prices) is the nightly path. `master` and
+`corpactions` are on-demand/weekly per the build plan, not yet wired
+into `daily`. Fundamentals follow the same orchestration pattern once
+its provider adapter lands.
 """
 
 from __future__ import annotations
@@ -14,7 +15,8 @@ import typer
 
 from stk.config.settings import AppSettings, get_settings
 from stk.config.universe import load_universe_config
-from stk.core.errors import IngestAssertionError, ProviderError
+from stk.core.errors import IngestAssertionError, ParseError, ProviderError
+from stk.ingest.corpactions import ingest_corporate_actions
 from stk.ingest.daily import (
     IngestResult,
     ingest_bse_prices_for_date,
@@ -106,6 +108,37 @@ def master() -> None:
     typer.secho(
         f"OK: {result.securities_upserted} securities, "
         f"{result.listings_upserted} listings, {result.renames} rename(s)",
+        fg="green",
+    )
+
+
+@app.command("corpactions")
+def corpactions(
+    since_str: str | None = typer.Option(
+        None, "--since", help="YYYY-MM-DD; defaults to the provider's own rolling window"
+    ),
+) -> None:
+    """Fetch, parse, and upsert corporate actions (NSE, currently the
+    sole source for both exchanges per docs/data-sources.md).
+
+    Exits non-zero on an unparsed subject (ingest.fail_on_unparsed_corp_action) --
+    a missed bonus/split must never be silently absorbed.
+    """
+    settings = get_settings()
+    since = datetime.strptime(since_str, "%Y-%m-%d").date() if since_str else None
+    try:
+        result = ingest_corporate_actions(
+            sqlite_path=settings.paths.sqlite,
+            since=since,
+            fail_on_unparsed=settings.ingest.fail_on_unparsed_corp_action,
+        )
+    except (ProviderError, IngestAssertionError, ParseError) as exc:
+        typer.secho(f"FAILED: {exc}", fg="red", bold=True)
+        raise typer.Exit(code=1) from exc
+
+    typer.secho(
+        f"OK: {result.upserted}/{result.fetched} actions upserted "
+        f"({result.unparsed} unparsed)",
         fg="green",
     )
 

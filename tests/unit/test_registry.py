@@ -8,14 +8,16 @@ from datetime import date
 import pytest
 
 from stk.core.errors import ConfigError
-from stk.providers.base import PriceProvider, SecurityMasterProvider
+from stk.providers.base import CorporateActionsProvider, PriceProvider, SecurityMasterProvider
 from stk.providers.bse.legacy_prices import BseLegacyBhavcopyProvider
 from stk.providers.bse.master import BseSecurityMasterProvider
 from stk.providers.bse.prices import BseUdiffProvider
+from stk.providers.nse.corpactions import NseCorporateActionsProvider
 from stk.providers.nse.master import NseSecurityMasterProvider
 from stk.providers.nse.prices import NseSecBhavdataProvider
 from stk.providers.registry import (
     get_bse_price_provider_for_date,
+    get_corporate_actions_provider,
     get_price_provider,
     get_security_master_provider,
 )
@@ -66,3 +68,14 @@ class TestGetSecurityMasterProvider:
     def test_unknown_name_raises_config_error(self):
         with pytest.raises(ConfigError, match="unknown security master provider"):
             get_security_master_provider("not_a_real_provider")
+
+
+class TestGetCorporateActionsProvider:
+    def test_nse_corp_actions_returns_correct_type(self):
+        provider = get_corporate_actions_provider("nse_corp_actions")
+        assert isinstance(provider, NseCorporateActionsProvider)
+        assert isinstance(provider, CorporateActionsProvider)
+
+    def test_unknown_name_raises_config_error(self):
+        with pytest.raises(ConfigError, match="unknown corporate actions provider"):
+            get_corporate_actions_provider("not_a_real_provider")

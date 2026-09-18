@@ -13,7 +13,7 @@ from __future__ import annotations
 from datetime import date
 
 from stk.core.errors import ConfigError
-from stk.providers.base import PriceProvider, SecurityMasterProvider
+from stk.providers.base import CorporateActionsProvider, PriceProvider, SecurityMasterProvider
 
 # Confirmed by the phase-0 history spike (docs/adr/0003): sec_bhavdata_full
 # is available from this date onward and is preferred over the legacy
@@ -104,3 +104,14 @@ def get_security_master_provider(name: str) -> SecurityMasterProvider:
         return BseSecurityMasterProvider()
 
     raise ConfigError(f"unknown security master provider: {name!r}")
+
+
+def get_corporate_actions_provider(name: str) -> CorporateActionsProvider:
+    """Construct a CorporateActionsProvider by its config name (see
+    providers.corp_actions in defaults.yaml)."""
+    if name == "nse_corp_actions":
+        from stk.providers.nse.corpactions import NseCorporateActionsProvider  # noqa: PLC0415
+
+        return NseCorporateActionsProvider()
+
+    raise ConfigError(f"unknown corporate actions provider: {name!r}")
