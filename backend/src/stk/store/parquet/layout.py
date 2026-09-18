@@ -36,5 +36,17 @@ def indices_daily_partition(parquet_root: Path, year: int) -> Path:
     return parquet_root / "indices_daily" / f"year={year}" / "data.parquet"
 
 
-def manifest_path(parquet_root: Path, dataset: str, exchange: str, year: int) -> Path:
-    return parquet_root / "_manifests" / dataset / f"exchange={exchange}" / f"year={year}.json"
+def manifest_path(
+    parquet_root: Path, dataset: str, exchange: str | None, year: int
+) -> Path:
+    """Where the row-count + sha256 sidecar for one partition lives.
+
+    ``exchange`` is None for datasets that have no exchange dimension
+    (indices_daily is year-partitioned only), in which case the
+    exchange= level is simply absent -- mirroring the partition layout
+    itself rather than inventing a placeholder value.
+    """
+    base = parquet_root / "_manifests" / dataset
+    if exchange is not None:
+        base = base / f"exchange={exchange}"
+    return base / f"year={year}.json"

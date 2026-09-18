@@ -45,10 +45,14 @@ https://nsearchives.nseindia.com/content/historical/EQUITIES/{YYYY}/{MON}/cm{DDM
 https://nsearchives.nseindia.com/content/cm/BhavCopy_NSE_CM_0_0_0_{YYYYMMDD}_F_0000.csv.zip
 ```
 
-- Zip file containing one CSV. 34 columns including `ISIN`, ISO dates.
-- **Only available from ~2024-07-08 onward** — the legacy `/content/historical/EQUITIES/{YYYY}/{MON}/cm{DDMONYYYY}bhav.csv.zip` path this replaced now 404s (NSE circular 62424, effective 2024-07-08).
-- Used as the ISIN-bearing companion for the security-master join, not as the primary price series.
-- Parser: `stk.ingest.normalise.parse_udiff`.
+Implemented by `stk.providers.nse.udiff.NseUdiffProvider` (registered as `nse_udiff`). **Verified live 2026-09-19** for both its first date and a recent one — needs only a non-default User-Agent, like the rest of the `nsearchives` host.
+
+- Zip file containing one CSV. 34 columns including `ISIN`, ISO dates. Confirmed header begins `TradDt,BizDt,Sgmt,Src,FinInstrmTp,FinInstrmId,ISIN,TckrSymb,SctySrs,...`.
+- **Only available from 2024-07-08 onward** (confirmed: that exact date returns a real zip) — the legacy `/content/historical/EQUITIES/{YYYY}/{MON}/cm{DDMONYYYY}bhav.csv.zip` path this replaced now 404s (NSE circular 62424, effective 2024-07-08).
+- **Deliberately NOT the primary price source, and `get_nse_price_provider_for_date` never selects it.** UDiFF carries ISIN but has **no delivery quantity or delivery percentage**, which `sec_bhavdata_full` does have and which the short-term seed strategies need. Swapping it in would silently null out a legitimately-nullable column for every bar from 2024-07 onward — a change no schema check would catch. A unit test asserts the automatic selection never returns it.
+- Parser: `stk.ingest.normalise.parse_udiff` (shared with BSE UDiFF).
+
+**On resolving `security_id`/`isin` for bars generally:** `bars_daily` stores whatever the *source* reported, which is null for every `sec_bhavdata_full` row. Identity is resolved at QUERY time by `store/queries/prices.sql`'s `bars_with_resolved_identity`, which joins `symbol_history`/`listings`/`securities` keyed by the symbol as of each bar's own date. That is self-healing as the master improves and gets renames right; a `security_id` backfilled into 32 historical partitions would instead be frozen at whatever the master knew on rewrite day. As a cheap complement, `ingest.daily` fills identity on *freshly parsed* bars only, from a single in-memory map — never overwriting a value the source itself reported.
 
 ### Security master
 
@@ -69,12 +73,40 @@ Columns: `Symbol, Series, Security Name, Band, Remarks`.
 ### Trading holiday calendar
 
 ```
-https://www.nseindia.com/api/holiday-master?type=trading
+https://www.nseindia.com/api/holiday-master?type=trading&year=YYYY
 ```
 
-- Returns JSON keyed by segment (`CBM` = cash/capital market). Each entry: `{tradingDate: "DD-Mon-YYYY", weekDay, description, morning_session, evening_session, Sr_no}`.
-- **Includes holidays that fall on a weekend** (e.g. a Sunday-falling festival) — callers MUST intersect with weekdays; see `stk.domain.calendar.build_trading_day_set`.
+Implemented by `stk.providers.nse.calendar.NseHolidayMasterProvider`; ingested by `stk ingest calendar`. Needs a browser UA (a `Referer` is sent defensively; no cookie handshake was required in practice). Re-verified live **2026-09-19**, which corrected three things believed true before:
+
+- **The segment key is `CM`, not `CBM`.** `CBM` is the *corporate bond* market and happens to be the first key in the JSON object, which makes it an easy and wrong default — an earlier version of this document asserted `CBM` was the cash market. They are genuinely different calendars: for 2024, `CBM` carries five holidays `CM` does not (19-Feb, 01-Apr, 09-Apr, 23-May, 16-Sep) and misses one `CM` does have (02-Mar). Using `CBM` for equities would have silently skipped five real trading days a year and fetched one non-trading day.
+- **`year=` works, and history reaches back to 2011.** The build plan assumed only the current year was available, which would have left 2011–2025 with no authoritative calendar. Confirmed: every year 2011–2026 returns a populated `CM` list. 2010 (the earliest date the price archives reach, per ADR 0003) is **not** available — that year's calendar can only be derived from ingested bars.
+- **A `financial_year=` parameter is silently IGNORED** — it returns the current year rather than erroring, so a caller believes it asked a question it did not.
+
+**Silent-200 trap, same class as BSE's SPA shell but on a different host:** an out-of-range year returns **HTTP 200 with valid JSON and no `CM` rows** (2010 returns `{}`; 2027 returns a payload whose `CM` list is empty). Treating that as "no holidays that year" would fabricate a calendar in which every weekday traded, and `stk doctor` would then report ~250 missing ingests for it. `parse_holidays` raises `DataNotPublished` on an empty segment list for exactly this reason.
+
+- Each entry: `{tradingDate: "DD-Mon-YYYY", weekDay, description, morning_session, evening_session, Sr_no}`. `Sr_no` is present for the current year and absent for historical years — do not depend on it.
+- **Includes holidays that fall on a weekend** (e.g. a Sunday-falling festival) — callers MUST intersect with weekdays; see `stk.domain.calendar.build_trading_day_set`. The provider deliberately keeps them in its raw records so that rule lives in exactly one place.
 - **Do not rely on `exchange_calendars` or `pandas_market_calendars`** for this: neither has an NSE calendar (only BSE/`XBOM`), and both ship hardcoded holiday lists that **run out at the end of 2026**.
+
+### Index closes (benchmark) — `ind_close_all`
+
+```
+https://nsearchives.nseindia.com/content/indices/ind_close_all_{DDMMYYYY}.csv
+```
+
+Implemented by `stk.providers.nse.indices.NseIndicesProvider`; ingested by `stk ingest indices`. Needs only a non-default User-Agent, like the rest of the `nsearchives` host. **Verified live 2026-09-19.** `archives.nseindia.com` serves the identical file if the primary host ever moves.
+
+Header (confirmed against a real fetched file): `Index Name, Index Date, Open Index Value, High Index Value, Low Index Value, Closing Index Value, Points Change, Change(%), Volume, Turnover (Rs. Cr.), P/E, P/B, Div Yield`. Dates are `DD-MM-YYYY` — note this differs from every other NSE file in this document. `-` is the null marker, converted to null and never to 0.
+
+Three findings from the probe:
+
+- **Coverage starts 2012-02-21.** Every weekday probed before it 404s (2010-01-04, and all of 2010–2011 sampled quarterly). The price archives reach 2010-01-04, so **the benchmark series is roughly two years shorter than the price series** — a backtest starting in 2010 has prices but no benchmark for its first two years. This is a real constraint on Phase 2's benchmark-relative metrics; `stk doctor` should surface it rather than anyone discovering it inside a backtest result.
+- **The benchmark has been renamed twice**, so keying a series on the printed name silently splits it into three disconnected fragments: `S&P CNX Nifty` (through early 2013) → `CNX Nifty` (mid-2013 through 2015) → `Nifty 50` (2016 onward). `stk.ingest.normalise.INDEX_CODE_BY_NAME` maps all three to the canonical `NIFTY_50`, and `store/queries/prices.sql`'s `benchmark_series` query filters on that code, never the name.
+- **Non-trading dates 404 honestly** — unlike BSE, there is no silent-200 SPA shell here, and unlike the `sec_bhavdata_full` archive no mislabeled-content case was observed. Weekends, a real holiday (2026-01-26) and a nonsense date (`31129999`) all returned a clean 404 with `text/html`. The requested-date assertion is applied anyway (`assert_index_bars_match_requested_date`), because ADR 0003 showed that assumption failing on a sibling archive.
+
+`Turnover (Rs. Cr.)` is multiplied by 10,000,000 at the parser boundary — the canonical layer only ever holds rupees, same discipline as the `TURNOVER_LACS` rule for `sec_bhavdata_full`.
+
+**BSE/SENSEX index data is a known gap.** This file covers NSE indices only, and no free BSE index archive has been confirmed. Nifty 50 is what the UI contract's `niftyCurve`/`niftyReturnPct` need, so this is not currently blocking.
 
 ### Corporate actions
 
@@ -140,11 +172,25 @@ https://api.bseindia.com/BseIndiaAPI/api/ListofScripData/w?Group=&Scripcode=&ind
 - Version 1.7.0+ (the library went 1.x — old 0.2.x-era advice online is stale).
 - Rate-limited by Yahoo with no published limit; the practical mitigation is a `curl_cffi` session with `impersonate="chrome"`.
 - Intraday history windows: 1m bars ≈ last 7 days (≈30 days total history available); 5m/15m/30m ≈ last 60 days; 1h ≈ last 730 days.
-- Used for: (a) approximate fundamentals (`is_approximate=True`) where NSE's own filing history hasn't accumulated yet, (b) potential pre-2024 price backfill if the phase-0 history spike finds NSE's own archives insufficient, (c) delayed intraday candles for the phase-5 playground poller.
+- Used for: (a) approximate fundamentals (`is_approximate=True`) where NSE's own filing history hasn't accumulated yet, (b) filling a hole the official archives cannot cover, (c) delayed intraday candles for the phase-5 playground poller.
+
+Implemented as `stk.providers.yfinance.prices.YFinancePriceProvider` (live-smoke-verified 2026-09-19), but **disabled by default**. `providers.registry` raises `ConfigError` unless `providers.enable_yfinance_fallback: true`, so merely being named in a config list is not enough to reach it — it cannot drift onto the critical path by accident.
+
+What it declares it cannot do, rather than leaving a caller to discover it:
+
+- **No `fetch_eod`.** There is no whole-market file; Yahoo is per-symbol. Calling it raises `NotSupportedError` rather than returning a partial market.
+- **`is_approximate=True`.** Restated, split-adjusted prices with no point-in-time knowledge date, so a backtest built on them cannot honestly claim "this is what you would have seen on the day".
+- **No delivery data and no rupee turnover.** `turnover` is a *derived* `close × volume`, not the exchange's traded value, and must never be compared against a bhavcopy turnover as an equal.
+- **Survivorship bias.** Delisted names are simply absent, which quietly flatters any backtest built on a universe derived from it.
+- **An empty result raises `DataNotPublished`**, never returns `[]`: an empty frame means a wrong ticker mapping, a delisted name, or a rate limit — none of which mean "this symbol did not trade".
+
+Ticker mapping: `SYMBOL.NS` (NSE), `SCRIPCODE.BO` (BSE — a numeric scrip code, matching how BSE's legacy bhavcopy identifies securities). The throttle interval comes from `http.yfinance.min_interval_ms` and is enforced process-wide, since the rate limit is Yahoo's, not any one call site's.
+
+The phase-0 history spike found NSE's and BSE's own archives sufficient back to 2010-01-04 (ADR 0003), so item (b) is no longer needed for price backfill.
 
 ## Things still to verify (do not treat as settled)
 
 1. ~~Exact pre-2024 history depth of `sec_bhavdata_full`~~ — resolved, see `docs/adr/0003-historical-price-source.md`: NSE prices are confirmed live back to 2010-01-04 via two combined sources.
 2. **Cost rates in `config/costs.yaml`** — sourced from broker-published schedules (Zerodha), not primary NSE/SEBI circulars. Flagged explicitly in that file; verify before using for real-money decisions.
-3. **BSE corporate actions and holiday calendar endpoints** — not yet implemented; NSE's are used as the sole source for both in phase 1, which is a reasonable approximation since NSE and BSE trading calendars are effectively identical for equities.
+3. **BSE corporate actions and holiday calendar endpoints** — not yet implemented; NSE's are used as the sole source for both, which is a reasonable approximation since NSE and BSE trading calendars are effectively identical for equities. The approximation is now visible in the data rather than only in this document: `stk ingest calendar --exchange BSE` writes `source='nse_holiday_master(nse_proxy)'` on every row it creates.
 4. ~~BSE pre-UDiFF price history depth~~ — resolved, see `docs/adr/0003-historical-price-source.md`: BSE prices are confirmed live back to 2010-01-04 via the legacy `EQ*.CSV.ZIP` archive, same as NSE.

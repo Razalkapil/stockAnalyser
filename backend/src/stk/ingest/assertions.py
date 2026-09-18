@@ -14,6 +14,7 @@ from datetime import date
 from decimal import Decimal
 
 from stk.core.errors import IngestAssertionError
+from stk.ingest.normalise import IndexBar
 from stk.providers.base import CanonicalBar
 
 
@@ -109,4 +110,62 @@ def _assert_turnover_plausible(bar: CanonicalBar, context: str) -> None:
         raise IngestAssertionError(
             f"{context}: {bar.symbol} turnover={bar.turnover} implausible vs "
             f"volume*vwap={implied} (ratio={ratio}) on {bar.date} -- check units"
+        )
+
+
+def assert_index_bars_sane(bars: list[IndexBar], *, context: str) -> None:
+    """Post-parse sanity checks for index bars.
+
+    Deliberately narrower than assert_bars_sane: an index has no
+    delivery quantity, no turnover-vs-vwap relationship, and legitimate
+    null OHLC on derived series (NSE's file carries e.g. "Nifty50
+    Dividend Points", which has a close and nothing else). So only the
+    invariants that genuinely hold are asserted.
+    """
+    if not bars:
+        raise IngestAssertionError(f"{context}: parsed zero index bars")
+
+    seen: set[tuple[str, date]] = set()
+    for bar in bars:
+        key = (bar.index_name, bar.date)
+        if key in seen:
+            raise IngestAssertionError(
+                f"{context}: duplicate row for index {bar.index_name} on {bar.date}"
+            )
+        seen.add(key)
+
+        if bar.close <= 0:
+            raise IngestAssertionError(
+                f"{context}: index {bar.index_name} has non-positive close {bar.close}"
+            )
+
+        if bar.high is not None and bar.low is not None and bar.high < bar.low:
+            raise IngestAssertionError(
+                f"{context}: index {bar.index_name} has high {bar.high} < low {bar.low}"
+            )
+
+        present = [v for v in (bar.open, bar.close, bar.low) if v is not None]
+        if bar.high is not None and present and bar.high < max(present):
+            raise IngestAssertionError(
+                f"{context}: index {bar.index_name} has high {bar.high} below "
+                f"open/close/low max {max(present)}"
+            )
+
+
+def assert_index_bars_match_requested_date(
+    bars: list[IndexBar], requested_date: date, *, context: str
+) -> None:
+    """Same guard as assert_bars_match_requested_date, for index bars.
+
+    ADR 0003 documents NSE's archive serving content dated differently
+    from what the URL promises. That was found on the price archive;
+    nothing says the index archive is immune, and the check is nearly
+    free.
+    """
+    mismatched = {bar.date for bar in bars if bar.date != requested_date}
+    if mismatched:
+        raise IngestAssertionError(
+            f"{context}: requested index data for {requested_date} but the fetched "
+            f"content is dated {sorted(mismatched)} instead -- refusing to write it "
+            "under the requested date's partition key."
         )

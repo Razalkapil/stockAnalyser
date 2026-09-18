@@ -9,14 +9,18 @@ resilience to per-date failures (record and continue rather than abort
 the whole range), and a summary at the end.
 
 Weekends are skipped without even attempting a fetch (cheap, certain).
-Actual trading holidays are NOT filtered out here -- there is no
-CalendarProvider wired up yet in phase 1 (see docs/BUILD_PLAN.md's open
-items) -- so a holiday weekday reaches the ingest function, which
-already handles "not yet published / doesn't exist" via
-DataNotPublished -> JobSkipped -> status="skipped_holiday". This means
-a full backfill run works correctly today; it will just do a few
-thousand more no-op HTTP requests than strictly necessary until a real
-calendar provider lands.
+Trading holidays are skipped too, but deliberately NOT by a second
+date filter here: ingest_{nse,bse}_prices_for_date consults
+trading_calendar itself before fetching, so the holiday rule lives in
+exactly one place and the nightly job and the backfill cannot drift
+apart. Populate the calendar with `stk ingest calendar` to get that
+saving; without it, a holiday weekday still reaches the fetch and is
+handled by DataNotPublished -> JobSkipped -> status="skipped_holiday",
+costing a wasted request but never a wrong answer.
+
+That ordering is the point: the calendar is an optimisation and a
+cross-check, never a new trust boundary. A date the calendar has no
+opinion about is fetched, not skipped.
 
 BSE prices now have two confirmed sources spanning 2010-01-04 to
 present (bse_legacy_bhavcopy and bse_udiff, selected automatically by

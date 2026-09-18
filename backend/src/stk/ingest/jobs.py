@@ -26,13 +26,12 @@ from __future__ import annotations
 
 import json
 import sqlite3
-import subprocess
 import traceback
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, date, datetime
 
-_CODE_VERSION_CACHE: str | None = None
+from stk.core.version import code_version
 
 
 class JobSkipped(Exception):
@@ -43,20 +42,6 @@ class JobSkipped(Exception):
     never propagates to the caller. Check ``handle.skipped`` after the
     ``with`` block to see whether this happened.
     """
-
-
-def _code_version() -> str:
-    global _CODE_VERSION_CACHE  # noqa: PLW0603 -- cheap process-wide memoisation
-    if _CODE_VERSION_CACHE is None:
-        try:
-            result = subprocess.run(
-                ["git", "rev-parse", "--short", "HEAD"],
-                capture_output=True, text=True, timeout=5, check=False,
-            )
-            _CODE_VERSION_CACHE = result.stdout.strip() or "unknown"
-        except (OSError, subprocess.SubprocessError):
-            _CODE_VERSION_CACHE = "unknown"
-    return _CODE_VERSION_CACHE
 
 
 def _next_attempt(conn: sqlite3.Connection, job_name: str, business_date_str: str | None) -> int:
@@ -80,6 +65,13 @@ class JobRunHandle:
         self.rows_rejected: int | None = None
         self.metrics: dict = {}
         self.skipped: bool = False
+        #: Set True by a job body that completed but produced a
+        #: knowingly-incomplete result (e.g. a corporate action it could
+        #: not compute a factor for). Recorded as status='degraded' --
+        #: distinct from both success and failure, because the run DID
+        #: write data and that data IS missing something. Collapsing it
+        #: into 'success' is how a known gap becomes invisible.
+        self.degraded: bool = False
 
 
 @contextmanager
@@ -92,7 +84,9 @@ def job_run(
     """Record one job_runs row for the duration of the ``with`` block.
 
     Three possible outcomes, all recorded here:
-      - Normal completion -> status='success'.
+      - Normal completion -> status='success', or 'degraded' if the
+        body set ``handle.degraded`` (it finished and wrote data, but
+        knows that data is incomplete).
       - ``raise JobSkipped(...)`` inside the block -> status='skipped_holiday',
         the exception is swallowed (does not propagate), and
         ``handle.skipped`` is set to True for the caller to check.
@@ -108,7 +102,7 @@ def job_run(
         """INSERT INTO job_runs
                (job_name, business_date, status, started_at, attempt, code_version)
            VALUES (?, ?, 'running', ?, ?, ?)""",
-        (job_name, business_date_str, started_at.isoformat(), next_attempt, _code_version()),
+        (job_name, business_date_str, started_at.isoformat(), next_attempt, code_version()),
     )
     run_id = cursor.lastrowid
     handle = JobRunHandle()
@@ -143,10 +137,11 @@ def job_run(
         raise
     else:
         conn.execute(
-            """UPDATE job_runs SET status='success', finished_at=?, rows_in=?,
+            """UPDATE job_runs SET status=?, finished_at=?, rows_in=?,
                rows_written=?, rows_rejected=?, metrics_json=?
                WHERE run_id=?""",
             (
+                "degraded" if handle.degraded else "success",
                 datetime.now(UTC).isoformat(),
                 handle.rows_in,
                 handle.rows_written,

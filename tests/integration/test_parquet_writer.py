@@ -15,9 +15,9 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from stk.store.parquet.layout import bars_daily_partition
+from stk.store.parquet.layout import bars_daily_partition, manifest_path
 from stk.store.parquet.schema import BARS_DAILY_SCHEMA
-from stk.store.parquet.writer import read_partition, upsert_partition
+from stk.store.parquet.writer import read_manifest, read_partition, upsert_partition
 
 
 def _make_bars(d: date, symbols: list[str]) -> pa.Table:
@@ -138,3 +138,139 @@ class TestUpsertPartition:
         result = read_partition(partition_path, schema=BARS_DAILY_SCHEMA)
         assert result.num_rows == 0
         assert result.schema.equals(BARS_DAILY_SCHEMA)
+
+
+class TestPartitionManifests:
+    """The _manifests sidecar is what makes a truncated or hand-edited
+    partition detectable by `stk doctor`. Without it, a partition
+    missing half its rows is indistinguishable from a quiet day."""
+
+    def test_manifest_written_on_first_write(self, tmp_parquet_root, partition_path):
+        upsert_partition(
+            partition_path,
+            _make_bars(DAY1, ["AAA", "BBB"]),
+            schema=BARS_DAILY_SCHEMA,
+            replace_dates={DAY1},
+            manifest_root=tmp_parquet_root,
+            dataset="bars_daily",
+            exchange="NSE",
+            year=2026,
+        )
+
+        manifest = read_manifest(
+            tmp_parquet_root, dataset="bars_daily", exchange="NSE", year=2026
+        )
+        assert manifest is not None
+        assert manifest["row_count"] == 2
+        assert manifest["dataset"] == "bars_daily"
+        assert manifest["exchange"] == "NSE"
+        assert manifest["year"] == 2026
+        assert manifest["bytes"] == partition_path.stat().st_size
+
+    def test_manifest_sha256_matches_the_file_on_disk(self, tmp_parquet_root, partition_path):
+        upsert_partition(
+            partition_path,
+            _make_bars(DAY1, ["AAA"]),
+            schema=BARS_DAILY_SCHEMA,
+            replace_dates={DAY1},
+            manifest_root=tmp_parquet_root,
+            dataset="bars_daily",
+            exchange="NSE",
+            year=2026,
+        )
+
+        manifest = read_manifest(
+            tmp_parquet_root, dataset="bars_daily", exchange="NSE", year=2026
+        )
+        assert manifest is not None
+        # Hashed independently of the writer's own helper -- this is the
+        # assertion doctor's corruption check ultimately rests on.
+        expected = hashlib.sha256(partition_path.read_bytes()).hexdigest()
+        assert manifest["sha256"] == expected
+
+    def test_manifest_tracks_a_growing_partition(self, tmp_parquet_root, partition_path):
+        """Adding a second date to the same year partition must update
+        both row_count and sha256 -- a stale manifest would make doctor
+        cry corruption on every normal ingest."""
+        def write(day, symbols):
+            upsert_partition(
+                partition_path,
+                _make_bars(day, symbols),
+                schema=BARS_DAILY_SCHEMA,
+                replace_dates={day},
+                manifest_root=tmp_parquet_root,
+                dataset="bars_daily",
+                exchange="NSE",
+                year=2026,
+            )
+            return read_manifest(
+                tmp_parquet_root, dataset="bars_daily", exchange="NSE", year=2026
+            )
+
+        first = write(DAY1, ["AAA", "BBB"])
+        second = write(DAY2, ["AAA", "BBB", "CCC"])
+
+        assert first is not None and second is not None
+        assert first["row_count"] == 2
+        assert second["row_count"] == 5
+        assert second["sha256"] != first["sha256"]
+        assert second["sha256"] == hashlib.sha256(partition_path.read_bytes()).hexdigest()
+
+    def test_rewriting_the_same_date_keeps_manifest_consistent(
+        self, tmp_parquet_root, partition_path
+    ):
+        """Re-ingesting a date with FEWER rows must shrink the recorded
+        count, not leave the old high-water mark behind."""
+        for symbols in (["AAA", "BBB", "CCC"], ["AAA"]):
+            upsert_partition(
+                partition_path,
+                _make_bars(DAY1, symbols),
+                schema=BARS_DAILY_SCHEMA,
+                replace_dates={DAY1},
+                manifest_root=tmp_parquet_root,
+                dataset="bars_daily",
+                exchange="NSE",
+                year=2026,
+            )
+
+        manifest = read_manifest(
+            tmp_parquet_root, dataset="bars_daily", exchange="NSE", year=2026
+        )
+        assert manifest is not None
+        assert manifest["row_count"] == 1
+        assert manifest["sha256"] == hashlib.sha256(partition_path.read_bytes()).hexdigest()
+
+    def test_no_manifest_written_when_not_requested(self, tmp_parquet_root, partition_path):
+        _upsert(partition_path, _make_bars(DAY1, ["AAA"]), DAY1)
+
+        assert read_manifest(
+            tmp_parquet_root, dataset="bars_daily", exchange="NSE", year=2026
+        ) is None
+
+    def test_manifest_root_without_dataset_raises(self, tmp_parquet_root, partition_path):
+        """A manifest that cannot name its own partition is unusable --
+        fail loudly rather than writing an anonymous sidecar."""
+        with pytest.raises(ValueError, match="requires dataset and year"):
+            upsert_partition(
+                partition_path,
+                _make_bars(DAY1, ["AAA"]),
+                schema=BARS_DAILY_SCHEMA,
+                replace_dates={DAY1},
+                manifest_root=tmp_parquet_root,
+                year=2026,
+            )
+
+
+class TestManifestPath:
+    def test_exchange_partitioned_dataset(self, tmp_parquet_root):
+        path = manifest_path(tmp_parquet_root, "bars_daily", "NSE", 2026)
+        expected = (
+            tmp_parquet_root / "_manifests" / "bars_daily" / "exchange=NSE" / "year=2026.json"
+        )
+        assert path == expected
+
+    def test_dataset_without_an_exchange_dimension(self, tmp_parquet_root):
+        """indices_daily is year-partitioned only -- the exchange= level
+        is absent rather than filled with a placeholder."""
+        path = manifest_path(tmp_parquet_root, "indices_daily", None, 2026)
+        assert path == tmp_parquet_root / "_manifests" / "indices_daily" / "year=2026.json"

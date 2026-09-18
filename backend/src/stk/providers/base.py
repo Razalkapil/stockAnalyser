@@ -255,16 +255,30 @@ class SecurityMasterProvider(ABC):
 
 
 class CalendarProvider(ABC):
-    """Source of the trading-holiday calendar."""
+    """Source of the trading-holiday calendar.
+
+    Fetch and parse are separate, exactly as on PriceProvider, so the
+    ingest layer can persist the raw response under data/raw/ BEFORE
+    anything interprets it (see stk.ingest.raw_store). A provider that
+    only exposed a combined fetch_holidays() would make the project's
+    "raw bytes are sacred" rule unsatisfiable for calendars.
+    """
 
     @abstractmethod
-    def fetch_holidays(self, year: int, segment: str = "CBM") -> list[HolidayRecord]:
-        """Raw holiday rows for a calendar year. Callers must intersect
-        with weekdays themselves -- see HolidayRecord's docstring."""
+    def fetch_holidays_artifact(self, year: int) -> RawArtifact:
+        """The raw, unparsed holiday response for a calendar year."""
 
     @abstractmethod
-    def trading_days(self, start: date, end: date, exchange: str) -> list[date]:
-        """All trading days (weekday, non-holiday) in [start, end]."""
+    def parse_holidays(self, artifact: RawArtifact, segment: str = "CM") -> list[HolidayRecord]:
+        """Holiday rows for one segment. Callers must intersect with
+        weekdays themselves -- see HolidayRecord's docstring."""
+
+    def fetch_holidays(self, year: int, segment: str = "CM") -> list[HolidayRecord]:
+        """Convenience composition for callers that do not need the raw
+        bytes (interactive probing, tests). The ingest path uses
+        fetch_holidays_artifact + parse_holidays so it can persist the
+        artifact in between."""
+        return self.parse_holidays(self.fetch_holidays_artifact(year), segment)
 
 
 class CorporateActionsProvider(ABC):

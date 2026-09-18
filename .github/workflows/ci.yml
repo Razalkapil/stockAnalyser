@@ -1,0 +1,55 @@
+# Lint, type-check and test on every push/PR.
+#
+# The default job MUST NOT touch the network: `pytest -m "not live"`
+# excludes the real-endpoint smoke tests, and stk.store.duck falls back
+# to reading SQLite dimensions through sqlite3 rather than downloading
+# DuckDB's sqlite_scanner extension. Endpoint drift is checked
+# deliberately via the manually-triggered `live` job below, never as a
+# blocking gate -- NSE/BSE being briefly unreachable is not a reason to
+# fail a PR that does not touch ingest.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --all-groups --frozen
+
+      - name: Lint
+        run: uv run ruff check backend/src tests scripts
+
+      - name: Type-check
+        run: uv run mypy backend/src/stk
+
+      - name: Architecture contracts
+        run: uv run lint-imports
+
+      - name: Test
+        run: uv run pytest -m "not live"
+
+  live-endpoints:
+    # Manual only: verifies the documented NSE/BSE endpoints are still
+    # reachable in their documented shape. See docs/data-sources.md.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --all-groups --frozen
+      - run: uv run pytest -m live

@@ -30,6 +30,10 @@ providers:
   calendar: nse_holiday_master
   corp_actions: nse_corp_actions
   fundamentals: [nse_filings, yfinance]   # ordered: authoritative first, approximate fallback
+  # yfinance is implemented but OFF. Being named above is not enough to
+  # reach it: providers.registry raises ConfigError unless this is true.
+  # See providers/yfinance/prices.py for what it cannot do.
+  enable_yfinance_fallback: false
 
 http:
   nse_archives:

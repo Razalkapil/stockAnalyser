@@ -254,10 +254,20 @@ def parse_subject(subject: str) -> ParseResult:
 
 
 class CorpActionIngestResult:
-    def __init__(self, fetched: int, upserted: int, unparsed: int) -> None:
+    def __init__(
+        self,
+        fetched: int,
+        upserted: int,
+        unparsed: int,
+        new_ex_dates: set[date] | None = None,
+    ) -> None:
         self.fetched = fetched
         self.upserted = upserted
         self.unparsed = unparsed
+        #: Ex-dates of rows this run actually INSERTED (not merely
+        #: re-saw). Non-empty means the adjusted price series is now
+        #: stale and must be rebuilt -- see ingest.adjustments.
+        self.new_ex_dates: set[date] = new_ex_dates or set()
 
 
 def _resolve_security_id(conn: sqlite3.Connection, *, exchange: str, symbol: str) -> int | None:
@@ -269,13 +279,16 @@ def _resolve_security_id(conn: sqlite3.Connection, *, exchange: str, symbol: str
 
 def _upsert_action(
     conn: sqlite3.Connection, raw: RawCorporateAction, *, fail_on_unparsed: bool
-) -> str:
+) -> tuple[str, bool]:
     """Parse raw.subject_raw and upsert one corporate_actions row keyed
     on (source, source_hash) -- re-ingesting an unchanged action is a
     no-op; NSE correcting a date or subject produces a NEW source_hash
     (a different, distinguishable row), never an in-place mutation.
 
-    Returns the parse_status recorded. Raises ParseError if
+    Returns (parse_status, inserted). ``inserted`` distinguishes a
+    genuinely new action from a re-seen one, which is what tells the
+    caller whether the adjusted price series needs rebuilding. Raises
+    ParseError if
     fail_on_unparsed is True and the subject matched nothing -- see
     this module's own top docstring for why an unparsed subject must
     never fall back to a silent no-op.
@@ -294,6 +307,7 @@ def _upsert_action(
     action = result.actions[0] if result.actions else None
     security_id = _resolve_security_id(conn, exchange=raw.exchange, symbol=raw.symbol)
 
+    changes_before = conn.total_changes
     conn.execute(
         """INSERT INTO corporate_actions
                (security_id, isin, symbol, exchange, ex_date, record_date, bc_start_date,
@@ -321,7 +335,10 @@ def _upsert_action(
             raw.captured_at.isoformat(),
         ),
     )
-    return result.status
+    # ON CONFLICT DO NOTHING means rowcount is unreliable across
+    # drivers; the connection's total_changes delta is not.
+    inserted = conn.total_changes > changes_before
+    return result.status, inserted
 
 
 def ingest_corporate_actions(
@@ -350,16 +367,22 @@ def ingest_corporate_actions(
 
             upserted = 0
             unparsed = 0
+            new_ex_dates: set[date] = set()
             for raw in raw_actions:
-                status = _upsert_action(conn, raw, fail_on_unparsed=fail_on_unparsed)
+                status, inserted = _upsert_action(
+                    conn, raw, fail_on_unparsed=fail_on_unparsed
+                )
                 upserted += 1
                 if status == "unparsed":
                     unparsed += 1
+                if inserted and raw.ex_date is not None:
+                    new_ex_dates.add(raw.ex_date)
 
             handle.rows_in = len(raw_actions)
             handle.rows_written = upserted
             handle.metrics["unparsed"] = unparsed
+            handle.metrics["new_ex_dates"] = len(new_ex_dates)
 
-        return CorpActionIngestResult(len(raw_actions), upserted, unparsed)
+        return CorpActionIngestResult(len(raw_actions), upserted, unparsed, new_ex_dates)
     finally:
         conn.close()

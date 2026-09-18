@@ -17,6 +17,7 @@ always safe and converges to the same on-disk state.
 
 from __future__ import annotations
 
+import sqlite3
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -25,6 +26,7 @@ import pyarrow as pa
 from stk.core.errors import DataNotPublished
 from stk.core.time import today_ist
 from stk.ingest.assertions import assert_bars_match_requested_date, assert_bars_sane
+from stk.ingest.calendar import is_trading_day
 from stk.ingest.jobs import JobSkipped, job_run
 from stk.ingest.raw_store import persist_artifact
 from stk.providers.base import CanonicalBar, PriceProvider
@@ -39,6 +41,58 @@ class IngestResult:
         self.business_date = business_date
         self.status = status  # success | skipped_holiday | degraded
         self.rows_written = rows_written
+
+
+def _identity_map(conn: sqlite3.Connection, exchange: str) -> dict[str, tuple[int, str | None]]:
+    """(symbol) -> (security_id, isin) for one exchange, read once per run.
+
+    Deliberately CURRENT listings only, not symbol_history: this fills
+    in identity for bars being ingested TODAY, and today's symbol is by
+    definition the current one.
+
+    This is a convenience, not the source of truth. Historical
+    partitions are never rewritten to add identity -- a security_id
+    frozen into parquet would be stuck at whatever the master knew on
+    rewrite day, and would get renames wrong forever after. The
+    authoritative resolution is the query-time join in
+    store/queries/prices.sql's `bars_with_resolved_identity`, which
+    COALESCEs the source-reported value with the dimension join and so
+    agrees with whatever is stored here.
+    """
+    rows = conn.execute(
+        """SELECT l.symbol AS symbol, l.security_id AS security_id, s.isin AS isin
+           FROM listings l JOIN securities s ON s.security_id = l.security_id
+           WHERE l.exchange = ?""",
+        (exchange,),
+    ).fetchall()
+    return {str(r["symbol"]): (int(r["security_id"]), r["isin"]) for r in rows}
+
+
+def _enrich_identity(
+    bars: list[CanonicalBar], identity: dict[str, tuple[int, str | None]]
+) -> int:
+    """Fill security_id/isin on bars that did not carry them.
+
+    Never OVERWRITES a value the source itself reported: the exchange's
+    own identification of its own row outranks our reconstruction of
+    it. Returns how many bars were enriched.
+    """
+    enriched = 0
+    for bar in bars:
+        match = identity.get(bar.symbol)
+        if match is None:
+            continue
+        security_id, isin = match
+        changed = False
+        if bar.security_id is None:
+            bar.security_id = security_id
+            changed = True
+        if bar.isin is None and isin:
+            bar.isin = isin
+            changed = True
+        if changed:
+            enriched += 1
+    return enriched
 
 
 def _bars_to_table(bars: list[CanonicalBar]) -> pa.Table:
@@ -104,6 +158,18 @@ def _ingest_prices_for_date(
     conn = connect(sqlite_path)
     try:
         with job_run(conn, job_name, business_date=business_date) as handle:
+            # Calendar check BEFORE any fetch. Tri-state on purpose:
+            # a known non-trading day skips without a request, but an
+            # UNKNOWN date (no calendar row) proceeds to the network.
+            # Collapsing unknown into "holiday" would silently skip a
+            # real trading day the moment the calendar fell behind --
+            # exactly the silent no-op this project forbids. The
+            # provider's own DataNotPublished remains the backstop.
+            if is_trading_day(conn, business_date, exchange) is False:
+                raise JobSkipped(
+                    f"{business_date.isoformat()} is a known non-trading day for {exchange}"
+                )
+
             try:
                 artifact = provider.fetch_eod(business_date, exchange)
             except DataNotPublished as exc:
@@ -115,6 +181,13 @@ def _ingest_prices_for_date(
             context = f"{exchange} {business_date.isoformat()}"
             assert_bars_sane(bars, context=context)
             assert_bars_match_requested_date(bars, business_date, context=context)
+
+            # Cheap identity fill for freshly-parsed bars only. An empty
+            # securities master is a normal early state, not an error --
+            # the bars land with nulls and the query-time join resolves
+            # them later, once `stk ingest master` has run.
+            enriched = _enrich_identity(bars, _identity_map(conn, exchange))
+            handle.metrics["bars_identity_enriched"] = enriched
 
             table = _bars_to_table(bars)
             partition_path = bars_daily_partition(parquet_root, exchange, business_date.year)
@@ -128,7 +201,14 @@ def _ingest_prices_for_date(
             # each day's actual row count. handle.rows_written must be
             # THIS ingest's row count, i.e. len(bars).
             partition_total_rows = upsert_partition(
-                partition_path, table, schema=BARS_DAILY_SCHEMA, replace_dates={business_date}
+                partition_path,
+                table,
+                schema=BARS_DAILY_SCHEMA,
+                replace_dates={business_date},
+                manifest_root=parquet_root,
+                dataset="bars_daily",
+                exchange=exchange,
+                year=business_date.year,
             )
 
             handle.rows_in = len(bars)

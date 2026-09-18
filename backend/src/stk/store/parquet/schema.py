@@ -51,6 +51,29 @@ BARS_DAILY_SCHEMA = pa.schema(
     ]
 )
 
+# Back-adjusted bars: bars_daily with every price multiplied by the
+# cumulative price factor of all corporate actions AFTER that bar, and
+# every quantity by the cumulative volume factor. DERIVED and fully
+# rebuildable -- bars_daily is never rewritten.
+#
+# THE RULE (build plan, restated because it is easy to get backwards):
+# any number shown to a user for "what did I pay" comes from
+# bars_daily; any number fed to a signal, a backtest or a chart comes
+# from bars_daily_adjusted.
+#
+# The two factor columns ride along on every row so an adjusted bar is
+# self-describing: the unadjusted price is always recoverable by
+# dividing, and which corporate actions were applied is auditable
+# without re-deriving the timeline. Two float64s per row is a cheap
+# price for that.
+BARS_DAILY_ADJUSTED_SCHEMA = pa.schema(
+    [
+        *BARS_DAILY_SCHEMA,
+        pa.field("cumulative_price_factor", pa.float64(), nullable=False),
+        pa.field("cumulative_volume_factor", pa.float64(), nullable=False),
+    ]
+)
+
 # Adjustment factors: (exchange, symbol, effective_date) -> cumulative
 # price/volume multipliers, derived from corporate_actions. Small table
 # (thousands, not millions, of rows) -- not year-partitioned.
@@ -80,5 +103,40 @@ LIQUIDITY_DAILY_SCHEMA = pa.schema(
         pa.field("avg_price_20d", pa.float64(), nullable=True),
         pa.field("listed_days", pa.int32(), nullable=False),
         pa.field("is_liquid", pa.bool_(), nullable=False),
+    ]
+)
+
+
+# Index OHLC, one row per (index_name, date). Year-partitioned only --
+# there is no exchange dimension: this comes from NSE's index archive,
+# and BSE index data is a documented gap (docs/data-sources.md).
+#
+# `index_name` is what the file literally said; `index_code` is the
+# canonical identity. Those differ for a reason that matters: NSE has
+# renamed the benchmark twice inside the covered range ("S&P CNX
+# Nifty" -> "CNX Nifty" -> "Nifty 50"), so a benchmark series keyed on
+# the printed name silently breaks into three disconnected fragments.
+#
+# `turnover` is RUPEES, converted from the file's "Rs. Cr." at the
+# parser boundary -- the same discipline as the lakhs rule for
+# sec_bhavdata. The word "crore" never survives into the canonical layer.
+INDICES_DAILY_SCHEMA = pa.schema(
+    [
+        pa.field("date", pa.date32(), nullable=False),
+        pa.field("index_name", pa.string(), nullable=False),
+        pa.field("index_code", pa.dictionary(pa.int8(), pa.string()), nullable=True),
+        pa.field("open", pa.float64(), nullable=True),
+        pa.field("high", pa.float64(), nullable=True),
+        pa.field("low", pa.float64(), nullable=True),
+        pa.field("close", pa.float64(), nullable=False),
+        pa.field("points_change", pa.float64(), nullable=True),
+        pa.field("pct_change", pa.float64(), nullable=True),
+        pa.field("volume", pa.int64(), nullable=True),
+        pa.field("turnover", pa.float64(), nullable=True),  # rupees, always
+        pa.field("pe", pa.float64(), nullable=True),
+        pa.field("pb", pa.float64(), nullable=True),
+        pa.field("div_yield", pa.float64(), nullable=True),
+        pa.field("source", pa.dictionary(pa.int8(), pa.string()), nullable=False),
+        pa.field("ingested_at", pa.timestamp("us", tz="UTC"), nullable=False),
     ]
 )

@@ -234,3 +234,63 @@ class TestIngestNsePricesForDate:
             conn.close()
         assert row["status"] == "failed"
         assert row["error_type"] == "ContentValidationError"
+
+
+class TestIdentityEnrichment:
+    """Freshly-ingested bars get security_id/isin filled in from the
+    securities master when one exists -- and land with nulls, not an
+    error, when it does not. See ingest/daily.py::_identity_map for why
+    historical partitions are deliberately NOT rewritten."""
+
+    @respx.mock
+    def test_bars_land_with_nulls_when_the_master_is_empty(self, data_dirs):
+        sqlite_path, parquet_root, raw_root = data_dirs
+        text = (FIXTURES / "nse" / "sec_bhavdata_full_17092026.csv").read_text()
+        respx.get(URL).mock(
+            return_value=httpx.Response(200, text=text, headers={"content-type": "text/csv"})
+        )
+
+        result = ingest_nse_prices_for_date(
+            BUSINESS_DATE, sqlite_path=sqlite_path, parquet_root=parquet_root, raw_root=raw_root
+        )
+
+        assert result.status == "success", "an empty master is a normal early state"
+        rows = pq.read_table(bars_daily_partition(parquet_root, "NSE", 2026)).to_pylist()
+        assert all(r["security_id"] is None for r in rows)
+
+    @respx.mock
+    def test_bars_are_enriched_when_the_master_is_populated(self, data_dirs):
+        sqlite_path, parquet_root, raw_root = data_dirs
+        text = (FIXTURES / "nse" / "sec_bhavdata_full_17092026.csv").read_text()
+        symbol = text.splitlines()[1].split(",")[0].strip()
+
+        conn = connect(sqlite_path)
+        try:
+            conn.execute(
+                "INSERT INTO securities (isin, canonical_symbol, company_name, "
+                "primary_exchange, status, first_seen_on, last_seen_on, updated_at) "
+                f"VALUES ('INE000A01001', '{symbol}', 'Example', 'NSE', 'ACTIVE', "
+                "'2020-01-01', '2026-09-17', '2026-09-17T00:00:00+00:00')"
+            )
+            conn.execute(
+                "INSERT INTO listings (security_id, exchange, symbol, series, status, "
+                f"source, updated_at) VALUES (1, 'NSE', '{symbol}', 'EQ', 'ACTIVE', "
+                "'test', '2026-09-17T00:00:00+00:00')"
+            )
+        finally:
+            conn.close()
+
+        respx.get(URL).mock(
+            return_value=httpx.Response(200, text=text, headers={"content-type": "text/csv"})
+        )
+        ingest_nse_prices_for_date(
+            BUSINESS_DATE, sqlite_path=sqlite_path, parquet_root=parquet_root, raw_root=raw_root
+        )
+
+        rows = pq.read_table(bars_daily_partition(parquet_root, "NSE", 2026)).to_pylist()
+        enriched = [r for r in rows if r["symbol"] == symbol]
+        assert enriched, f"expected a bar for {symbol}"
+        assert enriched[0]["security_id"] == 1
+        assert enriched[0]["isin"] == "INE000A01001"
+        # Unmatched symbols stay null rather than being guessed at.
+        assert any(r["security_id"] is None for r in rows)

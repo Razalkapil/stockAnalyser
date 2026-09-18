@@ -22,6 +22,7 @@ dev = [
     "types-pyyaml",
     "freezegun>=1.5",
     "hypothesis>=6.122",
+    "import-linter>=2.0",
 ]
 
 [tool.ruff]
@@ -56,7 +57,8 @@ disallow_untyped_defs = true
 disallow_incomplete_defs = true
 
 [[tool.mypy.overrides]]
-module = ["pyarrow.*"]
+# Neither ships type stubs or a py.typed marker.
+module = ["pyarrow.*", "yfinance.*", "curl_cffi.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
@@ -68,3 +70,65 @@ addopts = "-m 'not live' --strict-markers"
 
 [tool.coverage.run]
 source = ["backend/src/stk"]
+
+# Architecture rules, enforced by `uv run lint-imports` (and in CI).
+#
+# Contract 1 is the load-bearing one: it is the machine-checked form of
+# CLAUDE.md's "never let ingest/domain/API code import a concrete
+# provider class directly -- go through stk.providers.registry". That
+# rule is what makes the phase-8 broker swap a config change rather
+# than a refactor, and convention alone had already been the only thing
+# enforcing it.
+[tool.importlinter]
+root_packages = ["stk"]
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Concrete providers are reachable only through the registry"
+type = "forbidden"
+# Direct imports only. Reaching a concrete provider *through*
+# stk.providers.registry is the sanctioned path -- the registry's whole
+# job is to be the single module that knows concrete classes -- so an
+# indirect chain via the registry must not trip this contract.
+allow_indirect_imports = "true"
+source_modules = ["stk.ingest", "stk.domain", "stk.cli", "stk.store"]
+forbidden_modules = [
+    "stk.providers.nse",
+    "stk.providers.bse",
+    "stk.providers.yfinance",
+    "stk.providers.broker",
+]
+
+[[tool.importlinter.contracts]]
+name = "domain/ is pure: no I/O, no storage, no providers"
+type = "forbidden"
+allow_indirect_imports = "true"
+source_modules = ["stk.domain"]
+forbidden_modules = [
+    "httpx",
+    "duckdb",
+    "pyarrow",
+    "sqlite3",
+    "curl_cffi",
+    "yfinance",
+    "stk.store",
+    "stk.providers",
+    "stk.ingest",
+    "stk.config",
+]
+
+# stk.providers is deliberately absent from this contract: providers/
+# imports stk.ingest.normalise (the shared bhavcopy parsers) while
+# ingest/ imports stk.providers.base + registry, so the two are
+# mutually dependent by design and cannot be strictly layered.
+[[tool.importlinter.contracts]]
+name = "Layering: cli > ingest > store > config > domain > core"
+type = "layers"
+layers = [
+    "stk.cli",
+    "stk.ingest",
+    "stk.store",
+    "stk.config",
+    "stk.domain",
+    "stk.core",
+]

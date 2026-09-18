@@ -11,14 +11,19 @@ mapping here, and nothing in ingest/, domain/, or cli/ changes.
 from __future__ import annotations
 
 from datetime import date
+from typing import TYPE_CHECKING
 
 from stk.core.errors import ConfigError
 from stk.providers.base import (
+    CalendarProvider,
     CorporateActionsProvider,
     FundamentalsProvider,
     PriceProvider,
     SecurityMasterProvider,
 )
+
+if TYPE_CHECKING:
+    from stk.providers.nse.indices import NseIndicesProvider
 
 # Confirmed by the phase-0 history spike (docs/adr/0003): sec_bhavdata_full
 # is available from this date onward and is preferred over the legacy
@@ -48,6 +53,29 @@ def get_price_provider(name: str) -> PriceProvider:
         from stk.providers.bse.prices import BseUdiffProvider  # noqa: PLC0415
 
         return BseUdiffProvider()
+
+    if name == "nse_udiff":
+        from stk.providers.nse.udiff import NseUdiffProvider  # noqa: PLC0415
+
+        return NseUdiffProvider()
+
+    if name == "yfinance":
+        # Feature-flagged at construction, not at call sites. A caller
+        # that forgot to check cannot accidentally put approximate,
+        # survivorship-biased prices into a backtest -- see
+        # providers/yfinance/prices.py's docstring.
+        from stk.config.settings import get_settings  # noqa: PLC0415
+
+        if not get_settings().providers.enable_yfinance_fallback:
+            raise ConfigError(
+                "the yfinance provider is disabled. It is approximate, rate-limited and "
+                "survivorship-biased, and is never the critical path. Set "
+                "providers.enable_yfinance_fallback: true to use it deliberately."
+            )
+
+        from stk.providers.yfinance.prices import YFinancePriceProvider  # noqa: PLC0415
+
+        return YFinancePriceProvider()
 
     if name == "bse_legacy_bhavcopy":
         from stk.providers.bse.legacy_prices import BseLegacyBhavcopyProvider  # noqa: PLC0415
@@ -109,6 +137,34 @@ def get_security_master_provider(name: str) -> SecurityMasterProvider:
         return BseSecurityMasterProvider()
 
     raise ConfigError(f"unknown security master provider: {name!r}")
+
+
+def get_calendar_provider(name: str) -> CalendarProvider:
+    """Construct a CalendarProvider by its config name (see
+    providers.calendar in defaults.yaml)."""
+    if name == "nse_holiday_master":
+        from stk.providers.nse.calendar import NseHolidayMasterProvider  # noqa: PLC0415
+
+        return NseHolidayMasterProvider()
+
+    raise ConfigError(f"unknown calendar provider: {name!r}")
+
+
+def get_indices_provider(name: str = "nse_indices") -> NseIndicesProvider:
+    """Construct the index (benchmark) provider by name.
+
+    Not behind an ABC yet: there is exactly one implementation and no
+    second shape to generalise from, and inventing an interface from a
+    single example is how you get an interface that fits only that
+    example. It still goes through the registry so ingest/ never
+    imports the concrete module.
+    """
+    if name == "nse_indices":
+        from stk.providers.nse.indices import NseIndicesProvider  # noqa: PLC0415
+
+        return NseIndicesProvider()
+
+    raise ConfigError(f"unknown indices provider: {name!r}")
 
 
 def get_corporate_actions_provider(name: str) -> CorporateActionsProvider:

@@ -22,6 +22,8 @@ from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
 
+from pydantic import BaseModel
+
 from stk.core.errors import ParseError
 from stk.core.time import parse_ddmmmyyyy
 from stk.providers.base import CanonicalBar
@@ -221,3 +223,124 @@ def parse_udiff(text: str, *, exchange: str, source: str) -> Iterator[CanonicalB
 def _parse_iso_date(s: str) -> date:
     """UDiFF dates are ISO 'YYYY-MM-DD' -- explicit format, never inferred."""
     return datetime.strptime(s.strip(), "%Y-%m-%d").date()
+
+
+_CRORE = Decimal(10_000_000)
+
+#: NSE has renamed its benchmark twice inside the covered range. Keying
+#: a benchmark series on the printed name would silently split it into
+#: three disconnected fragments at 2013 and 2016 -- which, in a
+#: 15-year backtest, looks like the index simply ceasing to exist.
+#: Verified by direct probe 2026-09-19:
+#:   "S&P CNX Nifty"  .. through early 2013
+#:   "CNX Nifty"      .. mid-2013 through 2015
+#:   "Nifty 50"       .. 2016 onward
+INDEX_CODE_BY_NAME = {
+    "s&p cnx nifty": "NIFTY_50",
+    "cnx nifty": "NIFTY_50",
+    "nifty 50": "NIFTY_50",
+    "s&p cnx nifty junior": "NIFTY_NEXT_50",
+    "cnx nifty junior": "NIFTY_NEXT_50",
+    "nifty next 50": "NIFTY_NEXT_50",
+    "cnx bank": "NIFTY_BANK",
+    "bank nifty": "NIFTY_BANK",
+    "nifty bank": "NIFTY_BANK",
+    "cnx 500": "NIFTY_500",
+    "nifty 500": "NIFTY_500",
+    "cnx it": "NIFTY_IT",
+    "nifty it": "NIFTY_IT",
+}
+
+
+def canonical_index_code(index_name: str) -> str | None:
+    """Stable identity for an index whose printed name changes over time.
+
+    Returns None for indices we have no canonical code for -- that is
+    fine and expected (the file carries ~100 indices and only a handful
+    matter as benchmarks). None means "no canonical identity claimed",
+    never a guess.
+    """
+    return INDEX_CODE_BY_NAME.get(index_name.strip().lower())
+
+
+class IndexBar(BaseModel):
+    """One index's OHLC for one date, canonicalised."""
+
+    date: date
+    index_name: str
+    index_code: str | None
+    open: Decimal | None
+    high: Decimal | None
+    low: Decimal | None
+    close: Decimal
+    points_change: Decimal | None
+    pct_change: Decimal | None
+    volume: int | None
+    turnover: Decimal | None  # rupees
+    pe: Decimal | None
+    pb: Decimal | None
+    div_yield: Decimal | None
+    source: str
+
+
+def parse_ind_close_all(text: str, *, source: str = "nse_indices") -> list[IndexBar]:
+    """Parse NSE's ind_close_all_DDMMYYYY.csv into canonical index bars.
+
+    Two conversions happen here and nowhere else:
+      - "Turnover (Rs. Cr.)" is multiplied by 10,000,000 so the
+        canonical layer only ever holds rupees.
+      - The printed index name is mapped to a stable index_code where
+        one is known (see canonical_index_code).
+
+    Rows whose Closing Index Value is '-' are SKIPPED, not stored with a
+    null close: the file carries derived series (e.g. "Nifty50 Dividend
+    Points") that legitimately have no OHLC, and a row with no close is
+    not a price bar at all.
+    """
+    reader = csv.DictReader(io.StringIO(text), skipinitialspace=True)
+    if reader.fieldnames is None:
+        raise ParseError("ind_close_all CSV has no header row")
+    reader.fieldnames = [name.strip() for name in reader.fieldnames]
+    if "Index Name" not in reader.fieldnames:
+        raise ParseError(
+            f"ind_close_all CSV missing 'Index Name' column; got {reader.fieldnames}"
+        )
+
+    bars: list[IndexBar] = []
+    for row in reader:
+        name = (row.get("Index Name") or "").strip()
+        if not name:
+            continue
+        close = _decimal_or_none(row.get("Closing Index Value") or "")
+        if close is None:
+            continue
+
+        raw_date = (row.get("Index Date") or "").strip()
+        try:
+            # Explicit format string, never dateutil inference.
+            bar_date = datetime.strptime(raw_date, "%d-%m-%Y").date()
+        except ValueError as exc:
+            raise ParseError(f"could not parse index date {raw_date!r}: {exc}") from exc
+
+        turnover_crore = _decimal_or_none(row.get("Turnover (Rs. Cr.)") or "")
+        bars.append(
+            IndexBar(
+                date=bar_date,
+                index_name=name,
+                index_code=canonical_index_code(name),
+                open=_decimal_or_none(row.get("Open Index Value") or ""),
+                high=_decimal_or_none(row.get("High Index Value") or ""),
+                low=_decimal_or_none(row.get("Low Index Value") or ""),
+                close=close,
+                points_change=_decimal_or_none(row.get("Points Change") or ""),
+                pct_change=_decimal_or_none(row.get("Change(%)") or ""),
+                volume=_int_or_none(row.get("Volume") or ""),
+                # "crore" never survives past this line.
+                turnover=turnover_crore * _CRORE if turnover_crore is not None else None,
+                pe=_decimal_or_none(row.get("P/E") or ""),
+                pb=_decimal_or_none(row.get("P/B") or ""),
+                div_yield=_decimal_or_none(row.get("Div Yield") or ""),
+                source=source,
+            )
+        )
+    return bars

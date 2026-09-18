@@ -32,15 +32,14 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import date
-from glob import glob as glob_files
 from pathlib import Path
 
-import duckdb
 import pyarrow as pa
 
 from stk.config.universe import UniverseConfig
 from stk.domain.universe import LiquidityMetrics, LiquidityThresholds, is_liquid
-from stk.store.parquet.layout import bars_daily_partition, liquidity_daily_partition
+from stk.store import duck
+from stk.store.parquet.layout import liquidity_daily_partition
 from stk.store.parquet.schema import LIQUIDITY_DAILY_SCHEMA
 from stk.store.parquet.writer import upsert_partition
 
@@ -55,18 +54,6 @@ class LiquidityResult:
         self.symbols_liquid = symbols_liquid
 
 
-def _bars_glob(parquet_root: Path, exchange: str) -> str:
-    """A glob over every year partition ingested so far for one exchange.
-
-    Deliberately not narrowed to a couple of recent years -- listed_days
-    needs the symbol's FULL history, and the whole dataset is small
-    (~150-200MB for 15 years, per docs/BUILD_PLAN.md's own sizing), so
-    scanning it all is cheap relative to correctness.
-    """
-    exchange_dir = bars_daily_partition(parquet_root, exchange, 0).parent.parent
-    return str(exchange_dir / "year=*" / "data.parquet")
-
-
 def compute_liquidity_metrics(
     parquet_root: Path,
     *,
@@ -77,56 +64,29 @@ def compute_liquidity_metrics(
     """Compute one row per symbol with a bar on or before as_of_date,
     matching LIQUIDITY_DAILY_SCHEMA (is_liquid filled in by the caller
     after applying domain.universe.is_liquid, not computed in SQL).
+
+    Reads bars_daily through the store.duck view layer rather than
+    globbing parquet paths -- the whole dataset is scanned deliberately
+    (listed_days needs each symbol's FULL history, and 15 years is only
+    ~150-200MB), so narrowing to recent years would trade correctness
+    for an optimisation that is not needed.
+
+    No bars ingested yet returns an empty table, not an error: "nothing
+    to compute from yet" is a normal early-pipeline state for a fully
+    rebuildable derived feature.
     """
-    glob = _bars_glob(parquet_root, exchange)
-    if not glob_files(glob):
-        # No bars ingested yet for this exchange -- an empty features
-        # table, not an error: the whole point of a fully-rebuildable
-        # derived feature is that "nothing to compute from yet" is a
-        # normal, early-pipeline state.
+    with duck.connect(parquet_root) as session:
+        result = session.sql(
+            "liquidity_metrics", [exchange, as_of_date.isoformat(), lookback_days]
+        )
+        rows = result.fetchall()
+        columns = [d[0] for d in result.description] if result.description else []
+
+    if not rows:
         return LIQUIDITY_DAILY_SCHEMA.empty_table().select(
             ["symbol", "median_turnover_20d", "median_volume_20d", "median_trades_20d",
              "median_delivery_pct_20d", "avg_price_20d", "listed_days"]
         )
-
-    con = duckdb.connect(":memory:")
-    try:
-        rows = con.execute(
-            """
-            WITH scanned AS (
-                SELECT * FROM read_parquet(?, hive_partitioning=true)
-                WHERE exchange = ? AND date <= ?
-            ),
-            ranked AS (
-                SELECT *, row_number() OVER (PARTITION BY symbol ORDER BY date DESC) AS rn
-                FROM scanned
-            ),
-            windowed AS (
-                SELECT * FROM ranked WHERE rn <= ?
-            ),
-            listed AS (
-                SELECT symbol, COUNT(DISTINCT date) AS listed_days
-                FROM scanned
-                GROUP BY symbol
-            )
-            SELECT
-                w.symbol AS symbol,
-                median(w.turnover) AS median_turnover_20d,
-                median(w.volume) AS median_volume_20d,
-                median(w.trades) AS median_trades_20d,
-                median(w.delivery_pct) AS median_delivery_pct_20d,
-                avg(w.close) AS avg_price_20d,
-                l.listed_days AS listed_days
-            FROM windowed w
-            JOIN listed l USING (symbol)
-            GROUP BY w.symbol, l.listed_days
-            ORDER BY w.symbol
-            """,
-            [glob, exchange, as_of_date.isoformat(), lookback_days],
-        ).fetchall()
-        columns = [d[0] for d in con.description] if con.description else []
-    finally:
-        con.close()
 
     return pa.Table.from_pylist([dict(zip(columns, row, strict=True)) for row in rows])
 
@@ -232,7 +192,14 @@ def compute_liquidity_for_date(
 
     partition_path = liquidity_daily_partition(parquet_root, exchange, as_of_date.year)
     upsert_partition(
-        partition_path, table, schema=LIQUIDITY_DAILY_SCHEMA, replace_dates={as_of_date}
+        partition_path,
+        table,
+        schema=LIQUIDITY_DAILY_SCHEMA,
+        replace_dates={as_of_date},
+        manifest_root=parquet_root,
+        dataset="features/liquidity_daily",
+        exchange=exchange,
+        year=as_of_date.year,
     )
 
     conn = connect(sqlite_path)

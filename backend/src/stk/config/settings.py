@@ -67,6 +67,12 @@ class ProvidersConfig(BaseModel):
     calendar: str = "nse_holiday_master"
     corp_actions: str = "nse_corp_actions"
     fundamentals: list[str] = Field(default_factory=lambda: ["nse_filings", "yfinance"])
+    #: yfinance is approximate, rate-limited, survivorship-biased and
+    #: unofficial. It stays unreachable unless someone turns it on
+    #: deliberately -- the registry raises ConfigError otherwise, so it
+    #: cannot drift onto the critical path by being named in a config
+    #: list somewhere.
+    enable_yfinance_fallback: bool = False
 
 
 class HttpEndpointConfig(BaseModel):
