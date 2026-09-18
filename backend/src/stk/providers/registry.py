@@ -13,7 +13,12 @@ from __future__ import annotations
 from datetime import date
 
 from stk.core.errors import ConfigError
-from stk.providers.base import CorporateActionsProvider, PriceProvider, SecurityMasterProvider
+from stk.providers.base import (
+    CorporateActionsProvider,
+    FundamentalsProvider,
+    PriceProvider,
+    SecurityMasterProvider,
+)
 
 # Confirmed by the phase-0 history spike (docs/adr/0003): sec_bhavdata_full
 # is available from this date onward and is preferred over the legacy
@@ -115,3 +120,14 @@ def get_corporate_actions_provider(name: str) -> CorporateActionsProvider:
         return NseCorporateActionsProvider()
 
     raise ConfigError(f"unknown corporate actions provider: {name!r}")
+
+
+def get_fundamentals_provider(name: str) -> FundamentalsProvider:
+    """Construct a FundamentalsProvider by its config name (see
+    providers.fundamentals in defaults.yaml)."""
+    if name == "nse_filings":
+        from stk.providers.nse.fundamentals import NseFundamentalsProvider  # noqa: PLC0415
+
+        return NseFundamentalsProvider()
+
+    raise ConfigError(f"unknown fundamentals provider: {name!r}")

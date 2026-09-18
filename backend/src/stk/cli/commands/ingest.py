@@ -1,9 +1,8 @@
 """`stk ingest` -- nightly and on-demand ingest commands.
 
-`daily` (NSE + BSE prices) is the nightly path. `master` and
-`corpactions` are on-demand/weekly per the build plan, not yet wired
-into `daily`. Fundamentals follow the same orchestration pattern once
-its provider adapter lands.
+`daily` (NSE + BSE prices) is the nightly path. `master`, `corpactions`
+and `fundamentals` are on-demand/weekly per the build plan, not yet
+wired into `daily`.
 """
 
 from __future__ import annotations
@@ -23,8 +22,10 @@ from stk.ingest.daily import (
     ingest_nse_prices_for_date,
     resolve_business_date,
 )
+from stk.ingest.fundamentals import ingest_fundamentals_for_security
 from stk.ingest.liquidity import compute_liquidity_for_date
 from stk.ingest.master import ingest_security_master
+from stk.providers.base import Period, SecurityRef
 
 app = typer.Typer(help="Nightly data ingest.")
 
@@ -174,3 +175,29 @@ def liquidity(
             f"{result.symbols_liquid}/{result.symbols_evaluated} symbols liquid",
             fg="green",
         )
+
+
+@app.command("fundamentals")
+def fundamentals(
+    symbol: str = typer.Argument(..., help="NSE trading symbol, e.g. RELIANCE"),
+    isin: str = typer.Option(..., "--isin", help="Security ISIN (needed for the fetch and upsert)"),
+) -> None:
+    """Fetch one security's recent quarterly filings (metadata only --
+    see stk.providers.nse.fundamentals's module docstring for why this
+    is not parsed financial-statement line items) and upsert into
+    fundamentals_snapshots.
+
+    Per-security, not a full-market sweep -- see ingest.fundamentals's
+    module docstring for why.
+    """
+    settings = get_settings()
+    security = SecurityRef(isin=isin, symbol=symbol, exchange="NSE")
+    try:
+        result = ingest_fundamentals_for_security(
+            security, sqlite_path=settings.paths.sqlite, period_type=Period.QUARTERLY
+        )
+    except (ProviderError, IngestAssertionError) as exc:
+        typer.secho(f"FAILED: {exc}", fg="red", bold=True)
+        raise typer.Exit(code=1) from exc
+
+    typer.secho(f"OK: {result.upserted}/{result.fetched} filings upserted", fg="green")

@@ -8,16 +8,23 @@ from datetime import date
 import pytest
 
 from stk.core.errors import ConfigError
-from stk.providers.base import CorporateActionsProvider, PriceProvider, SecurityMasterProvider
+from stk.providers.base import (
+    CorporateActionsProvider,
+    FundamentalsProvider,
+    PriceProvider,
+    SecurityMasterProvider,
+)
 from stk.providers.bse.legacy_prices import BseLegacyBhavcopyProvider
 from stk.providers.bse.master import BseSecurityMasterProvider
 from stk.providers.bse.prices import BseUdiffProvider
 from stk.providers.nse.corpactions import NseCorporateActionsProvider
+from stk.providers.nse.fundamentals import NseFundamentalsProvider
 from stk.providers.nse.master import NseSecurityMasterProvider
 from stk.providers.nse.prices import NseSecBhavdataProvider
 from stk.providers.registry import (
     get_bse_price_provider_for_date,
     get_corporate_actions_provider,
+    get_fundamentals_provider,
     get_price_provider,
     get_security_master_provider,
 )
@@ -79,3 +86,14 @@ class TestGetCorporateActionsProvider:
     def test_unknown_name_raises_config_error(self):
         with pytest.raises(ConfigError, match="unknown corporate actions provider"):
             get_corporate_actions_provider("not_a_real_provider")
+
+
+class TestGetFundamentalsProvider:
+    def test_nse_filings_returns_correct_type(self):
+        provider = get_fundamentals_provider("nse_filings")
+        assert isinstance(provider, NseFundamentalsProvider)
+        assert isinstance(provider, FundamentalsProvider)
+
+    def test_unknown_name_raises_config_error(self):
+        with pytest.raises(ConfigError, match="unknown fundamentals provider"):
+            get_fundamentals_provider("not_a_real_provider")
