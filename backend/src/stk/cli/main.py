@@ -8,13 +8,14 @@ from __future__ import annotations
 
 import typer
 
-from stk.cli.commands import db, doctor, ingest
+from stk.cli.commands import backfill, db, doctor, ingest
 from stk.config.settings import get_settings
 from stk.core.logging import configure_logging
 
 app = typer.Typer(help="stk -- Indian stock suggester + virtual playground.", no_args_is_help=True)
 app.add_typer(db.app, name="db")
 app.add_typer(ingest.app, name="ingest")
+app.add_typer(backfill.app, name="backfill")
 app.add_typer(doctor.app)
 
 

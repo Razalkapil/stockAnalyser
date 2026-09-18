@@ -23,7 +23,7 @@ import pyarrow as pa
 
 from stk.core.errors import DataNotPublished
 from stk.core.time import today_ist
-from stk.ingest.assertions import assert_bars_sane
+from stk.ingest.assertions import assert_bars_match_requested_date, assert_bars_sane
 from stk.ingest.jobs import JobSkipped, job_run
 from stk.ingest.raw_store import persist_artifact
 from stk.providers.base import CanonicalBar
@@ -91,13 +91,14 @@ def ingest_nse_prices_for_date(
     """Ingest one day of NSE prices end-to-end: fetch, validate, persist
     raw, parse, sanity-check, and atomically write the year partition.
 
-    Safe to call repeatedly for the same date (see module docstring).
+    Source (sec_bhavdata_full vs the legacy pre-2019-09-30 archive) is
+    selected automatically by date -- see
+    providers.registry.get_nse_price_provider_for_date. Safe to call
+    repeatedly for the same date (see module docstring).
     """
-    # Lazy import: avoids a module-level dependency edge from the
-    # generic orchestrator onto one specific provider.
-    from stk.providers.nse.prices import NseSecBhavdataProvider  # noqa: PLC0415
+    from stk.providers.registry import get_nse_price_provider_for_date  # noqa: PLC0415
 
-    provider = NseSecBhavdataProvider()
+    provider = get_nse_price_provider_for_date(business_date)
     conn = connect(sqlite_path)
     try:
         # Everything -- including the fetch itself -- happens inside ONE
@@ -115,16 +116,28 @@ def ingest_nse_prices_for_date(
             persist_artifact(raw_root, conn, artifact)
 
             bars = list(provider.parse_eod(artifact))
-            assert_bars_sane(bars, context=f"NSE {business_date.isoformat()}")
+            context = f"NSE {business_date.isoformat()}"
+            assert_bars_sane(bars, context=context)
+            assert_bars_match_requested_date(bars, business_date, context=context)
 
             table = _bars_to_table(bars)
             partition_path = bars_daily_partition(parquet_root, "NSE", business_date.year)
-            rows_written = upsert_partition(
+            # upsert_partition returns the CUMULATIVE row count of the
+            # resulting partition file (all dates in that year, not just
+            # this one) -- that is the right thing for it to return (its
+            # own docstring says so), but it is the wrong number to
+            # report as "rows written for this date". A live backfill
+            # run surfaced this: reported counts climbed across
+            # consecutive days in the same year instead of reflecting
+            # each day's actual row count. handle.rows_written must be
+            # THIS ingest's row count, i.e. len(bars).
+            partition_total_rows = upsert_partition(
                 partition_path, table, schema=BARS_DAILY_SCHEMA, replace_dates={business_date}
             )
 
             handle.rows_in = len(bars)
-            handle.rows_written = rows_written
+            handle.rows_written = len(bars)
+            handle.metrics["partition_total_rows"] = partition_total_rows
 
         if handle.skipped:
             return IngestResult(business_date, status="skipped_holiday")

@@ -10,6 +10,7 @@ affected symbol.
 
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 
 from stk.core.errors import IngestAssertionError
@@ -61,6 +62,36 @@ def assert_bars_sane(bars: list[CanonicalBar], *, context: str) -> None:
 # an orders-of-magnitude error, not a rounding-scale one -- so a floor
 # here does not weaken what the check is actually for.
 _TURNOVER_CHECK_FLOOR_INR = Decimal("10000")
+
+
+def assert_bars_match_requested_date(
+    bars: list[CanonicalBar], requested_date: date, *, context: str
+) -> None:
+    """Assert every parsed bar's date matches the date we actually
+    requested from the provider.
+
+    This is not a hypothetical check: NSE's own sec_bhavdata_full
+    archive was found, during real backfill testing, to occasionally
+    serve a historical file whose CONTENT is dated differently from
+    what its URL/filename promises -- e.g. the file requested for
+    2019-09-30 was observed serving rows dated 27-Jun-2019, and the
+    file requested for 2019-10-02 was observed serving a duplicate of
+    2019-10-01's content. Without this check, such a mismatch would be
+    silently written into the partition keyed under the WRONG date
+    (whatever business_date's replace_dates targeted), corrupting that
+    date's history while leaving the date the content actually
+    belongs to untouched or duplicated. This must fail loudly instead
+    -- see the project's "raw bytes are sacred, fail loudly" principle
+    in CLAUDE.md.
+    """
+    mismatched = {bar.date for bar in bars if bar.date != requested_date}
+    if mismatched:
+        raise IngestAssertionError(
+            f"{context}: requested data for {requested_date} but the fetched "
+            f"content is dated {sorted(mismatched)} instead -- the source "
+            f"served the wrong file's content for this date. Refusing to "
+            f"write (would corrupt the partition under the wrong date key)."
+        )
 
 
 def _assert_turnover_plausible(bar: CanonicalBar, context: str) -> None:

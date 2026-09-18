@@ -24,10 +24,10 @@ backend/src/stk/
   config/     settings.py (pydantic-settings, layered YAML+env), costs.py (dated rate schedule)
   core/       time.py (IST), money.py (Decimal/lakh-crore), http.py (content validation), errors.py
   providers/  base.py (5 ABCs), registry.py, nse/, bse/, yfinance/, broker/ (phase-8 placeholder)
-  ingest/     daily.py (orchestrator), normalise.py, corpactions.py, assertions.py, jobs.py
+  ingest/     daily.py, backfill.py (orchestrators), normalise.py, corpactions.py, assertions.py, jobs.py
   store/      parquet/ (schema, writer), db/ (SQLite migrations + engine), duck.py
   domain/     universe.py, calendar.py -- PURE functions, no I/O
-  cli/        typer app `stk`: db, ingest, doctor
+  cli/        typer app `stk`: db, ingest, backfill, doctor
 config/       defaults.yaml, env/{local,prod}.yaml, costs.yaml, universe.yaml, horizons.yaml
 tests/        unit/, integration/, fixtures/ (real, trimmed exchange responses)
 docs/         PROJECT_BRIEF.md, data-sources.md, adr/, runbook.md (phase 8), ORACLE_VM_SETUP.md
@@ -45,5 +45,5 @@ docs/         PROJECT_BRIEF.md, data-sources.md, adr/, runbook.md (phase 8), ORA
 ## Current status (update this section as phases complete)
 
 - **Phase 0 (repo/config/tooling):** done.
-- **Phase 1 (data pipeline + store):** substrate complete and tested — config system, canonical schemas, SQLite migrations, the atomic parquet writer, the corporate-action parser, and a full live-verified NSE daily ingest path (`stk ingest daily`, `stk doctor`). **Not yet done:** BSE prices wired into the daily orchestrator, corporate-actions/fundamentals/security-master live providers, the liquidity filter, and `stk backfill prices` (blocked on the phase-0 history spike in `docs/adr/0003-historical-price-source.md`, which has not been run yet).
+- **Phase 1 (data pipeline + store):** substrate complete and tested — config system, canonical schemas, SQLite migrations, the atomic parquet writer, the corporate-action parser, a full live-verified NSE daily ingest path (`stk ingest daily`, `stk doctor`), and a live-verified NSE backfill (`stk backfill prices`) with automatic source selection across two confirmed NSE price archives spanning 2010-present (see `docs/adr/0003-historical-price-source.md`). That spike also surfaced a real NSE data-quality bug (some historical dates serve mislabeled content) — guarded against by `assert_bars_match_requested_date`. **Not yet done:** BSE prices wired into any orchestrator, corporate-actions/fundamentals/security-master live providers, the liquidity filter, and BSE backfill (BSE's pre-UDiFF history was not investigated — deferred per the build plan).
 - **Phases 2-8:** not started.

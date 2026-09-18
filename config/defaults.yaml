@@ -11,7 +11,8 @@ paths:
   # of data_root propagate without needing to override each path too)
 
 ingest:
-  backfill_start: "2010-01-01"        # provisional -- confirmed by the phase-0 history spike (ADR 0003)
+  backfill_start: "2010-01-01"        # confirmed reachable, see docs/adr/0003-historical-price-source.md
+  sec_bhavdata_available_from: "2019-09-30"  # confirmed cutover; before this, use the legacy NSE archive
   udiff_available_from: "2024-07-08"  # NSE UDiFF bhavcopy cutover; before this, use sec_bhavdata_full
   exchanges: [NSE, BSE]
   primary_exchange: NSE               # ISIN-collision tie-breaker

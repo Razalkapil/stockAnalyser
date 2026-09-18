@@ -14,7 +14,7 @@ from decimal import Decimal
 import pytest
 
 from stk.core.errors import IngestAssertionError
-from stk.ingest.assertions import assert_bars_sane
+from stk.ingest.assertions import assert_bars_match_requested_date, assert_bars_sane
 from stk.providers.base import CanonicalBar
 
 
@@ -98,3 +98,28 @@ class TestAssertBarsSane:
         bad = _bar(volume=1000, vwap=Decimal("101"), turnover=Decimal("1010000000"))
         with pytest.raises(IngestAssertionError, match="turnover"):
             assert_bars_sane([bad], context="test")
+
+
+class TestAssertBarsMatchRequestedDate:
+    """Regression tests for a real bug found via live backfill testing:
+    NSE's own sec_bhavdata_full archive was observed serving a file
+    whose CONTENT is dated differently from what its URL promises
+    (e.g. the file requested for 2019-09-30 actually contained rows
+    dated 27-Jun-2019). Silently trusting the requested date would
+    write that content under the wrong partition key.
+    """
+
+    def test_matching_dates_pass(self):
+        bars = [_bar(date=date(2026, 9, 17))]
+        assert_bars_match_requested_date(bars, date(2026, 9, 17), context="test")  # no raise
+
+    def test_mismatched_date_raises(self):
+        bars = [_bar(date=date(2019, 6, 27))]
+        with pytest.raises(IngestAssertionError, match="2019-09-30"):
+            assert_bars_match_requested_date(bars, date(2019, 9, 30), context="test")
+
+    def test_mixed_matching_and_mismatched_bars_raises(self):
+        """Even if only some rows are wrong, the whole file must be rejected."""
+        bars = [_bar(date=date(2026, 9, 17)), _bar(symbol="INFY", date=date(2019, 6, 27))]
+        with pytest.raises(IngestAssertionError):
+            assert_bars_match_requested_date(bars, date(2026, 9, 17), context="test")

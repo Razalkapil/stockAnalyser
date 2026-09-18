@@ -11,7 +11,7 @@ from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
-from stk.ingest.normalise import parse_sec_bhavdata_full, parse_udiff
+from stk.ingest.normalise import parse_legacy_bhavcopy, parse_sec_bhavdata_full, parse_udiff
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
 
@@ -94,3 +94,38 @@ class TestParseUdiff:
         text = (FIXTURES / "bse" / "udiff_20260917.CSV").read_text()
         bars = list(parse_udiff(text, exchange="BSE", source="bse_udiff"))
         assert all(b.exchange == "BSE" for b in bars)
+
+
+class TestParseLegacyBhavcopy:
+    def test_parses_real_2010_fixture_without_error(self):
+        text = (FIXTURES / "nse" / "legacy_cm04JAN2010bhav.csv").read_text()
+        bars = list(parse_legacy_bhavcopy(text))
+        assert len(bars) == 50
+
+    def test_non_zero_padded_day_in_timestamp_parsed_correctly(self):
+        """The real 2010 file uses '4-JAN-2010', not '04-JAN-2010'."""
+        text = (FIXTURES / "nse" / "legacy_cm04JAN2010bhav.csv").read_text()
+        bars = list(parse_legacy_bhavcopy(text))
+        assert bars[0].date == date(2010, 1, 4)
+
+    def test_no_delivery_data_in_legacy_format(self):
+        """This format predates delivery reporting -- delivery fields
+        must be None, not silently 0."""
+        text = (FIXTURES / "nse" / "legacy_cm04JAN2010bhav.csv").read_text()
+        bars = list(parse_legacy_bhavcopy(text))
+        assert all(b.delivery_qty is None for b in bars)
+        assert all(b.delivery_pct is None for b in bars)
+
+    def test_no_isin_in_legacy_format(self):
+        text = (FIXTURES / "nse" / "legacy_cm04JAN2010bhav.csv").read_text()
+        bars = list(parse_legacy_bhavcopy(text))
+        assert all(b.isin is None for b in bars)
+
+    def test_known_symbol_and_values(self):
+        text = (FIXTURES / "nse" / "legacy_cm04JAN2010bhav.csv").read_text()
+        bars = list(parse_legacy_bhavcopy(text))
+        first = bars[0]
+        assert first.symbol == "20MICRONS"
+        assert first.open == Decimal("46")
+        assert first.close == Decimal("47.55")
+        assert first.volume == 36282

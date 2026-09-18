@@ -150,6 +150,48 @@ class TestIngestNsePricesForDate:
         assert [r["attempt"] for r in attempts] == [1, 2]
 
     @respx.mock
+    def test_rows_written_reflects_this_dates_count_not_cumulative_partition_total(self, data_dirs):
+        """Regression test: a real live backfill run caught upsert_partition's
+        cumulative row count (correct for its own purpose) being surfaced
+        as if it were this date's own row count, making progress output
+        climb across consecutive days in the same year instead of
+        reflecting each day's actual size."""
+        sqlite_path, parquet_root, raw_root = data_dirs
+        day1_url = "https://nsearchives.nseindia.com/products/content/sec_bhavdata_full_17092026.csv"
+        day2_url = "https://nsearchives.nseindia.com/products/content/sec_bhavdata_full_18092026.csv"
+
+        text = (FIXTURES / "nse" / "sec_bhavdata_full_17092026.csv").read_text()
+        # A second, smaller fixture (first 10 rows) so the two days have
+        # DIFFERENT sizes -- if the rows_written bug were present, day 2's
+        # reported count would be 60 (50+10 cumulative), not 10. Dates are
+        # rewritten to 18-Sep-2026 so this also passes the (separate,
+        # equally real) date-content-match assertion added after this
+        # test was first written -- see assert_bars_match_requested_date.
+        lines = text.splitlines()
+        smaller_text = "\n".join(
+            [lines[0]] + [line.replace("17-Sep-2026", "18-Sep-2026") for line in lines[1:11]]
+        ) + "\n"
+
+        respx.get(day1_url).mock(
+            return_value=httpx.Response(200, text=text, headers={"content-type": "text/csv"})
+        )
+        respx.get(day2_url).mock(
+            return_value=httpx.Response(
+                200, text=smaller_text, headers={"content-type": "text/csv"}
+            )
+        )
+
+        result1 = ingest_nse_prices_for_date(
+            date(2026, 9, 17), sqlite_path=sqlite_path, parquet_root=parquet_root, raw_root=raw_root
+        )
+        result2 = ingest_nse_prices_for_date(
+            date(2026, 9, 18), sqlite_path=sqlite_path, parquet_root=parquet_root, raw_root=raw_root
+        )
+
+        assert result1.rows_written == 50
+        assert result2.rows_written == 10  # NOT 60
+
+    @respx.mock
     def test_data_not_published_marks_skipped_holiday(self, data_dirs):
         sqlite_path, parquet_root, raw_root = data_dirs
         respx.get(URL).mock(return_value=httpx.Response(404))

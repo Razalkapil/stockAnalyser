@@ -23,8 +23,21 @@ https://nsearchives.nseindia.com/products/content/sec_bhavdata_full_{DDMMYYYY}.c
 - Columns: `SYMBOL, SERIES, DATE1, PREV_CLOSE, OPEN_PRICE, HIGH_PRICE, LOW_PRICE, LAST_PRICE, CLOSE_PRICE, AVG_PRICE, TTL_TRD_QNTY, TURNOVER_LACS, NO_OF_TRADES, DELIV_QTY, DELIV_PER`.
 - `DATE1` is `DD-Mon-YYYY`. `TURNOVER_LACS` is in **lakhs** — multiply by 100,000 to get rupees; this conversion must happen at the parser boundary and never leak past it.
 - `DELIV_QTY`/`DELIV_PER` are `-` when not applicable (e.g. debt instruments) — this must parse to `None`, never `0`.
-- This is the **primary historical price source**: it predates the UDiFF format, carries delivery data in the same file, and (pending the phase-0 history spike's confirmation) appears to go back much further than UDiFF's mid-2024 start.
+- Confirmed live from **2019-09-30** onward (exact cutover found by daily-granularity probe; 2019-09-27 is the last invalid/404 date). This is the preferred source whenever it's available, since it carries delivery data; the legacy format below covers everything before it.
 - Implemented in `stk.providers.nse.prices.NseSecBhavdataProvider`.
+
+### Daily EOD prices (deep history, 2010-2019): legacy `cm*bhav.csv.zip`
+
+```
+https://nsearchives.nseindia.com/content/historical/EQUITIES/{YYYY}/{MON}/cm{DDMONYYYY}bhav.csv.zip
+```
+
+- Confirmed live back to **2010-01-04** by direct probe (phase-0 history spike, see `docs/adr/0003-historical-price-source.md`). This is a *different, still-live* URL from the one commonly cited as "the old NSE bhavcopy path that 404s now" — that dead path is a differently-organized legacy format from an earlier NSE site reorganisation.
+- Schema: `SYMBOL,SERIES,OPEN,HIGH,LOW,CLOSE,LAST,PREVCLOSE,TOTTRDQTY,TOTTRDVAL,TIMESTAMP,` (trailing empty column). No delivery data, no ISIN. `TIMESTAMP` is `D-MON-YYYY`, day not zero-padded.
+- Confirmed to overlap with `sec_bhavdata_full`'s start (both cover 2019-09-30..2019-10-01) — no coverage gap between the two sources.
+- Implemented in `stk.providers.nse.legacy_prices.NseLegacyBhavcopyProvider`. Source selection between this and `sec_bhavdata_full` is automatic by date via `stk.providers.registry.get_nse_price_provider_for_date`.
+
+**⚠️ Confirmed data-quality bug in NSE's own archive:** at least two historical dates (`2019-09-30`, `2019-10-02`) serve content whose internal date does not match the requested date/filename (see ADR-0003 for full detail — this was found via real backfill testing, not speculation). Every ingest validates the fetched content's date against the requested date (`stk.ingest.assertions.assert_bars_match_requested_date`) and refuses to write on a mismatch, rather than silently corrupting the partition under the wrong date key. Expect more such dates to surface as backfill coverage expands; each shows up as a `failed` job_run visible via `stk doctor`.
 
 ### Daily EOD prices (ISIN-bearing companion): UDiFF
 

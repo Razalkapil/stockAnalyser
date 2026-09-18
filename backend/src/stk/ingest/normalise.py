@@ -88,6 +88,52 @@ def parse_sec_bhavdata_full(
         )
 
 
+def parse_legacy_bhavcopy(
+    text: str, *, source: str = "nse_legacy_bhavcopy"
+) -> Iterator[CanonicalBar]:
+    """Parse NSE's legacy cm{DDMONYYYY}bhav.csv format (2010 through
+    ~2019-10-01, confirmed by the phase-0 history spike -- see
+    docs/adr/0003-historical-price-source.md).
+
+    This is the ONLY source with confirmed coverage back to 2010, but
+    it carries no delivery data and no ISIN -- both `delivery_qty` and
+    `isin` are left None on every row from this parser. Once
+    sec_bhavdata_full's coverage begins (2019-09-30, confirmed
+    overlapping with this format's tail end), that source is preferred
+    for its delivery data; this parser is only used before that date.
+
+    Columns: SYMBOL,SERIES,OPEN,HIGH,LOW,CLOSE,LAST,PREVCLOSE,
+    TOTTRDQTY,TOTTRDVAL,TIMESTAMP, (trailing empty column from a
+    trailing comma in NSE's own header row -- csv.DictReader assigns it
+    key None, which the row dict comprehension below drops via `if k`).
+    TIMESTAMP is 'D-MON-YYYY' (day not zero-padded) -- %d in
+    strptime accepts both, so no special-casing is needed.
+    """
+    reader = csv.DictReader(io.StringIO(text))
+
+    for raw_row in reader:
+        row = {k.strip(): v.strip() for k, v in raw_row.items() if k}
+
+        trade_date = datetime.strptime(row["TIMESTAMP"], "%d-%b-%Y").date()
+
+        yield CanonicalBar(
+            date=trade_date,
+            exchange="NSE",
+            symbol=row["SYMBOL"],
+            series=row["SERIES"],
+            instrument_type="EQ",
+            open=_decimal_or_none(row["OPEN"]) or Decimal(0),
+            high=_decimal_or_none(row["HIGH"]) or Decimal(0),
+            low=_decimal_or_none(row["LOW"]) or Decimal(0),
+            close=_decimal_or_none(row["CLOSE"]) or Decimal(0),
+            prev_close=_decimal_or_none(row["PREVCLOSE"]),
+            last=_decimal_or_none(row["LAST"]),
+            volume=_int_or_none(row["TOTTRDQTY"]) or 0,
+            turnover=_decimal_or_none(row["TOTTRDVAL"]) or Decimal(0),
+            source=source,
+        )
+
+
 def parse_udiff(text: str, *, exchange: str, source: str) -> Iterator[CanonicalBar]:
     """Parse an NSE or BSE UDiFF bhavcopy CSV into canonical bars.
 
