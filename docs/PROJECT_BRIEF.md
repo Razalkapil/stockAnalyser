@@ -137,10 +137,10 @@ Every pick carries: symbol/ISIN, horizon, strategy id, signal date, reference pr
 
 ---
 
-## Amendments (see docs/adr/ and the build plan for full detail)
+## Amendments (see docs/adr/ and docs/BUILD_PLAN.md for full detail)
 
 This brief is kept as originally agreed. Decisions made or corrected during actual implementation are tracked separately rather than edited in above, so the history of *why* something changed stays visible:
 
-- **Front-end (was OPEN):** React + Vite + TypeScript. See the build plan.
+- **Front-end (was OPEN):** React + Vite + TypeScript. See `docs/BUILD_PLAN.md`.
 - **Fundamentals source:** NSE official JSON (`/api/corporates-*`) is the authoritative provider, not Screener.in — see `docs/data-sources.md`. yfinance remains as an approximate fallback.
 - **NSE/BSE bhavcopy URLs:** the classic URLs referenced by "bhavcopy downloaders" folklore are dead (NSE retired the legacy path 2024-07-08). See `docs/data-sources.md` for the current, verified endpoints.

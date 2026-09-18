@@ -1,10 +1,11 @@
 """Nightly ingest orchestration.
 
-Phase 1 scope: NSE prices only (via NseSecBhavdataProvider). BSE
-prices, corporate actions, fundamentals, and the security-master
-refresh follow the identical pattern established here as their
-provider adapters land -- see providers/registry.py and the build
-plan's phase-1 scope for what's next.
+NSE and BSE prices both go through _ingest_prices_for_date, the shared
+orchestration body -- fetch, validate, persist raw, parse, sanity-check,
+atomic partition write, all inside one job_run() scope. Corporate
+actions, fundamentals, and the security-master refresh follow the same
+pattern as their provider adapters land -- see providers/registry.py
+and the build plan's phase-1 scope for what's next.
 
 Idempotency is achieved at three layers (see the module docstrings in
 ingest.raw_store and store.parquet.writer for the mechanisms):
@@ -26,7 +27,7 @@ from stk.core.time import today_ist
 from stk.ingest.assertions import assert_bars_match_requested_date, assert_bars_sane
 from stk.ingest.jobs import JobSkipped, job_run
 from stk.ingest.raw_store import persist_artifact
-from stk.providers.base import CanonicalBar
+from stk.providers.base import CanonicalBar, PriceProvider
 from stk.store.db.engine import connect
 from stk.store.parquet.layout import bars_daily_partition
 from stk.store.parquet.schema import BARS_DAILY_SCHEMA
@@ -81,47 +82,42 @@ def _bars_to_table(bars: list[CanonicalBar]) -> pa.Table:
     )
 
 
-def ingest_nse_prices_for_date(
+def _ingest_prices_for_date(
     business_date: date,
     *,
+    exchange: str,
+    job_name: str,
+    provider: PriceProvider,
     sqlite_path: Path,
     parquet_root: Path,
     raw_root: Path,
 ) -> IngestResult:
-    """Ingest one day of NSE prices end-to-end: fetch, validate, persist
-    raw, parse, sanity-check, and atomically write the year partition.
+    """Shared orchestration body for one exchange's daily price ingest.
 
-    Source (sec_bhavdata_full vs the legacy pre-2019-09-30 archive) is
-    selected automatically by date -- see
-    providers.registry.get_nse_price_provider_for_date. Safe to call
-    repeatedly for the same date (see module docstring).
+    Everything -- including the fetch itself -- happens inside ONE
+    job_run() scope, so a content-validation failure during fetch is
+    recorded just as reliably as a failure during parsing. See jobs.py's
+    module docstring for why this single-scope structure replaced an
+    earlier version that checked "should I skip?" before opening the
+    scope.
     """
-    from stk.providers.registry import get_nse_price_provider_for_date  # noqa: PLC0415
-
-    provider = get_nse_price_provider_for_date(business_date)
     conn = connect(sqlite_path)
     try:
-        # Everything -- including the fetch itself -- happens inside ONE
-        # job_run() scope, so a content-validation failure during fetch
-        # is recorded just as reliably as a failure during parsing. See
-        # jobs.py's module docstring for why this single-scope structure
-        # replaced an earlier version that checked "should I skip?"
-        # before opening the scope.
-        with job_run(conn, "ingest_nse_prices", business_date=business_date) as handle:
+        with job_run(conn, job_name, business_date=business_date) as handle:
             try:
-                artifact = provider.fetch_eod(business_date, "NSE")
+                artifact = provider.fetch_eod(business_date, exchange)
             except DataNotPublished as exc:
                 raise JobSkipped(str(exc)) from exc
 
             persist_artifact(raw_root, conn, artifact)
 
             bars = list(provider.parse_eod(artifact))
-            context = f"NSE {business_date.isoformat()}"
+            context = f"{exchange} {business_date.isoformat()}"
             assert_bars_sane(bars, context=context)
             assert_bars_match_requested_date(bars, business_date, context=context)
 
             table = _bars_to_table(bars)
-            partition_path = bars_daily_partition(parquet_root, "NSE", business_date.year)
+            partition_path = bars_daily_partition(parquet_root, exchange, business_date.year)
             # upsert_partition returns the CUMULATIVE row count of the
             # resulting partition file (all dates in that year, not just
             # this one) -- that is the right thing for it to return (its
@@ -144,6 +140,65 @@ def ingest_nse_prices_for_date(
         return IngestResult(business_date, status="success", rows_written=handle.rows_written or 0)
     finally:
         conn.close()
+
+
+def ingest_nse_prices_for_date(
+    business_date: date,
+    *,
+    sqlite_path: Path,
+    parquet_root: Path,
+    raw_root: Path,
+) -> IngestResult:
+    """Ingest one day of NSE prices end-to-end: fetch, validate, persist
+    raw, parse, sanity-check, and atomically write the year partition.
+
+    Source (sec_bhavdata_full vs the legacy pre-2019-09-30 archive) is
+    selected automatically by date -- see
+    providers.registry.get_nse_price_provider_for_date. Safe to call
+    repeatedly for the same date (see module docstring).
+    """
+    from stk.providers.registry import get_nse_price_provider_for_date  # noqa: PLC0415
+
+    provider = get_nse_price_provider_for_date(business_date)
+    return _ingest_prices_for_date(
+        business_date,
+        exchange="NSE",
+        job_name="ingest_nse_prices",
+        provider=provider,
+        sqlite_path=sqlite_path,
+        parquet_root=parquet_root,
+        raw_root=raw_root,
+    )
+
+
+def ingest_bse_prices_for_date(
+    business_date: date,
+    *,
+    sqlite_path: Path,
+    parquet_root: Path,
+    raw_root: Path,
+) -> IngestResult:
+    """Ingest one day of BSE prices end-to-end, identical pipeline shape
+    to ingest_nse_prices_for_date.
+
+    Only one BSE source is registered (UDiFF, from 2024-07-08) -- see
+    providers.bse.prices.BseUdiffProvider. A date before that raises
+    NotSupportedError from fetch_eod, which is NOT caught as a skip: an
+    unimplemented history gap is a different fact from "not a trading
+    day" and must show up as a failure, not a silent skipped_holiday.
+    """
+    from stk.providers.registry import get_price_provider  # noqa: PLC0415
+
+    provider = get_price_provider("bse_udiff")
+    return _ingest_prices_for_date(
+        business_date,
+        exchange="BSE",
+        job_name="ingest_bse_prices",
+        provider=provider,
+        sqlite_path=sqlite_path,
+        parquet_root=parquet_root,
+        raw_root=raw_root,
+    )
 
 
 def resolve_business_date(requested: date | None) -> date:

@@ -106,8 +106,10 @@ https://www.bseindia.com/download/BhavCopy/Equity/BhavCopy_BSE_CM_0_0_0_{YYYYMMD
 ```
 
 - **Uncompressed CSV**, not a zip. Same 34-column UDiFF schema as NSE (`Src=BSE`).
-- **CRITICAL TRAP:** legacy BSE bhavcopy URLs return **HTTP 200 with `content-type: text/html`** and a ~14KB Angular SPA shell body — not a 404. Any code that trusts `status_code == 200` before unzipping/parsing will silently accept garbage. Every BSE (and, defensively, NSE) fetch validates content-type **and** magic bytes/header tokens — see `stk.core.http.validate_csv_response` / `validate_zip_response`.
+- **CRITICAL TRAP, confirmed live on 2026-09-18 on the CURRENT working URL (not just a retired legacy one):** any date with no data — weekend, holiday, or a date before this format existed — returns **HTTP 200 with `content-type: text/html`** and the exact same ~14KB Angular SPA shell body, not a 404. Confirmed identical for a real weekend date and for a nonsense far-future date (`20991231`); there is no way to distinguish "ask again later" from "this will never exist" from content alone. Any code that trusts `status_code == 200` before parsing will silently accept garbage. Handling: `stk.providers.bse.archives.fetch_bse_csv_file` treats **any 200 response with `content-type: text/html`** as `DataNotPublished` (recorded as `skipped_holiday`, not a failure); a non-html response that still fails the CSV header-token check is a genuine `ContentValidationError`. Every fetch also validates magic bytes/header tokens generally — see `stk.core.http.validate_csv_response` / `validate_zip_response`.
 - Use `www.bseindia.com` exactly; the apex `bseindia.com` redirects.
+- Confirmed live from **2024-07-08** onward only (BSE's UDiFF cutover, same industry-wide date as NSE's). Pre-UDiFF BSE history depth has **not** been investigated (spike step 4, deferred per `docs/BUILD_PLAN.md`) — requesting an earlier date raises `NotSupportedError`, not a silent gap.
+- Implemented in `stk.providers.bse.prices.BseUdiffProvider`. Ingest: `stk.ingest.daily.ingest_bse_prices_for_date`; backfill: `stk backfill prices --exchange BSE`.
 
 ### Security master
 
@@ -127,6 +129,7 @@ https://api.bseindia.com/BseIndiaAPI/api/ListofScripData/w?Group=&Scripcode=&ind
 
 ## Things still to verify (do not treat as settled)
 
-1. **Exact pre-2024 history depth** of `sec_bhavdata_full` — this is the phase-0 history spike's job (see `docs/adr/0003-historical-price-source.md` once written).
+1. ~~Exact pre-2024 history depth of `sec_bhavdata_full`~~ — resolved, see `docs/adr/0003-historical-price-source.md`: NSE prices are confirmed live back to 2010-01-04 via two combined sources.
 2. **Cost rates in `config/costs.yaml`** — sourced from broker-published schedules (Zerodha), not primary NSE/SEBI circulars. Flagged explicitly in that file; verify before using for real-money decisions.
 3. **BSE corporate actions and holiday calendar endpoints** — not yet implemented; NSE's are used as the sole source for both in phase 1, which is a reasonable approximation since NSE and BSE trading calendars are effectively identical for equities.
+4. **BSE pre-UDiFF price history depth** — not investigated (deferred spike step 4, per `docs/BUILD_PLAN.md`). BSE prices are only confirmed live from 2024-07-08 onward.

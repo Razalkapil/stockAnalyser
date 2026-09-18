@@ -33,7 +33,12 @@ def get_price_provider(name: str) -> PriceProvider:
 
         return NseLegacyBhavcopyProvider()
 
-    # bse_udiff and a future kite/broker adapter register here as they land.
+    if name == "bse_udiff":
+        from stk.providers.bse.prices import BseUdiffProvider  # noqa: PLC0415
+
+        return BseUdiffProvider()
+
+    # A future kite/broker adapter registers here as it lands.
     raise ConfigError(f"unknown price provider: {name!r}")
 
 

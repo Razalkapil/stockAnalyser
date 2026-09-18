@@ -7,6 +7,7 @@ import pytest
 
 from stk.core.errors import ConfigError
 from stk.providers.base import PriceProvider
+from stk.providers.bse.prices import BseUdiffProvider
 from stk.providers.nse.prices import NseSecBhavdataProvider
 from stk.providers.registry import get_price_provider
 
@@ -15,6 +16,11 @@ class TestGetPriceProvider:
     def test_known_name_returns_correct_type(self):
         provider = get_price_provider("nse_sec_bhavdata")
         assert isinstance(provider, NseSecBhavdataProvider)
+        assert isinstance(provider, PriceProvider)
+
+    def test_bse_udiff_returns_correct_type(self):
+        provider = get_price_provider("bse_udiff")
+        assert isinstance(provider, BseUdiffProvider)
         assert isinstance(provider, PriceProvider)
 
     def test_unknown_name_raises_config_error(self):

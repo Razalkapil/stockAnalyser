@@ -43,4 +43,4 @@ docs/              brief, data-source notes, ADRs, deployment notes
 
 ## A note on scope
 
-This is a personal project, not a product: single user, free data sources, hosted on one Oracle Cloud Always Free VM (setup notes: [`docs/ORACLE_VM_SETUP.md`](docs/ORACLE_VM_SETUP.md)). It is not published or redistributed — see the risk register in the build plan regarding NSE's data-usage policy and virtual trading.
+This is a personal project, not a product: single user, free data sources, hosted on one Oracle Cloud Always Free VM (setup notes: [`docs/ORACLE_VM_SETUP.md`](docs/ORACLE_VM_SETUP.md)). It is not published or redistributed — see the risk register in [`docs/BUILD_PLAN.md`](docs/BUILD_PLAN.md) regarding NSE's data-usage policy and virtual trading.

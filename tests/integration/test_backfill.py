@@ -16,12 +16,16 @@ import httpx
 import pytest
 import respx
 
-from stk.ingest.backfill import backfill_nse_prices
+from stk.core.errors import NotSupportedError
+from stk.ingest.backfill import backfill_bse_prices, backfill_nse_prices
 from stk.store.db.engine import connect, migrate
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
 SEC_BHAVDATA_URL_TEMPLATE = (
     "https://nsearchives.nseindia.com/products/content/sec_bhavdata_full_{d}.csv"
+)
+BSE_UDIFF_URL_TEMPLATE = (
+    "https://www.bseindia.com/download/BhavCopy/Equity/BhavCopy_BSE_CM_0_0_0_{d}_F_0000.CSV"
 )
 
 
@@ -50,6 +54,28 @@ def _fixture_for_date(d: date) -> str:
     lines = base.splitlines()
     new_date_str = d.strftime("%d-%b-%Y")
     rewritten = [lines[0]] + [line.replace("17-Sep-2026", new_date_str) for line in lines[1:]]
+    return "\n".join(rewritten) + "\n"
+
+
+def _mock_bse_date(d: date, *, text: str | None = None, content_type: str = "text/html") -> None:
+    url = BSE_UDIFF_URL_TEMPLATE.format(d=d.strftime("%Y%m%d"))
+    if text is not None:
+        respx.get(url).mock(
+            return_value=httpx.Response(200, text=text, headers={"content-type": "text/csv"})
+        )
+    else:
+        respx.get(url).mock(
+            return_value=httpx.Response(
+                200, text="<html><title>BSE</title></html>", headers={"content-type": content_type}
+            )
+        )
+
+
+def _bse_fixture_for_date(d: date) -> str:
+    """Real BSE UDiFF fixture content, with every TradDt/BizDt value rewritten to `d`."""
+    base = (FIXTURES / "bse" / "udiff_20260917.CSV").read_text()
+    lines = base.splitlines()
+    rewritten = [lines[0]] + [line.replace("2026-09-17", d.isoformat()) for line in lines[1:]]
     return "\n".join(rewritten) + "\n"
 
 
@@ -168,3 +194,56 @@ class TestBackfillNsePrices:
         finally:
             conn.close()
         assert [r["attempt"] for r in attempts] == [1, 2]
+
+
+class TestBackfillBsePrices:
+    """BSE shares _backfill_prices with NSE (see test cases above for the
+    generic range/throttle/idempotency behaviour) -- this class covers
+    only what's BSE-specific: the SPA-shell skip and the hard abort on
+    dates before BSE's confirmed UDiFF start."""
+
+    @respx.mock
+    def test_backfills_a_short_weekday_range(self, data_dirs):
+        sqlite_path, parquet_root, raw_root = data_dirs
+        for offset in range(5):
+            d = date(2026, 9, 14) + timedelta(days=offset)
+            _mock_bse_date(d, text=_bse_fixture_for_date(d))
+
+        summary = backfill_bse_prices(
+            date(2026, 9, 14), date(2026, 9, 18),
+            sqlite_path=sqlite_path, parquet_root=parquet_root, raw_root=raw_root,
+            throttle_s=0,
+        )
+
+        assert summary.total_dates == 5
+        assert summary.succeeded == 5
+        assert summary.ok is True
+
+    @respx.mock
+    def test_spa_shell_dates_counted_as_skipped_not_failed(self, data_dirs):
+        sqlite_path, parquet_root, raw_root = data_dirs
+        d = date(2026, 9, 14)
+        _mock_bse_date(d)  # defaults to the html shell
+
+        summary = backfill_bse_prices(
+            d, d, sqlite_path=sqlite_path, parquet_root=parquet_root,
+            raw_root=raw_root, throttle_s=0,
+        )
+
+        assert summary.skipped_holidays == 1
+        assert summary.failed_dates == []
+        assert summary.ok is True
+
+    def test_date_before_udiff_start_aborts_the_whole_range(self, data_dirs):
+        """Per this module's docstring: an unimplemented history gap must
+        abort loudly rather than being recorded as thousands of per-date
+        failures -- NotSupportedError is not caught by the per-date
+        try/except in _backfill_prices, so it propagates straight out."""
+        sqlite_path, parquet_root, raw_root = data_dirs
+
+        with pytest.raises(NotSupportedError):
+            backfill_bse_prices(
+                date(2020, 1, 1), date(2020, 1, 10),
+                sqlite_path=sqlite_path, parquet_root=parquet_root, raw_root=raw_root,
+                throttle_s=0,
+            )
