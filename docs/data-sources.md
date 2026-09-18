@@ -108,8 +108,19 @@ https://www.bseindia.com/download/BhavCopy/Equity/BhavCopy_BSE_CM_0_0_0_{YYYYMMD
 - **Uncompressed CSV**, not a zip. Same 34-column UDiFF schema as NSE (`Src=BSE`).
 - **CRITICAL TRAP, confirmed live on 2026-09-18 on the CURRENT working URL (not just a retired legacy one):** any date with no data — weekend, holiday, or a date before this format existed — returns **HTTP 200 with `content-type: text/html`** and the exact same ~14KB Angular SPA shell body, not a 404. Confirmed identical for a real weekend date and for a nonsense far-future date (`20991231`); there is no way to distinguish "ask again later" from "this will never exist" from content alone. Any code that trusts `status_code == 200` before parsing will silently accept garbage. Handling: `stk.providers.bse.archives.fetch_bse_csv_file` treats **any 200 response with `content-type: text/html`** as `DataNotPublished` (recorded as `skipped_holiday`, not a failure); a non-html response that still fails the CSV header-token check is a genuine `ContentValidationError`. Every fetch also validates magic bytes/header tokens generally — see `stk.core.http.validate_csv_response` / `validate_zip_response`.
 - Use `www.bseindia.com` exactly; the apex `bseindia.com` redirects.
-- Confirmed live from **2024-07-08** onward only (BSE's UDiFF cutover, same industry-wide date as NSE's). Pre-UDiFF BSE history depth has **not** been investigated (spike step 4, deferred per `docs/BUILD_PLAN.md`) — requesting an earlier date raises `NotSupportedError`, not a silent gap.
-- Implemented in `stk.providers.bse.prices.BseUdiffProvider`. Ingest: `stk.ingest.daily.ingest_bse_prices_for_date`; backfill: `stk backfill prices --exchange BSE`.
+- Confirmed live from **2024-07-08** onward (BSE's UDiFF cutover, same industry-wide date as NSE's).
+- Implemented in `stk.providers.bse.prices.BseUdiffProvider`.
+
+### Daily EOD prices (deep history, 2010 – 2024-07-05): legacy `EQ*.CSV.ZIP`
+
+```
+https://www.bseindia.com/download/BhavCopy/Equity/EQ{DDMMYY}_CSV.ZIP
+```
+
+- Confirmed live back to **2010-01-04** by direct probe (spike step 4, previously deferred — now resolved, see `docs/adr/0003-historical-price-source.md`). Confirmed to stop being served (the SPA shell instead) from 2024-07-08 onward, with no gap against UDiFF's start.
+- **Uncompressed-inside-a-zip CSV.** Columns: `SC_CODE,SC_NAME,SC_GROUP,SC_TYPE,OPEN,HIGH,LOW,CLOSE,LAST,PREVCLOSE,NO_TRADES,NO_OF_SHRS,NET_TURNOV,TDCLOINDI` (CRLF line endings). No ISIN, no delivery data, and **no symbol** — BSE identifies securities purely by a numeric `SC_CODE` scrip code in this format; resolving it to a symbol/ISIN happens later via the security master join, not in this parser.
+- Exhibits the exact same SPA-shell trap as the UDiFF endpoint (confirmed for both a real holiday, 2018-08-22, and a nonsense future date) — handled by `stk.providers.bse.archives.fetch_bse_zip_file` with the same any-200-with-text/html heuristic.
+- Implemented in `stk.providers.bse.legacy_prices.BseLegacyBhavcopyProvider`. Source selection between this and UDiFF is automatic by date via `stk.providers.registry.get_bse_price_provider_for_date` — mirrors the NSE side exactly. Ingest: `stk.ingest.daily.ingest_bse_prices_for_date`; backfill: `stk backfill prices --exchange BSE` (now reaches 2010-01-04, same as NSE).
 
 ### Security master
 
@@ -132,4 +143,4 @@ https://api.bseindia.com/BseIndiaAPI/api/ListofScripData/w?Group=&Scripcode=&ind
 1. ~~Exact pre-2024 history depth of `sec_bhavdata_full`~~ — resolved, see `docs/adr/0003-historical-price-source.md`: NSE prices are confirmed live back to 2010-01-04 via two combined sources.
 2. **Cost rates in `config/costs.yaml`** — sourced from broker-published schedules (Zerodha), not primary NSE/SEBI circulars. Flagged explicitly in that file; verify before using for real-money decisions.
 3. **BSE corporate actions and holiday calendar endpoints** — not yet implemented; NSE's are used as the sole source for both in phase 1, which is a reasonable approximation since NSE and BSE trading calendars are effectively identical for equities.
-4. **BSE pre-UDiFF price history depth** — not investigated (deferred spike step 4, per `docs/BUILD_PLAN.md`). BSE prices are only confirmed live from 2024-07-08 onward.
+4. ~~BSE pre-UDiFF price history depth~~ — resolved, see `docs/adr/0003-historical-price-source.md`: BSE prices are confirmed live back to 2010-01-04 via the legacy `EQ*.CSV.ZIP` archive, same as NSE.

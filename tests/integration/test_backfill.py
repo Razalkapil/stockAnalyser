@@ -9,14 +9,15 @@ continue-on-failure behaviour that IS unique to backfill.py.
 
 from __future__ import annotations
 
+import zipfile
 from datetime import date, timedelta
+from io import BytesIO
 from pathlib import Path
 
 import httpx
 import pytest
 import respx
 
-from stk.core.errors import NotSupportedError
 from stk.ingest.backfill import backfill_bse_prices, backfill_nse_prices
 from stk.store.db.engine import connect, migrate
 
@@ -27,6 +28,7 @@ SEC_BHAVDATA_URL_TEMPLATE = (
 BSE_UDIFF_URL_TEMPLATE = (
     "https://www.bseindia.com/download/BhavCopy/Equity/BhavCopy_BSE_CM_0_0_0_{d}_F_0000.CSV"
 )
+BSE_LEGACY_URL_TEMPLATE = "https://www.bseindia.com/download/BhavCopy/Equity/EQ{d}_CSV.ZIP"
 
 
 @pytest.fixture
@@ -69,6 +71,22 @@ def _mock_bse_date(d: date, *, text: str | None = None, content_type: str = "tex
                 200, text="<html><title>BSE</title></html>", headers={"content-type": content_type}
             )
         )
+
+
+def _mock_bse_legacy_date(d: date, *, text: str) -> None:
+    url = BSE_LEGACY_URL_TEMPLATE.format(d=d.strftime("%d%m%y"))
+    buf = BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("EQ.CSV", text)
+    respx.get(url).mock(
+        return_value=httpx.Response(
+            200, content=buf.getvalue(), headers={"content-type": "application/x-zip-compressed"}
+        )
+    )
+
+
+def _bse_legacy_fixture() -> str:
+    return (FIXTURES / "bse" / "legacy_EQ040110.CSV").read_text()
 
 
 def _bse_fixture_for_date(d: date) -> str:
@@ -234,16 +252,22 @@ class TestBackfillBsePrices:
         assert summary.failed_dates == []
         assert summary.ok is True
 
-    def test_date_before_udiff_start_aborts_the_whole_range(self, data_dirs):
-        """Per this module's docstring: an unimplemented history gap must
-        abort loudly rather than being recorded as thousands of per-date
-        failures -- NotSupportedError is not caught by the per-date
-        try/except in _backfill_prices, so it propagates straight out."""
+    @respx.mock
+    def test_a_pre_udiff_date_uses_the_legacy_source_not_a_failure(self, data_dirs):
+        """2020-01-01 is between BSE's two confirmed sources' boundary
+        (2010-01-04 legacy .. 2024-07-08 UDiFF) -- get_bse_price_provider_for_date
+        must route it to the legacy provider and succeed, not raise
+        NotSupportedError (that guard only ever applied to BseUdiffProvider
+        directly; automatic date-based selection resolves the gap this
+        was standing in for -- see docs/adr/0003-historical-price-source.md)."""
         sqlite_path, parquet_root, raw_root = data_dirs
+        d = date(2020, 1, 1)
+        _mock_bse_legacy_date(d, text=_bse_legacy_fixture())
 
-        with pytest.raises(NotSupportedError):
-            backfill_bse_prices(
-                date(2020, 1, 1), date(2020, 1, 10),
-                sqlite_path=sqlite_path, parquet_root=parquet_root, raw_root=raw_root,
-                throttle_s=0,
-            )
+        summary = backfill_bse_prices(
+            d, d, sqlite_path=sqlite_path, parquet_root=parquet_root,
+            raw_root=raw_root, throttle_s=0,
+        )
+
+        assert summary.succeeded == 1
+        assert summary.ok is True

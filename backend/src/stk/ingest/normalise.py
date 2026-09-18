@@ -134,6 +134,51 @@ def parse_legacy_bhavcopy(
         )
 
 
+def parse_bse_legacy_bhavcopy(
+    text: str, *, business_date: date, source: str = "bse_legacy_bhavcopy"
+) -> Iterator[CanonicalBar]:
+    """Parse BSE's legacy EQ{DDMMYY}_CSV.ZIP bhavcopy (2010 through
+    2024-07-05, confirmed by direct probe -- see
+    docs/adr/0003-historical-price-source.md's BSE addendum).
+
+    Columns: SC_CODE,SC_NAME,SC_GROUP,SC_TYPE,OPEN,HIGH,LOW,CLOSE,LAST,
+    PREVCLOSE,NO_TRADES,NO_OF_SHRS,NET_TURNOV,TDCLOINDI. BSE identifies
+    securities by a numeric scrip code, not a symbol -- there is no
+    ISIN and no symbol in this file at all. ``symbol`` is set to the
+    scrip code (as a string); resolving it to a real symbol/ISIN is a
+    security-master join done later in the pipeline (ingest.merge), not
+    this parser's job -- same division of responsibility as the other
+    bhavcopy parsers in this module. This file has no delivery data,
+    same as NSE's legacy format.
+
+    The date itself is not a column in this file -- every row is for
+    the one date the whole file covers, which the caller already knows
+    (it's what was requested in the URL), so ``business_date`` is
+    passed in rather than parsed from a row.
+    """
+    reader = csv.DictReader(io.StringIO(text))
+    for raw_row in reader:
+        row = {k.strip(): v.strip() for k, v in raw_row.items() if k}
+
+        yield CanonicalBar(
+            date=business_date,
+            exchange="BSE",
+            symbol=row["SC_CODE"],
+            series=row.get("SC_GROUP") or None,
+            instrument_type="EQ",
+            open=_decimal_or_none(row["OPEN"]) or Decimal(0),
+            high=_decimal_or_none(row["HIGH"]) or Decimal(0),
+            low=_decimal_or_none(row["LOW"]) or Decimal(0),
+            close=_decimal_or_none(row["CLOSE"]) or Decimal(0),
+            prev_close=_decimal_or_none(row["PREVCLOSE"]),
+            last=_decimal_or_none(row["LAST"]),
+            volume=_int_or_none(row["NO_OF_SHRS"]) or 0,
+            turnover=_decimal_or_none(row["NET_TURNOV"]) or Decimal(0),
+            trades=_int_or_none(row["NO_TRADES"]),
+            source=source,
+        )
+
+
 def parse_udiff(text: str, *, exchange: str, source: str) -> Iterator[CanonicalBar]:
     """Parse an NSE or BSE UDiFF bhavcopy CSV into canonical bars.
 

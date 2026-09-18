@@ -5,13 +5,17 @@ the same _ingest_prices_for_date body (see ingest.daily) -- the shared
 mechanics (job_run scoping, raw persistence, idempotency, sanity/date
 assertions) are already exercised thoroughly against NSE fixtures in
 test_daily_ingest.py. This file only covers what's BSE-specific: the
-UDiFF parse path, the SPA-shell -> skipped_holiday behaviour, and the
-pre-2024-07-08 NotSupportedError guard.
+UDiFF parse path, the legacy pre-2024-07-08 parse path (now that both
+BSE sources are wired into get_bse_price_provider_for_date), and the
+SPA-shell -> skipped_holiday behaviour (which applies to both source's
+URL families).
 """
 
 from __future__ import annotations
 
+import zipfile
 from datetime import date
+from io import BytesIO
 from pathlib import Path
 
 import httpx
@@ -19,7 +23,6 @@ import pyarrow.parquet as pq
 import pytest
 import respx
 
-from stk.core.errors import NotSupportedError
 from stk.ingest.daily import ingest_bse_prices_for_date
 from stk.store.db.engine import connect, migrate
 from stk.store.parquet.layout import bars_daily_partition
@@ -27,6 +30,8 @@ from stk.store.parquet.layout import bars_daily_partition
 FIXTURES = Path(__file__).parent.parent / "fixtures"
 URL = "https://www.bseindia.com/download/BhavCopy/Equity/BhavCopy_BSE_CM_0_0_0_20260917_F_0000.CSV"
 BUSINESS_DATE = date(2026, 9, 17)
+LEGACY_URL = "https://www.bseindia.com/download/BhavCopy/Equity/EQ040110_CSV.ZIP"
+LEGACY_BUSINESS_DATE = date(2010, 1, 4)
 
 
 @pytest.fixture
@@ -100,20 +105,39 @@ class TestIngestBsePricesForDate:
             conn.close()
         assert row["status"] == "skipped_holiday"
 
-    def test_date_before_udiff_start_raises_not_supported(self, data_dirs):
+    @respx.mock
+    def test_date_before_udiff_start_uses_legacy_source(self, data_dirs):
+        """2010-01-04 is before the UDiFF cutover, so
+        get_bse_price_provider_for_date must route to
+        BseLegacyBhavcopyProvider instead of raising -- this is the
+        behaviour change from the deferred spike step 4 being resolved
+        (see docs/adr/0003-historical-price-source.md)."""
         sqlite_path, parquet_root, raw_root = data_dirs
-        with pytest.raises(NotSupportedError):
-            ingest_bse_prices_for_date(
-                date(2020, 1, 1), sqlite_path=sqlite_path,
-                parquet_root=parquet_root, raw_root=raw_root,
+        csv_text = (FIXTURES / "bse" / "legacy_EQ040110.CSV").read_text()
+        buf = BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("EQ040110.CSV", csv_text)
+        respx.get(LEGACY_URL).mock(
+            return_value=httpx.Response(
+                200,
+                content=buf.getvalue(),
+                headers={"content-type": "application/x-zip-compressed"},
             )
+        )
+
+        result = ingest_bse_prices_for_date(
+            LEGACY_BUSINESS_DATE, sqlite_path=sqlite_path,
+            parquet_root=parquet_root, raw_root=raw_root,
+        )
+
+        assert result.status == "success"
+        assert result.rows_written == 50
 
         conn = connect(sqlite_path)
         try:
             row = conn.execute(
-                "SELECT status, error_type FROM job_runs WHERE job_name='ingest_bse_prices'"
+                "SELECT status FROM job_runs WHERE job_name='ingest_bse_prices'"
             ).fetchone()
         finally:
             conn.close()
-        assert row["status"] == "failed"
-        assert row["error_type"] == "NotSupportedError"
+        assert row["status"] == "success"

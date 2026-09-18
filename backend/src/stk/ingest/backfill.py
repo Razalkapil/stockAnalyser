@@ -18,15 +18,17 @@ a full backfill run works correctly today; it will just do a few
 thousand more no-op HTTP requests than strictly necessary until a real
 calendar provider lands.
 
-BSE backfill before 2024-07-08 (BSE's confirmed-live source's start,
-see providers.bse.prices) fails loudly on every date rather than
-skipping -- BseUdiffProvider.fetch_eod raises NotSupportedError, which
-is NOT one of the exceptions caught per-date below, so it propagates
-and aborts the whole range immediately. This is deliberate: silently
-recording thousands of "failed" dates for a known, permanent gap would
-bury the one signal (an unexpected failure on a date that SHOULD work)
-that this function's per-date continue-on-failure behaviour exists to
-surface.
+BSE prices now have two confirmed sources spanning 2010-01-04 to
+present (bse_legacy_bhavcopy and bse_udiff, selected automatically by
+date -- see providers.registry.get_bse_price_provider_for_date), so
+NotSupportedError is no longer expected during a normal BSE backfill.
+It is still not caught per-date below and still propagates and aborts
+the whole range immediately if it ever does occur (e.g. a provider
+constructed directly for a date outside its own coverage) -- a known,
+permanent gap must never be silently recorded as thousands of per-date
+"failed" rows, which would bury the one signal (an unexpected failure
+on a date that SHOULD work) that this function's per-date
+continue-on-failure behaviour exists to surface.
 """
 
 from __future__ import annotations

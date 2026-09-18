@@ -61,6 +61,11 @@ def format_yyyymmdd(d: date) -> str:
     return d.strftime("%Y%m%d")
 
 
+def format_ddmmyy_compact(d: date) -> str:
+    """Format a date as 'DDMMYY' (2-digit year) for BSE legacy bhavcopy filenames."""
+    return d.strftime("%d%m%y")
+
+
 def is_market_hours(dt: datetime | None = None) -> bool:
     """Whether the given (or current) IST instant is within 9:15-15:30.
 

@@ -26,18 +26,14 @@ from datetime import UTC, date, datetime
 import httpx
 
 from stk.core.errors import DataNotPublished, ProviderUnavailable
-from stk.core.http import DEFAULT_UA, validate_csv_response
+from stk.core.http import DEFAULT_UA, validate_csv_response, validate_zip_response
 from stk.providers.base import RawArtifact
 
 
-def fetch_bse_csv_file(
-    url: str,
-    *,
-    source: str,
-    business_date: date | None,
-    expected_header_token: str,
-    timeout_s: float = 30.0,
-) -> RawArtifact:
+def _get_and_check_shell(url: str, timeout_s: float) -> httpx.Response:
+    """GET the URL and raise DataNotPublished if the response is BSE's
+    SPA shell -- shared by both the CSV (UDiFF) and zip (legacy) fetch
+    paths, since the shell is served identically for both URL families."""
     try:
         response = httpx.get(
             url,
@@ -53,8 +49,12 @@ def fetch_bse_csv_file(
         raise DataNotPublished(
             f"{url} returned the BSE SPA shell (text/html) -- no data for this date"
         )
+    return response
 
-    validate_csv_response(response, url=url, expected_header_token=expected_header_token)
+
+def _to_artifact(
+    response: httpx.Response, *, url: str, source: str, business_date: date | None
+) -> RawArtifact:
     return RawArtifact(
         source=source,
         business_date=business_date,
@@ -64,3 +64,35 @@ def fetch_bse_csv_file(
         http_status=response.status_code,
         fetched_at=datetime.now(UTC),
     )
+
+
+def fetch_bse_csv_file(
+    url: str,
+    *,
+    source: str,
+    business_date: date | None,
+    expected_header_token: str,
+    timeout_s: float = 30.0,
+) -> RawArtifact:
+    response = _get_and_check_shell(url, timeout_s)
+    validate_csv_response(response, url=url, expected_header_token=expected_header_token)
+    return _to_artifact(response, url=url, source=source, business_date=business_date)
+
+
+def fetch_bse_zip_file(
+    url: str,
+    *,
+    source: str,
+    business_date: date | None,
+    timeout_s: float = 30.0,
+) -> RawArtifact:
+    """GET and content-validate a zip file from www.bseindia.com.
+
+    Used by the legacy pre-UDiFF bhavcopy (EQ{DDMMYY}_CSV.ZIP), which
+    is served over the same URL family and exhibits the identical SPA-
+    shell trap for a non-trading or invalid date -- confirmed live by
+    direct probe on 2026-09-18 (see docs/adr/0003-historical-price-source.md).
+    """
+    response = _get_and_check_shell(url, timeout_s)
+    validate_zip_response(response, url=url)
+    return _to_artifact(response, url=url, source=source, business_date=business_date)

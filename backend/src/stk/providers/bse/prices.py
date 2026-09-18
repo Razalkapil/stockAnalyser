@@ -1,13 +1,15 @@
 """BSE UDiFF price provider.
 
-Unlike NSE, BSE has only one confirmed live price source: the UDiFF
-bhavcopy, available from 2024-07-08 onward (the same industry-wide
-cutover date as NSE's UDiFF, per NSE circular 62424 -- both exchanges
-moved to the shared UDiFF format together). BSE's pre-UDiFF history
-depth was NOT investigated (the phase-0 history spike's step 4, per
-docs/adr/0003-historical-price-source.md) -- this is a known,
-documented gap, not an oversight. Requesting an earlier date raises
-NotSupportedError rather than silently returning nothing.
+Available from 2024-07-08 onward (the same industry-wide cutover date
+as NSE's UDiFF, per NSE circular 62424 -- both exchanges moved to the
+shared UDiFF format together). Everything before that date is covered
+by BseLegacyBhavcopyProvider (see providers.bse.legacy_prices and
+docs/adr/0003-historical-price-source.md) -- automatic selection
+between the two is done by providers.registry.get_bse_price_provider_for_date,
+which both ingest.daily and ingest.backfill go through rather than
+constructing this class directly by date. Requesting a pre-cutover date
+from THIS class specifically still raises NotSupportedError, since this
+class alone genuinely cannot serve it.
 """
 
 from __future__ import annotations

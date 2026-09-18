@@ -20,6 +20,12 @@ from stk.providers.base import PriceProvider
 # format whenever both cover a date, because it also carries delivery data.
 SEC_BHAVDATA_AVAILABLE_FROM = date(2019, 9, 30)
 
+# Confirmed by direct probe (spike step 4, docs/adr/0003): BSE's UDiFF
+# format starts here, the same industry-wide cutover date as NSE's.
+# The legacy EQ*.CSV.ZIP format covers everything before it, back to
+# at least 2010-01-04, with no gap at the boundary.
+BSE_UDIFF_AVAILABLE_FROM = date(2024, 7, 8)
+
 
 def get_price_provider(name: str) -> PriceProvider:
     """Construct a PriceProvider by its config name (see providers.prices in defaults.yaml)."""
@@ -37,6 +43,11 @@ def get_price_provider(name: str) -> PriceProvider:
         from stk.providers.bse.prices import BseUdiffProvider  # noqa: PLC0415
 
         return BseUdiffProvider()
+
+    if name == "bse_legacy_bhavcopy":
+        from stk.providers.bse.legacy_prices import BseLegacyBhavcopyProvider  # noqa: PLC0415
+
+        return BseLegacyBhavcopyProvider()
 
     # A future kite/broker adapter registers here as it lands.
     raise ConfigError(f"unknown price provider: {name!r}")
@@ -56,3 +67,24 @@ def get_nse_price_provider_for_date(business_date: date) -> PriceProvider:
     if business_date >= SEC_BHAVDATA_AVAILABLE_FROM:
         return get_price_provider("nse_sec_bhavdata")
     return get_price_provider("nse_legacy_bhavcopy")
+
+
+def get_bse_price_provider_for_date(business_date: date) -> PriceProvider:
+    """Automatic source selection for BSE prices by date, mirroring
+    get_nse_price_provider_for_date -- see this module's docstring and
+    docs/adr/0003-historical-price-source.md for the confirmed boundary:
+
+        2010-01-04 .. 2024-07-05   bse_legacy_bhavcopy  (no delivery, no ISIN, no symbol)
+        2024-07-08 onward          bse_udiff            (no delivery, has ISIN)
+
+    A date before 2010-01-04 is not covered by either source and
+    reaches BseLegacyBhavcopyProvider.fetch_eod, which does not itself
+    guard that boundary -- callers relying on automatic selection get
+    whatever BSE's archive actually returns for a date that old (most
+    likely the SPA shell -> DataNotPublished), which is an honest
+    "unknown" rather than a fabricated NotSupportedError for a boundary
+    nobody has verified.
+    """
+    if business_date >= BSE_UDIFF_AVAILABLE_FROM:
+        return get_price_provider("bse_udiff")
+    return get_price_provider("bse_legacy_bhavcopy")

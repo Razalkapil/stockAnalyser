@@ -181,15 +181,16 @@ def ingest_bse_prices_for_date(
     """Ingest one day of BSE prices end-to-end, identical pipeline shape
     to ingest_nse_prices_for_date.
 
-    Only one BSE source is registered (UDiFF, from 2024-07-08) -- see
-    providers.bse.prices.BseUdiffProvider. A date before that raises
-    NotSupportedError from fetch_eod, which is NOT caught as a skip: an
-    unimplemented history gap is a different fact from "not a trading
-    day" and must show up as a failure, not a silent skipped_holiday.
+    Source (bse_legacy_bhavcopy vs bse_udiff) is selected automatically
+    by date -- see providers.registry.get_bse_price_provider_for_date.
+    A date before 2010-01-04 (older than either confirmed source) most
+    likely surfaces as skipped_holiday via the legacy provider's own
+    SPA-shell handling, an honest "unknown" rather than a fabricated
+    boundary.
     """
-    from stk.providers.registry import get_price_provider  # noqa: PLC0415
+    from stk.providers.registry import get_bse_price_provider_for_date  # noqa: PLC0415
 
-    provider = get_price_provider("bse_udiff")
+    provider = get_bse_price_provider_for_date(business_date)
     return _ingest_prices_for_date(
         business_date,
         exchange="BSE",
