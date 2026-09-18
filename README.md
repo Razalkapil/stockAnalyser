@@ -6,7 +6,7 @@ Full requirements: [`docs/PROJECT_BRIEF.md`](docs/PROJECT_BRIEF.md). Implementat
 
 ## Status
 
-Phase 0 (repo/tooling) and the phase-1 substrate (config, storage, parsers, one live-verified NSE ingest path) are done. See `CLAUDE.md`'s "Current status" section for the up-to-date phase breakdown.
+Phase 0 (repo/tooling) and Phase 1 (data pipeline + store) are done: live-verified daily price ingest and backfill for both NSE and BSE (2010-present), the security master (NSE + BSE, merged by ISIN), corporate actions (fetch + parse + upsert), fundamentals filing metadata, and the liquidity filter. See `CLAUDE.md`'s "Current status" section for the up-to-date breakdown, including what's deliberately deferred (XBRL line-item parsing, BSE suspension/delisting detection, the yfinance fallback). Phases 2-8 are not started — the build plan explicitly scopes execution to phases 0-1 with a check-in before moving on.
 
 ## Setup
 
@@ -21,7 +21,12 @@ cp .env.example .env   # fill in secrets when phases 4+ need them; empty is fine
 
 ```bash
 uv run stk db migrate               # apply SQLite schema migrations
-uv run stk ingest daily             # ingest today's NSE prices (or --date YYYY-MM-DD)
+uv run stk ingest daily             # ingest today's NSE + BSE prices (or --date YYYY-MM-DD)
+uv run stk backfill prices --from 2010-01-01 --to 2026-09-18 --exchange NSE  # or BSE
+uv run stk ingest master            # refresh securities/listings from NSE + BSE, merged by ISIN
+uv run stk ingest corpactions       # fetch/parse/upsert corporate actions
+uv run stk ingest liquidity         # recompute the liquidity feature set + universe_current
+uv run stk ingest fundamentals RELIANCE --isin INE002A01018   # one security's filing metadata
 uv run stk doctor                   # ingest health check; exits non-zero on problems
 
 uv run pytest                       # full test suite (live-network tests excluded)
