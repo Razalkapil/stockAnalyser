@@ -349,6 +349,27 @@ def check_security_lifecycle(conn: sqlite3.Connection, *, today: date) -> list[P
     return out
 
 
+#: Companies file quarterly, so a whole market with no NEW filing for this long means the feed
+#: stopped -- exactly what happened when NSE moved to the Integrated Filing system.
+FUNDAMENTALS_MAX_AGE_DAYS = 130
+
+
+def check_fundamentals_freshness(conn: sqlite3.Connection, *, today: date) -> list[Problem]:
+    row = conn.execute(
+        "SELECT MAX(broadcast_at) AS t, COUNT(*) AS n FROM fundamentals_snapshots "
+        "WHERE statement_type='meta'").fetchone()
+    if not row["n"] or row["t"] is None:
+        return []  # nothing ingested: nothing to be stale (the strategy says so itself)
+    newest = datetime.fromisoformat(row["t"]).date()
+    if (today - newest).days > FUNDAMENTALS_MAX_AGE_DAYS:
+        return [Problem(
+            "fundamentals_stale",
+            f"the newest filing in the store was broadcast {newest} "
+            f"({(today - newest).days} days ago): run `stk ingest fundamentals-sweep`; if that "
+            "adds nothing, the filing feed has changed again")]
+    return []
+
+
 def check_backup_age(latest_age_days: int | None, *, expected: bool = True) -> list[Problem]:
     if not expected:
         return []
@@ -381,5 +402,6 @@ def run_all_checks(
     problems.extend(check_ai_runs(conn))
     problems.extend(check_instrument_classes(conn, parquet_root))
     problems.extend(check_security_lifecycle(conn, today=today))
+    problems.extend(check_fundamentals_freshness(conn, today=today))
     problems.extend(check_poller(conn, now=datetime.now(UTC)))
     return problems

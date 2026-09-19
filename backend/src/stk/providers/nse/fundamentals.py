@@ -46,6 +46,7 @@ from stk.providers.base import (
 )
 
 _URL = "https://www.nseindia.com/api/corporates-financial-results"
+_INTEGRATED_URL = "https://www.nseindia.com/api/integrated-filing-results"
 SOURCE = "nse_filings"
 
 _PERIOD_QUERY_VALUE = {
@@ -76,6 +77,77 @@ def _fetch_rows(params: dict[str, str], *, timeout_s: float = 30.0) -> list[dict
     if not isinstance(payload, list):
         raise ProviderUnavailable(f"{_URL} did not return a JSON array")
     return payload
+
+
+def _parse_integrated_ts(raw: str | None) -> datetime | None:
+    """'17-Jul-2026 19:50:03' (or upper-case '19-SEP-2026 15:17:04') -- %b is case-insensitive."""
+    if not raw:
+        return None
+    return datetime.strptime(raw.strip(), "%d-%b-%Y %H:%M:%S")
+
+
+def _fetch_integrated_rows(symbol: str, *, timeout_s: float = 30.0) -> list[dict]:
+    """Every integrated-filing row for one symbol (a handful: ~2 per quarter, standalone +
+    consolidated, plus revisions). Verified live 2026-09-19: needs only a browser UA, and answers
+    ``{"data": [...], "size", "page", "totalCount"}`` -- ``size`` is the page length, so ask for
+    enough to cover ``totalCount`` and fail loudly rather than silently truncate."""
+    params = {"index": "equities", "period_ended": "all",
+              "type": "Integrated Filing- Financials", "symbol": symbol, "size": "200"}
+    try:
+        response = httpx.get(
+            _INTEGRATED_URL, params=params, headers={"User-Agent": BROWSER_UA},
+            timeout=timeout_s, follow_redirects=True)
+    except httpx.HTTPError as exc:
+        raise ProviderUnavailable(f"transport error fetching {_INTEGRATED_URL}: {exc}") from exc
+    payload = validate_json_response(response, url=_INTEGRATED_URL)
+    if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
+        raise ProviderUnavailable(f"{_INTEGRATED_URL} did not return {{'data': [...]}}")
+    rows: list[dict] = payload["data"]
+    total = payload.get("totalCount")
+    if isinstance(total, int) and total > len(rows):
+        raise ProviderUnavailable(
+            f"{_INTEGRATED_URL} for {symbol}: {total} rows exist but only {len(rows)} were "
+            "returned -- refusing to store a truncated history")
+    return rows
+
+
+def _integrated_row_to_snapshot(row: dict, *, isin: str) -> FundamentalsSnapshotIn | None:
+    """One integrated-filing row. Differences from the legacy feed, all live-verified:
+
+    - no ISIN in the row (the caller knows it), no Quarterly/Annual flag -- a MARCH filing carries
+      the full year in its year-to-date context (checked on Reliance FY26: 12 months, and a
+      balance sheet), so it is stored as ``FY``; every other quarter as ``Q``;
+    - ``broadcast_Date`` is null on Revisions, so point-in-time falls back to ``revised_Date``,
+      then ``creation_Date`` (when NSE received it) -- never to a guess;
+    - revisions are separate rows with their own document; each is kept (never overwritten) and
+      ``is_restated`` marks them, so the later-available one wins from its own date onward.
+    """
+    qe = (row.get("qe_Date") or "").strip()
+    seq = str(row.get("seq_Id") or "").strip()
+    if not qe or not seq:
+        return None
+    period_end = datetime.strptime(qe, "%d-%b-%Y").date()
+    broadcast = (_parse_integrated_ts(row.get("broadcast_Date"))
+                 or _parse_integrated_ts(row.get("revised_Date"))
+                 or _parse_integrated_ts(row.get("creation_Date")))
+    consolidated = (row.get("consolidated") or "").strip().lower() == "consolidated"
+    return FundamentalsSnapshotIn(
+        security_isin=isin,
+        provider=SOURCE,
+        statement_type="meta",
+        period_type=Period.ANNUAL if period_end.month == 3 else Period.QUARTERLY,
+        period_end=period_end,
+        consolidated=consolidated,
+        audited=(row.get("audited") or "").strip().lower() == "audited",
+        filing_system="integrated_filing",
+        broadcast_at=broadcast,
+        captured_at=datetime.now(UTC),
+        is_approximate=False,
+        is_restated=(row.get("type_Sub") or "").strip().lower() == "revision",
+        data=row,
+        source_url=row.get("xbrl") or None,
+        source_hash=hashlib.sha256(f"integrated:{seq}".encode()).hexdigest(),
+    )
 
 
 def _row_to_snapshot(row: dict, *, period_type: Period) -> FundamentalsSnapshotIn | None:
@@ -165,6 +237,15 @@ class NseFundamentalsProvider(FundamentalsProvider):
             if snapshot is not None:
                 snapshots.append(snapshot)
 
+        snapshots.sort(key=lambda s: s.broadcast_at or datetime.min, reverse=True)
+        return snapshots[:limit]
+
+    def fetch_integrated_statements(
+        self, security: SecurityRef, limit: int = 40
+    ) -> list[FundamentalsSnapshotIn]:
+        rows = _fetch_integrated_rows(security.symbol)
+        snapshots = [s for row in rows
+                     if (s := _integrated_row_to_snapshot(row, isin=security.isin)) is not None]
         snapshots.sort(key=lambda s: s.broadcast_at or datetime.min, reverse=True)
         return snapshots[:limit]
 

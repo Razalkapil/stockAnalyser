@@ -20,6 +20,7 @@ from stk.ingest.health import (
     check_ai_runs,
     check_backup_age,
     check_calendar_coverage,
+    check_fundamentals_freshness,
     check_job_runs,
     check_partition_manifests,
     check_poller,
@@ -408,3 +409,34 @@ class TestSecurityLifecycle:
         self._master(db, "2026-08-01T00:00:00+00:00")
         self._master(db, "2026-09-17T00:00:00+00:00", status="failed")
         assert [p.code for p in check_security_lifecycle(db, today=TODAY)] == ["master_stale"]
+
+
+class TestFundamentalsFreshness:
+    def _snap(self, db, broadcast, i=1):
+        db.execute(
+            "INSERT OR IGNORE INTO securities (security_id, isin, canonical_symbol, company_name, "
+            "primary_exchange, status, first_seen_on, last_seen_on, updated_at) "
+            "VALUES (1,'INE001A01010','S1','n','NSE','ACTIVE','a','a','a')")
+        db.execute(
+            "INSERT INTO fundamentals_snapshots (security_id, provider, statement_type, "
+            "period_type, period_end, consolidated, broadcast_at, captured_at, is_approximate, "
+            "is_restated, currency, unit_multiplier, data_json, source_hash, parser_version) "
+            "VALUES (1,'nse_filings','meta','Q',?,1,?,'c',0,0,'INR',1,'{}',?,1)",
+            (f"2026-0{i}-01", broadcast, f"h{i}"))
+
+    def test_nothing_ingested_is_not_stale(self, db):
+        assert check_fundamentals_freshness(db, today=TODAY) == []
+
+    def test_a_recent_filing_is_fresh(self, db):
+        self._snap(db, "2026-09-01T10:00:00")
+        assert check_fundamentals_freshness(db, today=TODAY) == []
+
+    def test_a_feed_that_stopped_is_a_problem(self, db):
+        self._snap(db, "2025-04-09T12:53:26")  # the legacy feed's real last broadcast
+        (p,) = check_fundamentals_freshness(db, today=TODAY)
+        assert p.code == "fundamentals_stale" and p.is_problem and "2025-04-09" in p.message
+
+    def test_one_old_and_one_new_filing_is_fresh(self, db):
+        self._snap(db, "2025-04-09T12:53:26", 1)
+        self._snap(db, "2026-08-01T00:00:00", 2)
+        assert check_fundamentals_freshness(db, today=TODAY) == []

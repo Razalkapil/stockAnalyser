@@ -17,7 +17,7 @@ from pathlib import Path
 
 import structlog
 
-from stk.core.errors import ProviderError
+from stk.core.errors import NotSupportedError, ProviderError
 from stk.ingest.fundamentals import upsert_snapshot
 from stk.ingest.jobs import job_run
 from stk.providers.base import Period, SecurityRef
@@ -41,6 +41,7 @@ def sweep_liquid_universe(
     per_security_limit: int = 40,
     throttle_s: float = 1.0,
     provider_name: str = "nse_filings",
+    integrated_only: bool = False,
 ) -> SweepResult:
     conn = connect(sqlite_path)
     result = SweepResult()
@@ -60,7 +61,7 @@ def sweep_liquid_universe(
                 security = SecurityRef(isin=row["isin"], symbol=row["canonical_symbol"],
                                        exchange="NSE")
                 result.securities += 1
-                for period in (Period.QUARTERLY, Period.ANNUAL):
+                for period in () if integrated_only else (Period.QUARTERLY, Period.ANNUAL):
                     try:
                         snaps = provider.fetch_statements(
                             security, period, limit=per_security_limit
@@ -73,6 +74,21 @@ def sweep_liquid_universe(
                         continue
                     result.filings_upserted += sum(1 for s in snaps if upsert_snapshot(conn, s))
                     time.sleep(throttle_s)
+                # The newer system that replaced the legacy feed after ~Dec 2024: without it every
+                # fundamental is 18+ months stale.
+                try:
+                    snaps = provider.fetch_integrated_statements(
+                        security, limit=per_security_limit)
+                except NotSupportedError:
+                    snaps = []
+                except ProviderError as exc:
+                    log.warning("fundamentals_sweep_failed", symbol=security.symbol,
+                                period="integrated", error=str(exc))
+                    result.failures += 1
+                    handle.degraded = True
+                    snaps = []
+                result.filings_upserted += sum(1 for s in snaps if upsert_snapshot(conn, s))
+                time.sleep(throttle_s)
             handle.rows_written = result.filings_upserted
             handle.metrics = {"securities": result.securities, "failures": result.failures}
         return result

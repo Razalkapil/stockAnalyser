@@ -351,6 +351,13 @@ class FundamentalsProvider(ABC):
     ) -> list[FundamentalsSnapshotIn]:
         """Normalised statements ready for fundamentals_snapshots insertion."""
 
+    def fetch_integrated_statements(
+        self, security: SecurityRef, limit: int = 40
+    ) -> list[FundamentalsSnapshotIn]:
+        """Filings from the newer "Integrated Filing" system, which replaced the legacy
+        financial-results feed for periods after ~Dec 2024. Optional capability."""
+        raise NotSupportedError(f"{type(self).__name__} has no integrated-filing source")
+
     def fetch_document(self, url: str) -> RawArtifact:
         """The verbatim filing document (e.g. XBRL) behind a ``FilingRef.source_url``.
 

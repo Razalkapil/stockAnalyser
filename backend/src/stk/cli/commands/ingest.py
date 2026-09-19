@@ -437,15 +437,21 @@ def fundamentals(
 def fundamentals_sweep(
     limit: int | None = typer.Option(None, "--limit", help="Only the first N liquid securities"),
     throttle_s: float = typer.Option(1.0, "--throttle-s", help="Delay between requests"),
+    integrated_only: bool = typer.Option(
+        False, "--integrated-only",
+        help="Skip the legacy feed (which stops at Dec 2024) and fetch only the newer "
+        "Integrated Filing system"),
 ) -> None:
-    """Fetch filing metadata (quarterly + annual) for the whole liquid universe.
+    """Fetch filing metadata for the whole liquid universe: the legacy quarterly/annual feed
+    (periods up to Dec 2024) and the Integrated Filing system (Mar 2025 onward).
 
     Run `stk ingest liquidity` and `stk ingest master` first so the universe
     exists. Follow with `stk ingest xbrl` to parse the documents. Safe to re-run.
     """
     settings = get_settings()
     result = sweep_liquid_universe(
-        sqlite_path=settings.paths.sqlite, limit=limit, throttle_s=throttle_s
+        sqlite_path=settings.paths.sqlite, limit=limit, throttle_s=throttle_s,
+        integrated_only=integrated_only,
     )
     colour = "yellow" if result.failures else "green"
     typer.secho(
