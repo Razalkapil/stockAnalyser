@@ -2,16 +2,32 @@
 # request, per stock, or in a loop. Every call is logged to ai_runs with tokens and a cost estimate.
 enabled: true
 
-# Sonnet-class by the brief. A model name is config, not code.
-model: claude-sonnet-5
-max_tokens: 16000
+# Which LLM to call: groq | anthropic. The provider is config, not code -- both sit behind the
+# same LlmClient protocol (stk/ai/client.py). Credentials come from the environment
+# (GROQ_API_KEY / ANTHROPIC_API_KEY), never from here.
+provider: groq
 timeout_s: 180
-# Sonnet 5 only supports adaptive thinking; sampling params (temperature etc.) are rejected.
-effort: medium               # low | medium | high | xhigh | max
+
+providers:
+  groq:
+    # A model name is config. `stk ai models` lists what the key can actually use -- the first
+    # guess (llama-3.3-70b-versatile) was NOT available to this key, hence this default.
+    # gpt-oss is a reasoning model: its reasoning tokens count against max_tokens.
+    model: openai/gpt-oss-120b
+    max_tokens: 8000
+    # Groq's free tier has low tokens-per-minute limits; ~4 chars per token.
+    max_input_chars: 36000
+  anthropic:
+    model: claude-sonnet-5           # Sonnet-class by the brief
+    max_tokens: 16000
+    # Sonnet 5 only supports adaptive thinking; sampling params (temperature etc.) are rejected.
+    effort: medium                   # low | medium | high | xhigh | max
 
 # USD per million tokens, for the COST ESTIMATE only (ai_runs.cost_usd_est). Not authoritative:
-# check Anthropic's pricing page; this is a budgeting aid, not an invoice.
+# check the provider's pricing page; this is a budgeting aid, not an invoice. A model missing here
+# has an UNKNOWN cost (NULL), never zero.
 pricing_usd_per_mtok:
+  openai/gpt-oss-120b: { input: 0.15, output: 0.60 }   # Groq list price from memory -- UNVERIFIED
   claude-sonnet-5: { input: 2.00, output: 10.00 }
   claude-opus-5:   { input: 5.00, output: 25.00 }
   claude-haiku-4-5: { input: 1.00, output: 5.00 }

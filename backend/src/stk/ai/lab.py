@@ -122,7 +122,8 @@ def run_strategy_lab(
     user = json.dumps(payload, indent=1, sort_keys=True, default=str)
     sha = hashlib.sha256((LAB_SYSTEM + user).encode()).hexdigest()
     res = call_structured(client, system=LAB_SYSTEM, user=user, schema=LabReply,
-                          max_tokens=ai.max_tokens, keep_on_semantic_failure=True,
+                          max_tokens=ai.max_tokens, max_input_chars=ai.max_input_chars,
+                          keep_on_semantic_failure=True,
                           semantic_check=lambda r: lab_problems(r, strategies, horizons))
 
     if not isinstance(res.value, LabReply):

@@ -119,7 +119,7 @@ def run_evening_review(conn: sqlite3.Connection, ctx: PlayCtx, ai: AiConfig, cli
     user = json.dumps(inp.payload, indent=1, sort_keys=True, default=str)
     prompt_sha = hashlib.sha256((EVENING_SYSTEM + user).encode()).hexdigest()
     res = call_structured(client, system=EVENING_SYSTEM, user=user, schema=EveningReview,
-                          max_tokens=ai.max_tokens,
+                          max_tokens=ai.max_tokens, max_input_chars=ai.max_input_chars,
                           semantic_check=lambda r: semantic_problems(r, inp))
 
     with transaction(conn):

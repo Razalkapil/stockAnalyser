@@ -36,7 +36,7 @@ and `indices` still run. Re-running is always safe — every step is idempotent,
 2. `sudo git clone <repo> /srv/stockanalyser/app && cd /srv/stockanalyser/app`
 3. `deploy/install.sh` — creates the `stk` user and directories, `uv sync --frozen`, migrates,
    installs and enables the units and timers. It creates `/etc/stockanalyser/env` from
-   `deploy/env.example`; edit it (`ANTHROPIC_API_KEY`, `STK_OFFSITE_CMD`).
+   `deploy/env.example`; edit it (`GROQ_API_KEY` — or `ANTHROPIC_API_KEY` if `config/ai.yaml` says `provider: anthropic` — and `STK_OFFSITE_CMD`).
 4. Build the web app: `cd web && npm ci && npm run build` (output `web/dist`, served by Caddy).
 5. Put `deploy/Caddyfile` at `/etc/caddy/Caddyfile` (replace `stk.example.com`), `sudo systemctl reload caddy`.
 6. Create your API token — **shown once**: `sudo -u stk env STK_APP__ENV=prod .venv/bin/stk api token create me`.
@@ -103,7 +103,7 @@ remove those yourself once satisfied.
 | Banner: `nightly.prices failed` | Exchange not yet published, changed format, or the network is down. | `journalctl -u stk-nightly -e` / the `job_runs.error_message`. Re-run: `stk nightly` (safe any time). A `ContentValidationError` or a wrong-date file means the exchange served bad content — the pipeline refused it on purpose. Do not bypass; check `docs/data-sources.md` and probe with `stk doctor --check-endpoints`. |
 | `nightly.corpactions failed` — *unparsed subject* | A corporate action the parser doesn't know. **All rows are stored first**, then it fails so a split can't be silently missed. | Add a rule to the table in `ingest/corpactions.py` (+ a test using the real subject text), then re-run. Until then prices for that symbol may be mis-adjusted — the adjusted series is marked degraded. |
 | `orders_pending_eod` (info) | Delayed feed was down; orders are parked. | Nothing: the EOD pass decides them from the day's bar. |
-| `ai_failing` | Last 3 evening/lab runs failed (key lapsed, model renamed, output invalid). | `stk ai usage`, `ai_runs.error`; `stk ai evening --dry-run` shows the prompt. Everything else runs regardless. |
+| `ai_failing` | Last 3 evening/lab runs failed (key lapsed, model renamed, output invalid). | `stk ai models` (does the key work; is the configured model still offered), `stk ai usage`, `ai_runs.error`; `stk ai evening --dry-run` shows the prompt and its size. Everything else runs regardless. |
 | `backup_missing` / `backup_stale` | The backup timer isn't running or is failing. | `systemctl status stk-backup`, run `deploy/backup.sh` by hand. |
 | Data stale but no failed step | The timer did not fire (VM was off, timer not enabled). | `systemctl list-timers`; `stk nightly`. `Persistent=true` catches up after a boot. |
 | Disk full | Raw bytes + lake + backups grow. | `du -sh data/*`; the parquet lake was 330 MB for 5 years of NSE, `data/raw` was 418 MB and grows fastest — prune it only if you accept re-fetching to re-parse. |

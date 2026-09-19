@@ -207,6 +207,14 @@ class TestRun:
         assert r.status == "failed" and "could not reach the API" in r.detail
         assert runs(conn)[0]["status"] == "failed"
 
+    def test_an_oversized_prompt_is_a_recorded_failure_and_makes_no_call(self, env):
+        conn, ctx, ai, _ = env
+        model = Model()  # any call would raise IndexError
+        r = run_evening_review(conn, ctx, ai.model_copy(update={"max_input_chars": 100}),
+                               model, DAY)
+        assert r.status == "failed" and "max_input_chars=100" in r.detail
+        assert runs(conn)[0]["status"] == "failed"
+
     def test_a_failed_day_is_retried_next_time_but_a_successful_one_is_not(self, env):
         conn, ctx, ai, _ = env
         inp = build_input(conn, ctx, ai, DAY)
@@ -249,7 +257,9 @@ class TestRun:
 
     def test_the_committed_config_prices_the_default_model(self):
         cfg = load_ai_config()
-        assert cfg.model == "claude-sonnet-5"
+        # the ACTIVE provider's model must be priced, or every run's cost would be "unknown"
+        assert cfg.provider == "groq" and cfg.model == "openai/gpt-oss-120b"
+        assert cfg.estimate_cost_usd(cfg.model, 1_000_000, 1_000_000) is not None
         assert cfg.estimate_cost_usd("claude-sonnet-5", 1_000_000, 1_000_000) == pytest.approx(12.0)
         assert cfg.estimate_cost_usd("mystery-model", 1, 1) is None
 

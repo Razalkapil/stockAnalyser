@@ -8,14 +8,14 @@ from typing import Annotated
 
 import typer
 
-from stk.ai.client import AnthropicClient
+from stk.ai.client import GroqClient, LlmError, make_client
 from stk.ai.evening import run_evening_review
 from stk.ai.inputs import build_input
 from stk.ai.lab import run_strategy_lab
 from stk.ai.lab_inputs import build_lab_input
 from stk.ai.prompts import EVENING_SYSTEM, LAB_SYSTEM
 from stk.backtest.setup import make_rates_fn
-from stk.config.ai import load_ai_config
+from stk.config.ai import AiConfig, load_ai_config
 from stk.config.backtest import load_backtest_config
 from stk.config.promotion import load_promotion_config
 from stk.config.settings import get_settings
@@ -24,6 +24,15 @@ from stk.playground.context import PlayCtx
 from stk.store.db.engine import connect
 
 app = typer.Typer(help="AI features: evening review, spend.")
+
+
+def _size(ai: AiConfig, system: str, user: str) -> str:
+    """Prompt size, and whether the configured guard would refuse it (~4 characters a token)."""
+    chars = len(system) + len(user)
+    over = ai.max_input_chars is not None and chars > ai.max_input_chars
+    limit = f" -- OVER max_input_chars={ai.max_input_chars:,}, the call would be refused" if over \
+        else ""
+    return f"Prompt: {chars:,} chars (~{chars // 4:,} tokens){limit}."
 
 
 @app.command("evening")
@@ -40,8 +49,9 @@ def evening(
 ) -> None:
     """Rank and explain the day's picks, flag conflicts, and write the market brief.
 
-    One model call. Never fails the pipeline: a problem is recorded in ai_runs and shown here,
-    and this command still exits 0 so the nightly run carries on.
+    One model call. A model or output problem is recorded in ai_runs and shown here, and the
+    command still exits 0 so the nightly run carries on. A missing API key exits non-zero: it is
+    a setup error, and the nightly banner should say so.
     """
     settings = get_settings()
     ai = load_ai_config()
@@ -51,13 +61,18 @@ def evening(
     try:
         if dry_run:
             inp = build_input(conn, ctx, ai, day)
+            user = json.dumps(inp.payload, indent=1, sort_keys=True, default=str)
             typer.echo(EVENING_SYSTEM)
             typer.echo("--- user message " + "-" * 40)
-            typer.echo(json.dumps(inp.payload, indent=1, sort_keys=True, default=str))
+            typer.echo(user)
             typer.secho(f"\n{len(inp.pick_ids)} picks, {len(inp.symbols)} symbols. "
-                        "Nothing was sent.", fg="yellow")
+                        f"{_size(ai, EVENING_SYSTEM, user)} Nothing was sent.", fg="yellow")
             return
-        client = AnthropicClient(model=ai.model, effort=ai.effort, timeout_s=ai.timeout_s)
+        try:
+            client = make_client(ai)
+        except LlmError as exc:
+            typer.secho(f"AI unavailable: {exc}", fg="red")
+            raise typer.Exit(code=1) from exc
         result = run_evening_review(conn, ctx, ai, client, day, force=force)
     finally:
         conn.close()
@@ -87,13 +102,18 @@ def lab(
     try:
         if dry_run:
             payload = build_lab_input(conn)
+            user = json.dumps(payload, indent=1, sort_keys=True, default=str)
             typer.echo(LAB_SYSTEM)
             typer.echo("--- user message " + "-" * 40)
-            typer.echo(json.dumps(payload, indent=1, sort_keys=True, default=str))
-            typer.secho(f"\n{len(payload['strategies'])} strategies. Nothing was sent.",
-                        fg="yellow")
+            typer.echo(user)
+            typer.secho(f"\n{len(payload['strategies'])} strategies. "
+                        f"{_size(ai, LAB_SYSTEM, user)} Nothing was sent.", fg="yellow")
             return
-        client = AnthropicClient(model=ai.model, effort=ai.effort, timeout_s=ai.timeout_s)
+        try:
+            client = make_client(ai)
+        except LlmError as exc:
+            typer.secho(f"AI unavailable: {exc}", fg="red")
+            raise typer.Exit(code=1) from exc
         result = run_strategy_lab(
             conn, ai, client, parquet_root=settings.paths.parquet,
             cfg=load_backtest_config(), promo=load_promotion_config(), day=today_ist())
@@ -106,6 +126,27 @@ def lab(
         typer.echo(f"  proposal #{pid}: {status}")
     if result.cost_usd is not None:
         typer.echo(f"  ~${result.cost_usd:.4f} for the model call")
+
+
+@app.command("models")
+def models() -> None:
+    """List the models the configured Groq key can use -- the quickest live check of the key."""
+    ai = load_ai_config()
+    if ai.provider != "groq":
+        typer.secho(f"provider is {ai.provider!r}; `models` only lists Groq's.", fg="yellow")
+        raise typer.Exit(code=1)
+    try:
+        ids = GroqClient(model=ai.model, timeout_s=ai.timeout_s).list_models()
+    except LlmError as exc:
+        typer.secho(f"FAILED: {exc}", fg="red")
+        raise typer.Exit(code=1) from exc
+    for m in ids:
+        marker = "  <- configured" if m == ai.model else ""
+        typer.echo(f"{m}{marker}")
+    if ai.model not in ids:
+        typer.secho(f"WARNING: the configured model {ai.model!r} is not available to this key.",
+                    fg="red")
+        raise typer.Exit(code=1)
 
 
 @app.command("usage")

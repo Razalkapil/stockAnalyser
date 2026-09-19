@@ -13,11 +13,17 @@ After that the run is recorded ``invalid_output`` -- it never raises into the pi
 from __future__ import annotations
 
 import json
+import os
 import re
+import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol, cast
 
+import httpx
 from pydantic import BaseModel, ValidationError
+
+from stk.config.ai import AiConfig
 
 _FENCE = re.compile(r"^\s*```(?:json)?\s*(.*?)\s*```\s*$", re.DOTALL | re.IGNORECASE)
 
@@ -76,6 +82,7 @@ def call_structured[M: BaseModel](
     max_tokens: int,
     semantic_check: object = None,
     keep_on_semantic_failure: bool = False,
+    max_input_chars: int | None = None,
 ) -> StructuredResult:
     """Ask for JSON matching ``schema``; validate; retry ONCE with the errors; never raise.
 
@@ -83,11 +90,20 @@ def call_structured[M: BaseModel](
     (e.g. a pick id that was never in the input). Its problems drive the retry exactly like a
     parse error does.
 
+    ``max_input_chars``: if the prompt is longer, nothing is sent and the result is a
+    ``call failed`` error (so it is recorded as a failed run, not as invalid model output).
+
     ``keep_on_semantic_failure``: if the reply PARSES but is still semantically imperfect after
     the retry, return it (with ``semantic_problems``) instead of discarding it -- for replies made
     of independent items (proposals), where throwing away the good ones with the bad is a loss.
     A reply that does not parse is never kept.
     """
+    if max_input_chars is not None and len(system) + len(user) > max_input_chars:
+        # Refuse locally rather than spend a request on a guaranteed provider-side rejection.
+        return StructuredResult(
+            None, 0, 0, 0, "", "",
+            error=(f"call failed: the prompt is {len(system) + len(user):,} characters, over "
+                   f"the configured max_input_chars={max_input_chars:,}"))
     messages = [{"role": "user", "content": user}]
     total_in = total_out = 0
     last_text, last_model = "", ""
@@ -179,3 +195,133 @@ class AnthropicClient:
         text = "".join(b.text for b in final.content if b.type == "text")
         return LlmReply(text=text, model=final.model, input_tokens=final.usage.input_tokens,
                         output_tokens=final.usage.output_tokens, stop_reason=final.stop_reason)
+
+
+GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+#: A 429 that asks us to wait longer than this is not retried in-process: the run is recorded as
+#: failed and the next scheduled run tries again.
+MAX_RATE_LIMIT_WAIT_S = 30.0
+
+_GROQ_STOP = {"stop": "end_turn", "length": "max_tokens", "content_filter": "refusal"}
+
+
+def _groq_error_body(resp: httpx.Response) -> tuple[str, str, str]:
+    """(message, code, failed_generation) from a Groq error body, tolerant of a non-JSON one."""
+    try:
+        err = resp.json().get("error") or {}
+    except (ValueError, AttributeError):
+        return resp.text[:300], "", ""
+    if not isinstance(err, dict):
+        return str(err)[:300], "", ""
+    return (str(err.get("message", ""))[:300], str(err.get("code", "")),
+            str(err.get("failed_generation", "")))
+
+
+class GroqClient:
+    """Groq's OpenAI-compatible chat endpoint over plain httpx (no SDK).
+
+    Credentials come from ``GROQ_API_KEY`` in the environment -- never from config or the repo.
+    JSON mode is on, because every prompt asks for exactly one JSON object; validation stays
+    ours (``call_structured``). Every failure is an ``LlmError`` with a message safe to store.
+    """
+
+    def __init__(
+        self, *, model: str, timeout_s: float, api_key: str | None = None,
+        transport: httpx.BaseTransport | None = None,
+        sleep: Callable[[float], None] = time.sleep, base_url: str = GROQ_BASE_URL,
+    ) -> None:
+        key = api_key if api_key is not None else os.environ.get("GROQ_API_KEY", "")
+        if not key.strip():
+            raise LlmError("GROQ_API_KEY is not set -- add it to .env (see .env.example)")
+        self._model = model
+        self._sleep = sleep
+        self._http = httpx.Client(
+            base_url=base_url, timeout=timeout_s, transport=transport,
+            headers={"Authorization": f"Bearer {key.strip()}"})
+
+    def _post(self, path: str, body: dict[str, Any]) -> httpx.Response:
+        try:
+            return self._http.post(path, json=body)
+        except httpx.TimeoutException as exc:
+            raise LlmError("the API timed out") from exc
+        except httpx.HTTPError as exc:
+            raise LlmError(f"could not reach the API (network): {type(exc).__name__}") from exc
+
+    def complete(self, *, system: str, messages: list[dict[str, str]], max_tokens: int
+                 ) -> LlmReply:
+        body = {
+            "model": self._model,
+            "messages": [{"role": "system", "content": system}, *messages],
+            "max_completion_tokens": max_tokens,
+            "response_format": {"type": "json_object"},
+        }
+        resp = self._post("/chat/completions", body)
+        if resp.status_code == 429:
+            wait = _retry_after(resp)
+            if wait is not None and wait <= MAX_RATE_LIMIT_WAIT_S:
+                self._sleep(wait)
+                resp = self._post("/chat/completions", body)
+
+        if resp.status_code != 200:
+            message, code, failed = _groq_error_body(resp)
+            if resp.status_code == 400 and code == "json_validate_failed":
+                # The model produced invalid JSON. Hand the text back: call_structured's one
+                # retry shows the model exactly what was wrong with it.
+                return LlmReply(text=failed, model=self._model, stop_reason="end_turn")
+            raise LlmError(_groq_failure(resp, message))
+
+        try:
+            data = resp.json()
+            choice = data["choices"][0]
+            usage = data.get("usage") or {}
+            return LlmReply(
+                text=choice["message"].get("content") or "",
+                model=str(data.get("model") or self._model),
+                input_tokens=int(usage.get("prompt_tokens", 0)),
+                output_tokens=int(usage.get("completion_tokens", 0)),
+                stop_reason=_GROQ_STOP.get(str(choice.get("finish_reason")), "end_turn"),
+            )
+        except (ValueError, KeyError, IndexError, TypeError, AttributeError) as exc:
+            raise LlmError(f"unexpected response shape from the API: {exc!r}") from exc
+
+    def list_models(self) -> list[str]:
+        """Ids of the models this key may use (the quickest live check of the key)."""
+        try:
+            resp = self._http.get("/models")
+        except httpx.HTTPError as exc:
+            raise LlmError(f"could not reach the API (network): {type(exc).__name__}") from exc
+        if resp.status_code != 200:
+            raise LlmError(_groq_failure(resp, _groq_error_body(resp)[0]))
+        try:
+            return sorted(str(m["id"]) for m in resp.json()["data"])
+        except (ValueError, KeyError, TypeError) as exc:
+            raise LlmError(f"unexpected response shape from the API: {exc!r}") from exc
+
+
+def _retry_after(resp: httpx.Response) -> float | None:
+    try:
+        return float(resp.headers["retry-after"])
+    except (KeyError, ValueError):
+        return None
+
+
+def _groq_failure(resp: httpx.Response, message: str) -> str:
+    status = resp.status_code
+    if status in (401, 403):
+        return "authentication failed -- check GROQ_API_KEY"
+    if status == 429:
+        wait = _retry_after(resp)
+        hint = f" (retry after {wait:g}s)" if wait is not None else ""
+        return f"rate limited by the API{hint}: {message}"
+    if status == 413:
+        return f"the request was too large for the API: {message}"
+    if 400 <= status < 500:
+        return f"the API rejected the request ({status}): {message}"
+    return f"API error {status}: {message}"
+
+
+def make_client(ai: AiConfig) -> LlmClient:
+    """The client for the configured provider. Only this module knows the concrete classes."""
+    if ai.provider == "groq":
+        return GroqClient(model=ai.model, timeout_s=ai.timeout_s)
+    return AnthropicClient(model=ai.model, effort=ai.effort, timeout_s=ai.timeout_s)
