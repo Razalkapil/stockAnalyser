@@ -25,9 +25,9 @@ from datetime import UTC, date, datetime
 from stk.ai.client import LlmClient, StructuredResult, call_structured
 from stk.ai.inputs import ReviewInput, build_input
 from stk.ai.prompts import EVENING_SYSTEM
+from stk.ai.runs import record_run
 from stk.ai.schemas import EveningReview
 from stk.config.ai import AiConfig
-from stk.core.version import code_version
 from stk.playground.context import PlayCtx
 from stk.store.db.engine import transaction
 
@@ -68,27 +68,10 @@ def semantic_problems(review: EveningReview, inp: ReviewInput) -> list[str]:
     return problems
 
 
-def _record(
-    conn: sqlite3.Connection,
-    ai: AiConfig,
-    day: date,
-    res: StructuredResult,
-    *,
-    prompt_sha: str,
-    started: datetime,
-    status: str,
-    error: str | None,
-) -> tuple[int, float | None]:
-    cost = ai.estimate_cost_usd(res.model or ai.model, res.input_tokens, res.output_tokens)
-    cur = conn.execute(
-        """INSERT INTO ai_runs (kind, business_date, model, status, attempts, input_tokens,
-               output_tokens, cost_usd_est, prompt_sha256, response_text, error, started_at,
-               finished_at, code_version) VALUES ('evening_review',?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-        (day.isoformat(), res.model or ai.model, status, res.attempts, res.input_tokens,
-         res.output_tokens, cost, prompt_sha, res.raw_text[:20000], error,
-         started.isoformat(), datetime.now(UTC).isoformat(), code_version()),
-    )
-    return int(cur.lastrowid or 0), cost
+def _record(conn: sqlite3.Connection, ai: AiConfig, day: date, res: StructuredResult,
+            **kw: object) -> tuple[int, float | None]:
+    return record_run(conn, ai, kind="evening_review", business_date=day.isoformat(), res=res,
+                      **kw)  # type: ignore[arg-type]
 
 
 def _store(conn: sqlite3.Connection, run_id: int, day: date, review: EveningReview) -> None:

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import sqlite3
 
+import pytest
+
 from stk.store.db.engine import connect, migrate
 
 CA_INSERT_SQL = """
@@ -130,3 +132,61 @@ class TestMigrate:
         finally:
             conn.close()
         assert raised
+
+
+class TestNestedTransactions:
+    """Regression: approving a proposal composed two transactional helpers and crashed with
+    'cannot start a transaction within a transaction'."""
+
+    def conn(self, tmp_path):
+        from stk.store.db.engine import connect  # noqa: PLC0415
+        c = connect(tmp_path / "t.db")
+        c.execute("CREATE TABLE t (n INTEGER)")
+        return c
+
+    def test_a_transaction_inside_a_transaction_works(self, tmp_path):
+        from stk.store.db.engine import transaction  # noqa: PLC0415
+        c = self.conn(tmp_path)
+        with transaction(c):
+            c.execute("INSERT INTO t VALUES (1)")
+            with transaction(c):
+                c.execute("INSERT INTO t VALUES (2)")
+        assert [r[0] for r in c.execute("SELECT n FROM t ORDER BY n")] == [1, 2]
+        assert not c.in_transaction
+
+    def test_an_inner_failure_rolls_back_only_the_inner_block_if_the_outer_handles_it(
+        self, tmp_path
+    ):
+        from stk.store.db.engine import transaction  # noqa: PLC0415
+        c = self.conn(tmp_path)
+        with transaction(c):
+            c.execute("INSERT INTO t VALUES (1)")
+            try:
+                with transaction(c):
+                    c.execute("INSERT INTO t VALUES (2)")
+                    raise RuntimeError("inner")
+            except RuntimeError:
+                pass
+            c.execute("INSERT INTO t VALUES (3)")
+        assert [r[0] for r in c.execute("SELECT n FROM t ORDER BY n")] == [1, 3]
+
+    def test_an_unhandled_inner_failure_rolls_back_everything(self, tmp_path):
+        from stk.store.db.engine import transaction  # noqa: PLC0415
+        c = self.conn(tmp_path)
+        with pytest.raises(RuntimeError), transaction(c):
+            c.execute("INSERT INTO t VALUES (1)")
+            with transaction(c):
+                c.execute("INSERT INTO t VALUES (2)")
+                raise RuntimeError("boom")
+        assert c.execute("SELECT COUNT(*) FROM t").fetchone()[0] == 0
+        assert not c.in_transaction
+
+    def test_a_plain_transaction_still_commits_and_rolls_back(self, tmp_path):
+        from stk.store.db.engine import transaction  # noqa: PLC0415
+        c = self.conn(tmp_path)
+        with transaction(c):
+            c.execute("INSERT INTO t VALUES (1)")
+        with pytest.raises(RuntimeError), transaction(c):
+            c.execute("INSERT INTO t VALUES (2)")
+            raise RuntimeError("x")
+        assert [r[0] for r in c.execute("SELECT n FROM t")] == [1]

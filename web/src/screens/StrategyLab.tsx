@@ -2,8 +2,14 @@ import { useEffect, useState } from "react";
 import { EmptyState } from "../components/EmptyState";
 import { EquityChart } from "../components/EquityChart";
 import { StatusPill } from "../components/StatusPill";
-import { useStrategies, useStrategy, useStrategyAction } from "../lib/api/hooks";
-import type { StrategyDetail, StrategySummary } from "../lib/api/types";
+import {
+  useProposalAction,
+  useProposals,
+  useStrategies,
+  useStrategy,
+  useStrategyAction,
+} from "../lib/api/hooks";
+import type { ProposalOut, StrategyDetail, StrategySummary } from "../lib/api/types";
 import { fmtDate, fmtNum, fmtPct, fmtPlainPct } from "../lib/format";
 import { color, font, horizonLabel, pnlColor, tint } from "../lib/theme";
 
@@ -260,6 +266,121 @@ function Detail({ d }: { d: StrategyDetail }) {
   );
 }
 
+const STATUS_LABEL: Record<string, string> = {
+  awaiting_approval: "Awaiting your approval",
+  invalid: "Rejected: invalid strategy",
+  backtest_error: "Backtest could not run",
+  rejected_by_gate: "Failed the promotion gate",
+  insufficient_evidence: "Not enough evidence to judge",
+  approved: "Approved",
+  dismissed: "Dismissed",
+};
+
+function ProposalCard({ p }: { p: ProposalOut }) {
+  const { approve, dismiss } = useProposalAction();
+  const open = p.status === "awaiting_approval";
+  const isNew = p.type === "new";
+  const error = approve.error ?? dismiss.error;
+  return (
+    <div data-testid="proposal" style={{ background: color.panel, border: `1px solid ${color.border}`, borderRadius: 8, padding: "14px 16px", opacity: open ? 1 : 0.75 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+          <span
+            style={{
+              padding: "2px 8px",
+              borderRadius: 4,
+              font: `600 10px ${font.sans}`,
+              background: isNew ? tint.accent() : tint.warning(0.15),
+              color: isNew ? color.accent : color.warning,
+              whiteSpace: "nowrap",
+            }}
+          >
+            {isNew ? "New strategy" : "Demotion"}
+          </span>
+          <span style={{ font: `600 12.5px ${font.sans}` }}>{p.title}</span>
+        </div>
+        {open && (
+          <div style={{ display: "flex", gap: 6 }}>
+            <button
+              disabled={approve.isPending}
+              onClick={() => {
+                if (!isNew && !window.confirm(`Retire "${p.targetStrategy}"? It will stop producing picks.`)) return;
+                approve.mutate({ id: p.id, confirm: !isNew });
+              }}
+              style={{ padding: "5px 12px", borderRadius: 5, border: "none", background: tint.positive(0.14), color: color.positive, font: `600 11px ${font.sans}`, cursor: "pointer" }}
+            >
+              Approve
+            </button>
+            <button
+              disabled={dismiss.isPending}
+              onClick={() => dismiss.mutate(p.id)}
+              style={{ padding: "5px 12px", borderRadius: 5, background: color.inset, border: `1px solid ${color.border}`, color: color.textMuted, font: `600 11px ${font.sans}`, cursor: "pointer" }}
+            >
+              Reject
+            </button>
+          </div>
+        )}
+      </div>
+      <div style={{ font: `500 10.5px ${font.sans}`, color: open ? color.warning : color.textFaint, marginBottom: 6 }}>
+        {STATUS_LABEL[p.status] ?? p.status}
+        {p.statusNote ? ` — ${p.statusNote}` : ""}
+      </div>
+      <div style={{ font: `400 12px ${font.sans}`, color: color.textMuted, lineHeight: 1.5, marginBottom: 8 }}>{p.rationale}</div>
+      {p.rules.length > 0 && (
+        <ul style={{ margin: "0 0 8px", paddingLeft: 18, font: `400 11.5px ${font.sans}`, color: color.textSecondary, lineHeight: 1.6 }}>
+          {p.rules.map((r, i) => (
+            <li key={i}>{r}</li>
+          ))}
+        </ul>
+      )}
+      {p.validationErrors.length > 0 && (
+        <ul style={{ margin: "0 0 8px", paddingLeft: 18, font: `400 11.5px ${font.sans}`, color: color.negative, lineHeight: 1.6 }}>
+          {p.validationErrors.map((r, i) => (
+            <li key={i}>{r}</li>
+          ))}
+        </ul>
+      )}
+      {isNew && p.gateVerdict && (
+        <div style={{ display: "flex", gap: 14, font: `500 11px ${font.mono}`, color: color.textFaint }}>
+          <span>CAGR <span style={{ color: color.textSecondary }}>{fmtPct(p.btCagr, 0)}</span></span>
+          <span>Win <span style={{ color: color.textSecondary }}>{fmtPlainPct(p.btWinRate)}</span></span>
+          <span>MaxDD <span style={{ color: color.textSecondary }}>{fmtPlainPct(p.btMaxDd)}</span></span>
+          <span style={{ color: color.textFaint }}>out-of-sample, after costs</span>
+        </div>
+      )}
+      {p.approx && p.approxReasons.length > 0 && (
+        <div style={{ marginTop: 6, font: `400 10.5px ${font.sans}`, color: color.warning }}>Approximate: {p.approxReasons[0]}</div>
+      )}
+      {error && (
+        <div role="alert" style={{ color: color.negative, font: `400 11.5px ${font.sans}`, marginTop: 6 }}>
+          {error.message}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Proposals() {
+  const { data, isLoading, error } = useProposals();
+  return (
+    <>
+      <div style={{ font: `600 13px ${font.sans}`, marginBottom: 10 }}>AI proposals — weekly lab</div>
+      {isLoading && <div style={{ color: color.textFaint }}>Loading…</div>}
+      {error && (
+        <div role="alert" style={{ color: color.negative }}>
+          Could not load proposals: {error.message}
+        </div>
+      )}
+      {data && data.length === 0 && <EmptyState title="No proposals">The weekly strategy lab has not run yet.</EmptyState>}
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {data?.map((p) => (
+          <ProposalCard key={p.id} p={p} />
+        ))}
+      </div>
+    </>
+  );
+}
+
 export function StrategyLab() {
   const { data: rows, isLoading, error } = useStrategies();
   const [selected, setSelected] = useState<string | null>(null);
@@ -336,8 +457,7 @@ export function StrategyLab() {
           </div>
         )}
 
-        <div style={{ font: `600 13px ${font.sans}`, marginBottom: 10 }}>AI proposals — weekly lab</div>
-        <EmptyState title="No proposals">The weekly strategy lab has not run yet.</EmptyState>
+        <Proposals />
       </div>
       {detail && <Detail d={detail} />}
     </div>

@@ -104,15 +104,26 @@ class TestPromote:
         ev = db.execute("SELECT * FROM strategy_status_events ORDER BY event_id DESC").fetchone()
         assert (ev["actor"], ev["to_status"], ev["backtest_run_id"]) == ("gate", "live", run_id)
 
-    def test_an_impossible_gate_rejects_and_says_which_check_failed(self, db, tmp_parquet_root):
+    def test_a_real_failure_is_rejected_and_says_which_check_failed(self, db, tmp_parquet_root):
+        """Enough windows and trades to judge, and it fails the drawdown limit."""
         build_lake(tmp_parquet_root, with_index=True)
         span = lake_span(tmp_parquet_root, "NSE")
-        strict = PromotionConfig(default=_Thresholds(min_scored_windows=2, min_pass_ratio=1.0,
-                                                     max_drawdown=-0.0001, min_total_trades=10**6))
+        strict = PromotionConfig(default=_Thresholds(min_scored_windows=2, min_pass_ratio=0.0,
+                                                     max_drawdown=-0.0000001, min_total_trades=0))
         row, report, _ = promote(db, "promo_test", parquet_root=tmp_parquet_root, cfg=cfg(),
                                  promo=strict, exchange="NSE", start=span.first, end=span.last)
         assert report.verdict == "fail" and row.status == "rejected"
-        assert "enough_trades" in row.status_reason
+        assert "max_drawdown" in row.status_reason
+
+    def test_too_few_trades_leaves_a_candidate_not_a_rejection(self, db, tmp_parquet_root):
+        build_lake(tmp_parquet_root, with_index=True)
+        span = lake_span(tmp_parquet_root, "NSE")
+        untestable = PromotionConfig(default=_Thresholds(
+            min_scored_windows=2, min_pass_ratio=0.0, max_drawdown=-0.99, min_total_trades=10**6))
+        row, report, _ = promote(db, "promo_test", parquet_root=tmp_parquet_root, cfg=cfg(),
+                                 promo=untestable, exchange="NSE", start=span.first, end=span.last)
+        assert report.verdict == "insufficient_evidence" and row.status == "candidate"
+        assert "trades, need" in row.status_reason
 
     def test_without_a_benchmark_windows_are_unscored_so_the_gate_cannot_decide(
         self, db, tmp_parquet_root

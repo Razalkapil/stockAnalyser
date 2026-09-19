@@ -97,6 +97,7 @@ describe("StrategyLab", () => {
     mockApi({
       "/api/strategies/a": detail({ id: "a", name: "Alpha" }),
       "/api/strategies": rows,
+      "/api/proposals": [],
     });
     renderWith(<StrategyLab />);
     expect(await screen.findByText("2 strategies", { exact: false })).toBeInTheDocument();
@@ -107,7 +108,7 @@ describe("StrategyLab", () => {
   });
 
   it("renders walk-forward windows including the third, no-benchmark state", async () => {
-    mockApi({ "/api/strategies/a": detail({ id: "a" }), "/api/strategies": rows });
+    mockApi({ "/api/strategies/a": detail({ id: "a" }), "/api/strategies": rows, "/api/proposals": [] });
     renderWith(<StrategyLab />);
     await screen.findByText("W1");
     expect(screen.getByText("W2").getAttribute("title")).toMatch(/fail/);
@@ -120,6 +121,7 @@ describe("StrategyLab", () => {
       "/api/strategies/b": detail({ id: "b", name: "Beta", status: "candidate",
         gateVerdict: "insufficient_evidence", approxReasons: ["benchmark did not cover some windows"] }),
       "/api/strategies": rows,
+      "/api/proposals": [],
     });
     renderWith(<StrategyLab />);
     await userEvent.click(await screen.findByText("Beta"));
@@ -134,6 +136,7 @@ describe("StrategyLab", () => {
       "/api/strategies/b/approve": summary({ id: "b", status: "live" }),
       "/api/strategies/b": detail({ id: "b", name: "Beta", status: "candidate", gateVerdict: "pass" }),
       "/api/strategies": rows,
+      "/api/proposals": [],
     });
     renderWith(<StrategyLab />);
     await userEvent.click(await screen.findByText("Beta"));
@@ -146,7 +149,7 @@ describe("StrategyLab", () => {
   });
 
   it("asks before retiring, and does nothing if declined", async () => {
-    const fn = mockApi({ "/api/strategies/a": detail({ id: "a" }), "/api/strategies": rows });
+    const fn = mockApi({ "/api/strategies/a": detail({ id: "a" }), "/api/strategies": rows, "/api/proposals": [] });
     vi.spyOn(window, "confirm").mockReturnValue(false);
     renderWith(<StrategyLab />);
     await userEvent.click(await screen.findByRole("button", { name: "Retire" }));
@@ -155,7 +158,7 @@ describe("StrategyLab", () => {
   });
 
   it("tells you when nothing is registered", async () => {
-    mockApi({ "/api/strategies": [] });
+    mockApi({ "/api/strategies": [], "/api/proposals": [] });
     renderWith(<StrategyLab />);
     expect(await screen.findByText("No strategies registered")).toBeInTheDocument();
   });

@@ -11,10 +11,13 @@ import typer
 from stk.ai.client import AnthropicClient
 from stk.ai.evening import run_evening_review
 from stk.ai.inputs import build_input
-from stk.ai.prompts import EVENING_SYSTEM
+from stk.ai.lab import run_strategy_lab
+from stk.ai.lab_inputs import build_lab_input
+from stk.ai.prompts import EVENING_SYSTEM, LAB_SYSTEM
 from stk.backtest.setup import make_rates_fn
 from stk.config.ai import load_ai_config
 from stk.config.backtest import load_backtest_config
+from stk.config.promotion import load_promotion_config
 from stk.config.settings import get_settings
 from stk.core.time import today_ist
 from stk.playground.context import PlayCtx
@@ -64,6 +67,45 @@ def evening(
     if result.status == "success":
         cost = f"~${result.cost_usd:.4f}" if result.cost_usd is not None else "cost unknown"
         typer.echo(f"  {result.input_tokens:,} in / {result.output_tokens:,} out tokens, {cost}")
+
+
+@app.command("lab")
+def lab(
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help="Print the prompt and call nothing")
+    ] = False,
+) -> None:
+    """Weekly strategy lab: ask for new strategy ideas and demotions.
+
+    Each idea is validated, backtested walk-forward and put through the promotion gate, then
+    waits for YOUR approval in the UI. The AI supplies DSL data, never code. One model call;
+    the backtests are local (and take a while). Never fails the pipeline.
+    """
+    settings = get_settings()
+    ai = load_ai_config()
+    conn = connect(settings.paths.sqlite)
+    try:
+        if dry_run:
+            payload = build_lab_input(conn)
+            typer.echo(LAB_SYSTEM)
+            typer.echo("--- user message " + "-" * 40)
+            typer.echo(json.dumps(payload, indent=1, sort_keys=True, default=str))
+            typer.secho(f"\n{len(payload['strategies'])} strategies. Nothing was sent.",
+                        fg="yellow")
+            return
+        client = AnthropicClient(model=ai.model, effort=ai.effort, timeout_s=ai.timeout_s)
+        result = run_strategy_lab(
+            conn, ai, client, parquet_root=settings.paths.parquet,
+            cfg=load_backtest_config(), promo=load_promotion_config(), day=today_ist())
+    finally:
+        conn.close()
+    colour = {"success": "green", "skipped": "yellow"}.get(result.status, "red")
+    typer.secho(f"strategy lab: {result.status}" + (f" -- {result.detail}" if result.detail
+                                                    else ""), fg=colour)
+    for pid, status in result.proposals:
+        typer.echo(f"  proposal #{pid}: {status}")
+    if result.cost_usd is not None:
+        typer.echo(f"  ~${result.cost_usd:.4f} for the model call")
 
 
 @app.command("usage")

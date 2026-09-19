@@ -287,3 +287,30 @@ class PreviewRequest(Wire):
 
 class JournalUpdate(Wire):
     note: str
+
+
+# --- proposals -------------------------------------------------------------------------------
+
+
+class ProposalOut(Wire):
+    id: int
+    type: str  # 'new' | 'demote'
+    title: str
+    rationale: str
+    status: str
+    status_note: str | None
+    date: str
+    target_strategy: str | None
+    strategy_id: str | None
+    rules: list[str]
+    validation_errors: list[str]
+    gate_verdict: str | None
+    bt_cagr: float | None
+    bt_win_rate: float | None
+    bt_max_dd: float | None
+    approx: bool
+    approx_reasons: list[str]
+
+
+class DecisionRequest(Wire):
+    confirm: bool = False

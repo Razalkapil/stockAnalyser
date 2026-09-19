@@ -149,3 +149,12 @@ export const portfolioDetail = (over: Record<string, unknown> = {}) => ({
   niftyCurve: [1_000_000, 1_008_000],
   ...over,
 });
+
+export const proposal = (over: Record<string, unknown> = {}) => ({
+  id: 5, type: "new", title: "Buy short-term dips",
+  rationale: "Oversold pullbacks tend to mean-revert within days.",
+  status: "awaiting_approval", statusNote: "passed the promotion gate; awaiting approval",
+  date: "2026-09-14", targetStrategy: null, strategyId: "ai_dip_buyer",
+  rules: ["rsi2 < 25", "Stop: 2 x ATR%"], validationErrors: [], gateVerdict: "pass",
+  btCagr: 0.18, btWinRate: 0.54, btMaxDd: -0.14, approx: false, approxReasons: [], ...over,
+});

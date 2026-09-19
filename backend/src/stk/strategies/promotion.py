@@ -43,8 +43,9 @@ def status_for(report: GateReport, origin: str, auto_live: list[str]) -> tuple[s
             return "live", "passed the promotion gate"
         return "candidate", "passed the promotion gate; awaiting approval"
     if report.verdict == "insufficient_evidence":
-        return "candidate", "gate could not decide: " + "; ".join(
-            c.detail for c in report.checks if c.name == "scored_windows")
+        why = [c.detail for c in report.checks
+               if c.name in ("scored_windows", "enough_trades") and not c.passed]
+        return "candidate", "gate could not decide: " + "; ".join(why)
     return "rejected", "failed the promotion gate: " + ", ".join(failed)
 
 

@@ -9,6 +9,7 @@ import type {
   Pick,
   PortfolioDetail,
   PortfolioSummary,
+  ProposalOut,
   Status,
   StockDetail,
   StockHit,
@@ -164,3 +165,28 @@ export const useCostPreview = (req: { symbol: string; side: string; qty: number;
     staleTime: 10_000,
     retry: false,
   });
+
+// --- proposals -----------------------------------------------------------------------------
+
+export const useProposals = () =>
+  useQuery({ queryKey: ["proposals"], queryFn: () => apiGet<ProposalOut[]>("/api/proposals") });
+
+export function useProposalAction() {
+  const qc = useQueryClient();
+  const done = () => {
+    void qc.invalidateQueries({ queryKey: ["proposals"] });
+    void qc.invalidateQueries({ queryKey: ["strategies"] });
+    void qc.invalidateQueries({ queryKey: ["strategy"] });
+  };
+  return {
+    approve: useMutation({
+      mutationFn: (v: { id: number; confirm?: boolean }) =>
+        apiPost<ProposalOut[]>(`/api/proposals/${v.id}/approve`, { confirm: v.confirm ?? false }),
+      onSuccess: done,
+    }),
+    dismiss: useMutation({
+      mutationFn: (id: number) => apiPost<ProposalOut[]>(`/api/proposals/${id}/dismiss`),
+      onSuccess: done,
+    }),
+  };
+}

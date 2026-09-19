@@ -56,6 +56,9 @@ class StructuredResult:
     raw_text: str
     error: str | None = None
     errors_seen: list[str] = field(default_factory=list)
+    #: Only set when ``keep_on_semantic_failure`` returned a parsed value that still has
+    #: semantic problems -- the caller must then handle those items individually.
+    semantic_problems: list[str] = field(default_factory=list)
 
 
 def _errors(exc: ValidationError | ValueError) -> str:
@@ -72,12 +75,18 @@ def call_structured[M: BaseModel](
     schema: type[M],
     max_tokens: int,
     semantic_check: object = None,
+    keep_on_semantic_failure: bool = False,
 ) -> StructuredResult:
     """Ask for JSON matching ``schema``; validate; retry ONCE with the errors; never raise.
 
     ``semantic_check(value) -> list[str]`` (optional) returns problems a schema cannot express
     (e.g. a pick id that was never in the input). Its problems drive the retry exactly like a
     parse error does.
+
+    ``keep_on_semantic_failure``: if the reply PARSES but is still semantically imperfect after
+    the retry, return it (with ``semantic_problems``) instead of discarding it -- for replies made
+    of independent items (proposals), where throwing away the good ones with the bad is a loss.
+    A reply that does not parse is never kept.
     """
     messages = [{"role": "user", "content": user}]
     total_in = total_out = 0
@@ -103,13 +112,15 @@ def call_structured[M: BaseModel](
         else:
             try:
                 value = schema.model_validate(json.loads(strip_fences(reply.text)))
-                problems = ""
-                if callable(semantic_check):
-                    bad = semantic_check(value)
-                    problems = "; ".join(bad)
-                if not problems:
+                bad = semantic_check(value) if callable(semantic_check) else []
+                problems = "; ".join(bad)
+                if not bad:
                     return StructuredResult(value, attempt, total_in, total_out, last_model,
                                             last_text, errors_seen=seen)
+                if attempt == 2 and keep_on_semantic_failure:
+                    seen.append(problems)
+                    return StructuredResult(value, attempt, total_in, total_out, last_model,
+                                            last_text, errors_seen=seen, semantic_problems=bad)
             except (ValidationError, ValueError) as exc:
                 problems = _errors(exc)
 

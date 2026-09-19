@@ -21,6 +21,7 @@ from stk.domain.dsl.evaluate import explain
 from stk.ingest.calendar import is_trading_day
 from stk.ingest.fundamentals_metrics import load_metric_frame
 from stk.store import duck
+from stk.strategies.proposals import list_proposals
 from stk.strategies.repo import StrategyRow, get_strategy, list_strategies, load_spec
 from stk.strategies.stats import BacktestStats, LiveStats, backtest_stats, live_stats
 
@@ -175,6 +176,29 @@ def strategy_detail(conn: sqlite3.Connection, slug: str) -> s.StrategyDetail | N
         ],
         trade_list=trades, trade_list_source=source,
     )
+
+
+# --- proposals -----------------------------------------------------------------------------
+
+
+def proposal_list(conn: sqlite3.Connection) -> list[s.ProposalOut]:
+    out: list[s.ProposalOut] = []
+    for p in list_proposals(conn):
+        bt = backtest_stats(conn, p.strategy_slug) if p.strategy_slug else None
+        rules: list[str] = []
+        if p.strategy_slug:
+            row = get_strategy(conn, p.strategy_slug)
+            if row is not None:
+                rules = explain(load_spec(conn, row.latest_version_id))
+        out.append(s.ProposalOut(
+            id=p.proposal_id, type=p.type, title=p.title, rationale=p.rationale, status=p.status,
+            status_note=p.status_note, date=p.business_date, target_strategy=p.target_slug,
+            strategy_id=p.strategy_slug, rules=rules, validation_errors=p.validation_errors,
+            gate_verdict=p.gate_verdict, bt_cagr=bt.cagr if bt else None,
+            bt_win_rate=bt.win_rate if bt else None, bt_max_dd=bt.max_drawdown if bt else None,
+            approx=(bt.is_approximate or bt.run_id is None) if bt else False,
+            approx_reasons=bt.approx_reasons if bt else []))
+    return out
 
 
 # --- picks ---------------------------------------------------------------------------------

@@ -20,6 +20,9 @@ from stk.api.deps import ApiContext, Conn, Ctx, require_token
 from stk.backtest.setup import make_rates_fn
 from stk.config.backtest import BacktestConfig, load_backtest_config
 from stk.playground.context import PlayCtx
+from stk.strategies.proposals import ProposalError
+from stk.strategies.proposals import approve as approve_proposal
+from stk.strategies.proposals import dismiss as dismiss_proposal
 from stk.strategies.repo import get_strategy, set_status
 
 open_router = APIRouter()
@@ -84,6 +87,31 @@ def retire(slug: str, body: s.DemoteRequest, conn: Conn) -> s.StrategySummary:
     set_status(conn, row.strategy_id, "retired", actor="user",
                reason=body.reason or "retired in the UI")
     return next(x for x in services.list_strategy_summaries(conn) if x.id == slug)
+
+
+@router.get("/api/proposals", response_model=list[s.ProposalOut])
+def proposals(conn: Conn) -> list[s.ProposalOut]:
+    return services.proposal_list(conn)
+
+
+@router.post("/api/proposals/{pid}/approve", response_model=list[s.ProposalOut])
+def proposal_approve(pid: int, conn: Conn, body: s.DecisionRequest | None = None
+                     ) -> list[s.ProposalOut]:
+    """Approve a proposal. A NEW strategy must have passed the gate; a demotion needs confirm."""
+    try:
+        approve_proposal(conn, pid, confirm=bool(body and body.confirm))
+    except ProposalError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return services.proposal_list(conn)
+
+
+@router.post("/api/proposals/{pid}/dismiss", response_model=list[s.ProposalOut])
+def proposal_dismiss(pid: int, conn: Conn) -> list[s.ProposalOut]:
+    try:
+        dismiss_proposal(conn, pid)
+    except ProposalError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return services.proposal_list(conn)
 
 
 @router.get("/api/stocks/search", response_model=list[s.StockHit])

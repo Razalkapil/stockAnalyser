@@ -178,6 +178,17 @@
         "title": "CostPreview",
         "type": "object"
       },
+      "DecisionRequest": {
+        "properties": {
+          "confirm": {
+            "default": false,
+            "title": "Confirm",
+            "type": "boolean"
+          }
+        },
+        "title": "DecisionRequest",
+        "type": "object"
+      },
       "DelayedFeed": {
         "properties": {
           "lagMinutes": {
@@ -1185,6 +1196,157 @@
           "price"
         ],
         "title": "PreviewRequest",
+        "type": "object"
+      },
+      "ProposalOut": {
+        "properties": {
+          "approx": {
+            "title": "Approx",
+            "type": "boolean"
+          },
+          "approxReasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Approxreasons",
+            "type": "array"
+          },
+          "btCagr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Btcagr"
+          },
+          "btMaxDd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Btmaxdd"
+          },
+          "btWinRate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Btwinrate"
+          },
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "gateVerdict": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gateverdict"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "rationale": {
+            "title": "Rationale",
+            "type": "string"
+          },
+          "rules": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Rules",
+            "type": "array"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "statusNote": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Statusnote"
+          },
+          "strategyId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strategyid"
+          },
+          "targetStrategy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Targetstrategy"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          },
+          "validationErrors": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Validationerrors",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "title",
+          "rationale",
+          "status",
+          "statusNote",
+          "date",
+          "targetStrategy",
+          "strategyId",
+          "rules",
+          "validationErrors",
+          "gateVerdict",
+          "btCagr",
+          "btWinRate",
+          "btMaxDd",
+          "approx",
+          "approxReasons"
+        ],
+        "title": "ProposalOut",
         "type": "object"
       },
       "StaleWarning": {
@@ -2409,6 +2571,147 @@
           }
         ],
         "summary": "Portfolio"
+      }
+    },
+    "/api/proposals": {
+      "get": {
+        "operationId": "proposals_api_proposals_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProposalOut"
+                  },
+                  "title": "Response Proposals Api Proposals Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Proposals"
+      }
+    },
+    "/api/proposals/{pid}/approve": {
+      "post": {
+        "description": "Approve a proposal. A NEW strategy must have passed the gate; a demotion needs confirm.",
+        "operationId": "proposal_approve_api_proposals__pid__approve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/DecisionRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProposalOut"
+                  },
+                  "title": "Response Proposal Approve Api Proposals  Pid  Approve Post",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Proposal Approve"
+      }
+    },
+    "/api/proposals/{pid}/dismiss": {
+      "post": {
+        "operationId": "proposal_dismiss_api_proposals__pid__dismiss_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProposalOut"
+                  },
+                  "title": "Response Proposal Dismiss Api Proposals  Pid  Dismiss Post",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Proposal Dismiss"
       }
     },
     "/api/status": {

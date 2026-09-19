@@ -135,7 +135,8 @@ def set_status(
     reason: str,
     backtest_run_id: int | None = None,
 ) -> bool:
-    """Change a strategy's status and record the event. Returns False if unchanged."""
+    """Change a strategy's status and record the event. Returns False if the status is unchanged
+    (the reason text is still refreshed, without an event)."""
     if new_status not in STATUSES:
         raise ValueError(f"unknown status {new_status!r}")
     row = conn.execute(
@@ -144,6 +145,11 @@ def set_status(
     if row is None:
         raise KeyError(f"no strategy {strategy_id}")
     if row["status"] == new_status:
+        # Same status, but the REASON may have changed (a candidate that a later gate run still
+        # could not decide must say why, not keep its stale "registered, not yet gated").
+        # Only the text is updated -- no status event, because the status did not change.
+        conn.execute("UPDATE strategies SET status_reason=? WHERE strategy_id=?",
+                     (reason, strategy_id))
         return False
     now = _now()
     with transaction(conn):

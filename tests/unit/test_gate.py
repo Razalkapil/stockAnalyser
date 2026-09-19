@@ -32,10 +32,21 @@ class TestVerdicts:
         assert r.verdict == "fail"
         assert not next(c for c in r.checks if c.name == "max_drawdown").passed
 
-    def test_fail_on_too_few_trades(self):
+    def test_too_few_trades_is_insufficient_evidence_not_a_failure(self):
+        """A strategy that barely trades (or, like the long-term seed with no fundamentals loaded,
+        cannot trade at all) has not been shown to be BAD -- it has not been tested. Calling that
+        'failed' would reject ideas for lack of data. It stays a candidate and cannot go live."""
         r = evaluate_gate([w(str(i), "pass", trades=2) for i in range(4)], T)
-        assert r.verdict == "fail"
+        assert r.verdict == "insufficient_evidence" and not r.passed
         assert not next(c for c in r.checks if c.name == "enough_trades").passed
+
+    def test_zero_trades_is_insufficient_evidence(self):
+        r = evaluate_gate([w(str(i), "fail", trades=0) for i in range(6)], T)
+        assert r.verdict == "insufficient_evidence"
+
+    def test_enough_trades_and_windows_but_poor_results_is_a_real_failure(self):
+        r = evaluate_gate([w(str(i), "fail", trades=10) for i in range(4)], T)
+        assert r.verdict == "fail"
 
     def test_too_few_windows_is_insufficient_evidence_not_pass_and_not_fail(self):
         r = evaluate_gate([w("1", "pass"), w("2", "pass")], T)
@@ -81,6 +92,11 @@ class TestStatusFromVerdict:
     def test_a_fail_is_rejected_with_the_failing_checks_named(self):
         status, reason = status_for(self.report("fail"), "seed", ["seed"])
         assert status == "rejected" and "beats_benchmark_after_costs" in reason
+
+    def test_the_reason_names_what_was_missing(self):
+        few_trades = evaluate_gate([w(str(i), "pass", trades=1) for i in range(4)], T)
+        status, reason = status_for(few_trades, "seed", ["seed"])
+        assert status == "candidate" and "1 trades" not in reason and "4 trades" in reason
 
     def test_insufficient_evidence_is_never_a_rejection(self):
         status, reason = status_for(self.report("insufficient_evidence"), "seed", ["seed"])

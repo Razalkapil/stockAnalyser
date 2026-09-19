@@ -8,10 +8,13 @@ no exceptions (the brief's words). Thresholds live in config/promotion.yaml.
 Three verdicts, kept distinct on purpose:
   pass                  every check holds
   fail                  enough evidence, and it is not good enough
-  insufficient_evidence too few scored windows to say either way -- NOT a
-                        pass, and reported differently from a fail because
-                        "we could not tell" and "we could tell, and no" call
-                        for different next steps (wait for data vs. drop it)
+  insufficient_evidence too few scored windows OR too few trades to say either
+                        way -- NOT a pass, and reported differently from a fail
+                        because "we could not tell" and "we could tell, and no"
+                        call for different next steps (wait for data vs. drop
+                        it). A strategy that cannot trade at all (e.g. its data is
+                        not loaded yet) has not been shown to be bad -- it has not
+                        been tested -- so it lands here, never in "fail".
 
 Windows the benchmark did not cover (``no_benchmark``) are excluded from the
 count and the pass ratio: with nothing to beat, they are neither wins nor
@@ -94,6 +97,6 @@ def evaluate_gate(windows: list[WindowSummary], t: GateThresholds) -> GateReport
         f"{total_trades} trades, need >= {t.min_total_trades}",
     ))
 
-    if not enough:
+    if not enough or total_trades < t.min_total_trades:
         return GateReport("insufficient_evidence", checks)
     return GateReport("pass" if all(c.passed for c in checks) else "fail", checks)

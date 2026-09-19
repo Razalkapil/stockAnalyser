@@ -162,6 +162,60 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/proposals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Proposals */
+        get: operations["proposals_api_proposals_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/proposals/{pid}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Proposal Approve
+         * @description Approve a proposal. A NEW strategy must have passed the gate; a demotion needs confirm.
+         */
+        post: operations["proposal_approve_api_proposals__pid__approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/proposals/{pid}/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Proposal Dismiss */
+        post: operations["proposal_dismiss_api_proposals__pid__dismiss_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/status": {
         parameters: {
             query?: never;
@@ -390,6 +444,14 @@ export interface components {
             total: number;
             /** Value */
             value: number;
+        };
+        /** DecisionRequest */
+        DecisionRequest: {
+            /**
+             * Confirm
+             * @default false
+             */
+            confirm: boolean;
         };
         /** DelayedFeed */
         DelayedFeed: {
@@ -664,6 +726,43 @@ export interface components {
             side: string;
             /** Symbol */
             symbol: string;
+        };
+        /** ProposalOut */
+        ProposalOut: {
+            /** Approx */
+            approx: boolean;
+            /** Approxreasons */
+            approxReasons: string[];
+            /** Btcagr */
+            btCagr: number | null;
+            /** Btmaxdd */
+            btMaxDd: number | null;
+            /** Btwinrate */
+            btWinRate: number | null;
+            /** Date */
+            date: string;
+            /** Gateverdict */
+            gateVerdict: string | null;
+            /** Id */
+            id: number;
+            /** Rationale */
+            rationale: string;
+            /** Rules */
+            rules: string[];
+            /** Status */
+            status: string;
+            /** Statusnote */
+            statusNote: string | null;
+            /** Strategyid */
+            strategyId: string | null;
+            /** Targetstrategy */
+            targetStrategy: string | null;
+            /** Title */
+            title: string;
+            /** Type */
+            type: string;
+            /** Validationerrors */
+            validationErrors: string[];
         };
         /** StaleWarning */
         StaleWarning: {
@@ -1166,6 +1265,92 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PortfolioDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    proposals_api_proposals_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProposalOut"][];
+                };
+            };
+        };
+    };
+    proposal_approve_api_proposals__pid__approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["DecisionRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProposalOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    proposal_dismiss_api_proposals__pid__dismiss_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProposalOut"][];
                 };
             };
             /** @description Validation Error */

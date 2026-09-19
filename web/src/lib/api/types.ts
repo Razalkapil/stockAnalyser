@@ -17,3 +17,4 @@ export type OrderOut = S["OrderOut"];
 export type TradeOut = S["TradeOut"];
 export type CostPreview = S["CostPreview"];
 export type NewOrder = S["NewOrder"];
+export type ProposalOut = S["ProposalOut"];

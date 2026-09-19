@@ -8,6 +8,7 @@ order, tracked in schema_migrations.
 
 from __future__ import annotations
 
+import itertools
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -16,6 +17,8 @@ from pathlib import Path
 from stk.core.errors import ConfigError
 
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
+
+_savepoint_ids = itertools.count(1)
 
 _PRAGMAS = (
     "PRAGMA journal_mode=WAL;",
@@ -37,7 +40,26 @@ def connect(db_path: Path) -> sqlite3.Connection:
 
 @contextmanager
 def transaction(conn: sqlite3.Connection) -> Iterator[sqlite3.Connection]:
-    """Explicit transaction context manager (conn is opened in autocommit mode)."""
+    """Explicit transaction context manager (conn is opened in autocommit mode).
+
+    NESTS: called while a transaction is already open (a helper that is itself transactional,
+    used inside a larger atomic operation) it becomes a SAVEPOINT, so the inner block rolls back
+    on its own error and the outer transaction still decides the whole. Without this, composing
+    two individually-transactional operations raised "cannot start a transaction within a
+    transaction".
+    """
+    if conn.in_transaction:
+        name = f"sp_{next(_savepoint_ids)}"
+        conn.execute(f"SAVEPOINT {name}")
+        try:
+            yield conn
+        except Exception:
+            conn.execute(f"ROLLBACK TO {name}")
+            conn.execute(f"RELEASE {name}")
+            raise
+        conn.execute(f"RELEASE {name}")
+        return
+
     conn.execute("BEGIN")
     try:
         yield conn

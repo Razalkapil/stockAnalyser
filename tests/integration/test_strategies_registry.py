@@ -90,6 +90,16 @@ class TestStatus:
         after = conn.execute("SELECT COUNT(*) AS n FROM strategy_status_events").fetchone()["n"]
         assert before == after
 
+    def test_same_status_refreshes_the_reason_without_logging_an_event(self, conn):
+        """A candidate the gate still cannot decide must say WHY, not keep 'registered'."""
+        sid, _, _ = register_spec(conn, spec(), origin="seed")
+        count = "SELECT COUNT(*) AS n FROM strategy_status_events"
+        before = conn.execute(count).fetchone()["n"]
+        changed = set_status(conn, sid, "candidate", actor="gate", reason="only 1 trades, need 30")
+        assert changed is False
+        assert get_strategy(conn, "reg_test").status_reason == "only 1 trades, need 30"
+        assert conn.execute(count).fetchone()["n"] == before
+
     def test_unknown_status_is_rejected(self, conn):
         sid, _, _ = register_spec(conn, spec(), origin="seed")
         with pytest.raises(ValueError):
