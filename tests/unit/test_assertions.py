@@ -170,3 +170,39 @@ class TestAuxiliarySeriesOhlc:
         """Only the OHLC-ordering check is relaxed -- a non-positive close is wrong anywhere."""
         with pytest.raises(IngestAssertionError, match="close<=0"):
             assert_bars_sane([self.t0_row(close=Decimal("0"))], context="test")
+
+
+class TestIsolatedDeliveryInconsistency:
+    """Regression from a real backfill: NSE's 2024-02-19 file has WTICAB with delivery_qty
+    2,566,000 > volume 2,561,000 (0.2% over). One quirky row aborted the whole trading day for
+    all ~2,700 symbols. A UNITS bug would break MANY rows at once; a handful is a source quirk."""
+
+    def bars(self, n_total: int, n_bad: int):
+        bars = [_bar(symbol=f"S{i}", volume=1000, delivery_qty=500) for i in range(n_total)]
+        for i in range(n_bad):
+            bars[i] = _bar(symbol=f"BAD{i}", volume=1000, delivery_qty=1005)
+        return bars
+
+    def test_a_single_bad_row_in_a_full_day_is_an_anomaly_not_an_abort(self):
+        anomalies = assert_bars_sane(self.bars(2700, 1), context="NSE 2024-02-19")
+        assert len(anomalies) == 1 and "BAD0" in anomalies[0] and "delivery_qty" in anomalies[0]
+
+    def test_a_handful_is_still_tolerated(self):
+        assert len(assert_bars_sane(self.bars(2700, 3), context="t")) == 3
+
+    def test_many_bad_rows_look_systemic_and_abort(self):
+        """e.g. a units/column-shift bug: 5% of rows violate it."""
+        with pytest.raises(IngestAssertionError, match="delivery_qty"):
+            assert_bars_sane(self.bars(2000, 100), context="t")
+
+    def test_the_threshold_is_relative_so_a_tiny_batch_cannot_hide_a_systemic_bug(self):
+        with pytest.raises(IngestAssertionError, match="delivery_qty"):
+            assert_bars_sane(self.bars(10, 5), context="t")
+
+    def test_the_error_names_examples_and_the_rate(self):
+        with pytest.raises(IngestAssertionError) as e:
+            assert_bars_sane(self.bars(200, 20), context="NSE 2024-01-01")
+        assert "20 of 200" in str(e.value) and "BAD0" in str(e.value)
+
+    def test_consistent_delivery_is_untouched(self):
+        assert assert_bars_sane(self.bars(50, 0), context="t") == []

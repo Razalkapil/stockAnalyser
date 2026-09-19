@@ -187,9 +187,9 @@ def _ingest_prices_for_date(
             if anomalies:
                 # Not fatal (auxiliary series only) but never silent: logged, and counted
                 # on the job_runs row so `stk doctor` and a human can see the rate.
-                log.warning("auxiliary_series_ohlc_anomalies", context=context,
+                log.warning("bar_sanity_anomalies", context=context,
                             count=len(anomalies), first=anomalies[:3])
-            handle.metrics["ohlc_anomalies_auxiliary_series"] = len(anomalies)
+            handle.metrics["sanity_anomalies"] = len(anomalies)
 
             # Cheap identity fill for freshly-parsed bars only. An empty
             # securities master is a normal early state, not an error --

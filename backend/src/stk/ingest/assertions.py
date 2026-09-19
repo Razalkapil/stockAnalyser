@@ -50,6 +50,7 @@ def assert_bars_sane(bars: list[CanonicalBar], *, context: str) -> list[str]:
         raise IngestAssertionError(f"{context}: zero bars parsed")
 
     anomalies: list[str] = []
+    delivery_violations: list[str] = []
     seen_keys: set[tuple[str, str, str, str]] = set()
     for bar in bars:
         key = (bar.exchange, bar.symbol, bar.series or "", bar.date.isoformat())
@@ -69,14 +70,36 @@ def assert_bars_sane(bars: list[CanonicalBar], *, context: str) -> list[str]:
         if bar.volume < 0:
             raise IngestAssertionError(f"{context}: {bar.symbol} negative volume on {bar.date}")
         if bar.delivery_qty is not None and bar.delivery_qty > bar.volume:
-            raise IngestAssertionError(
-                f"{context}: {bar.symbol} delivery_qty={bar.delivery_qty} "
-                f"> volume={bar.volume} on {bar.date}"
+            delivery_violations.append(
+                f"{bar.symbol} delivery_qty={bar.delivery_qty} > volume={bar.volume} "
+                f"on {bar.date}"
             )
         if bar.turnover < 0:
             raise IngestAssertionError(f"{context}: {bar.symbol} negative turnover on {bar.date}")
         _assert_turnover_plausible(bar, context)
+
+    anomalies += _judge_delivery_violations(delivery_violations, len(bars), context)
     return anomalies
+
+
+#: delivery_qty > volume is impossible, so it is always reported -- but whether it ABORTS the day
+#: depends on how widespread it is. Found on real data: NSE's 2024-02-19 file has ONE row (WTICAB,
+#: 0.2% over) and aborting the day for it discarded ~2,700 good symbols. A units or column-shift
+#: bug, by contrast, breaks a large share of rows at once. So: a handful of rows, and under this
+#: fraction of the batch, is a counted source quirk; anything more is treated as systemic.
+_DELIVERY_TOLERATED_ROWS = 5
+_DELIVERY_TOLERATED_FRACTION = 0.005
+
+
+def _judge_delivery_violations(violations: list[str], total: int, context: str) -> list[str]:
+    limit = min(_DELIVERY_TOLERATED_ROWS, int(total * _DELIVERY_TOLERATED_FRACTION))
+    if len(violations) > limit:
+        raise IngestAssertionError(
+            f"{context}: {len(violations)} of {total} rows have delivery_qty > volume "
+            f"(tolerated: at most {limit}) -- looks systemic, not a one-off source quirk; "
+            f"e.g. {'; '.join(violations[:3])}"
+        )
+    return [f"{context}: {v} (isolated source quirk: kept, not fatal)" for v in violations]
 
 
 # Below this absolute rupee value, turnover/volume/vwap rounding noise
