@@ -112,7 +112,6 @@ def run(
         typer.echo(f"  vs {cfg.benchmark_index_code}: {m.benchmark_return:+.1%} "
                    f"(alpha {m.alpha:+.1%})")
     else:
-        typer.secho("  no benchmark for this span (Nifty 500 archive starts 2012-02-21)",
-                    fg="yellow")
+        typer.secho("  no benchmark for this span (see the approx note below)", fg="yellow")
     for reason in reasons:
         typer.secho(f"  approx: {reason}", fg="yellow")

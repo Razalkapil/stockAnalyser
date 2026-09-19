@@ -9,14 +9,19 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from integration.lake import write_bars_by_year, write_index_by_year
+from integration.lake import write_index_by_year, write_panel_by_year
 from stk.config.backtest import WalkForwardConfig, load_backtest_config
 from stk.config.promotion import PromotionConfig, _Thresholds
 from stk.domain.dsl.model import StrategySpec
 from stk.store.db.engine import connect, migrate
 from stk.strategies.promotion import promote
 from stk.strategies.repo import register_spec
-from stk.strategies.runner import approx_reasons, indicators_used, lake_span
+from stk.strategies.runner import (
+    approx_reasons,
+    benchmark_reason,
+    indicators_used,
+    lake_span,
+)
 
 SPEC = StrategySpec.model_validate({
     "slug": "promo_test", "name": "Promotion test", "horizon": "swing",
@@ -33,9 +38,11 @@ def build_lake(root, *, with_index: bool, years: float = 3.4) -> None:
     n = int(252 * years)
     days = [d.date() for d in pd.bdate_range("2021-01-04", periods=n)]
     rng = np.random.default_rng(13)
+    panel = {}
     for sym in ("AAA", "BBB", "CCC", "DDD"):
         close = 100 * np.cumprod(1 + rng.normal(0.0003, 0.02, n))
-        write_bars_by_year(root, sym, days, [float(c) for c in close])
+        panel[sym] = [float(c) for c in close]
+    write_panel_by_year(root, days, panel)
     if with_index:
         write_index_by_year(root, "NIFTY_500", "Nifty 500", days,
                             [float(x) for x in np.linspace(1000, 1300, n)])
@@ -163,5 +170,13 @@ class TestApproximationLabels:
             spec, pd.Timestamp("2024-01-01").date(), benchmark_missing=False))
 
     def test_missing_benchmark_is_a_stated_reason(self):
-        assert any("Nifty 500" in r for r in approx_reasons(
-            SPEC, pd.Timestamp("2021-01-01").date(), benchmark_missing=True))
+        reasons = approx_reasons(SPEC, pd.Timestamp("2021-01-01").date(), benchmark_missing=True,
+                                 benchmark_note="some cause")
+        assert any("benchmark did not cover" in r and "some cause" in r for r in reasons)
+
+    def test_the_benchmark_reason_names_the_real_cause(self):
+        """Regression: it once blamed the 2012 archive start when NO index data was ingested."""
+        empty = pd.DataFrame({"date": []})
+        assert "no NIFTY_500 index data has been ingested" in benchmark_reason(empty, "NIFTY_500")
+        late = pd.DataFrame({"date": pd.to_datetime(["2024-03-01"])})
+        assert "starts 2024-03-01" in benchmark_reason(late, "NIFTY_500")

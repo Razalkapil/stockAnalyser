@@ -63,7 +63,22 @@ def indicators_used(spec: StrategySpec) -> set[str]:
     return names
 
 
-def approx_reasons(spec: StrategySpec, start: date, *, benchmark_missing: bool) -> list[str]:
+def benchmark_reason(benchmark: pd.DataFrame, index_code: str) -> str:
+    """WHY a benchmark did not cover a run -- two very different problems, one fix each."""
+    if benchmark.empty:
+        return (f"no {index_code} index data has been ingested at all (run "
+                "`stk ingest indices --date ...` for the span)")
+    first = pd.Timestamp(benchmark["date"].min()).date()
+    return f"the {index_code} index data ingested starts {first}; earlier windows have no benchmark"
+
+
+def approx_reasons(
+    spec: StrategySpec,
+    start: date,
+    *,
+    benchmark_missing: bool,
+    benchmark_note: str | None = None,
+) -> list[str]:
     """Why a run's numbers should be read as approximate (empty = no known caveat)."""
     used = indicators_used(spec)
     reasons: list[str] = []
@@ -76,7 +91,8 @@ def approx_reasons(spec: StrategySpec, start: date, *, benchmark_missing: bool) 
         reasons.append("fundamentals are point-in-time from XBRL broadcast dates, but the NSE "
                        "filings API history is shallow, so early windows have no fundamentals")
     if benchmark_missing:
-        reasons.append("benchmark did not cover some windows (Nifty 500 archive starts 2012-02-21)")
+        reasons.append("benchmark did not cover some windows: "
+                       + (benchmark_note or "the benchmark series starts too late"))
     return reasons
 
 
@@ -152,7 +168,9 @@ def run_single(
         data, DslStrategy(spec, params), start, end, build_engine_config(cfg, exchange),
         make_rates_fn(), benchmark=benchmark,
     )
-    return result, approx_reasons(spec, start, benchmark_missing=result.benchmark_missing)
+    return result, approx_reasons(
+        spec, start, benchmark_missing=result.benchmark_missing,
+        benchmark_note=benchmark_reason(benchmark, cfg.benchmark_index_code))
 
 
 def run_walk_forward_for(
@@ -187,4 +205,6 @@ def run_walk_forward_for(
         param_grid=grid if len(grid) > 1 else None,
     )
     missing = any(w.result.benchmark_missing for w in results)
-    return results, approx_reasons(spec, windows[0].test_start, benchmark_missing=missing)
+    return results, approx_reasons(
+        spec, windows[0].test_start, benchmark_missing=missing,
+        benchmark_note=benchmark_reason(benchmark, cfg.benchmark_index_code))

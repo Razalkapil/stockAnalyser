@@ -111,3 +111,23 @@ def write_index_by_year(root, code: str, name: str, days: list[date], closes: li
             replace_dates=set(yd),
             sort_keys=INDEX_SORT,
         )
+
+
+def write_panel_by_year(root, days: list[date], closes_by_symbol: dict[str, list[float]]) -> None:
+    """Write MANY symbols across the year partitions in one go.
+
+    upsert_partition REPLACES the given dates for the whole partition, so writing symbols one
+    call at a time silently leaves only the last one. (write_bars_by_year is fine for a
+    single symbol; use this for a market.)
+    """
+    for year in sorted({d.year for d in days}):
+        idx = [i for i, d in enumerate(days) if d.year == year]
+        yd = [days[i] for i in idx]
+        tables = [adjusted_table(sym, yd, [closes[i] for i in idx])
+                  for sym, closes in closes_by_symbol.items()]
+        upsert_partition(
+            bars_daily_adjusted_partition(root, "NSE", year),
+            pa.concat_tables(tables),
+            schema=BARS_DAILY_ADJUSTED_SCHEMA,
+            replace_dates=set(yd),
+        )

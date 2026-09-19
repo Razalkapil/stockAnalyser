@@ -100,3 +100,25 @@ SELECT date, symbol, series, open, high, low, close, volume, turnover,
 FROM ranked
 WHERE rn = 1
 ORDER BY date, symbol
+
+
+-- name: panel_for_symbols
+-- The same one-row-per-(symbol, date) adjusted panel as backtest_panel, restricted to a set
+-- of symbols. Used by live pick tracking. Params: tradeable_series, symbols, exchange,
+-- start, end.
+WITH p AS (SELECT ?::VARCHAR[] AS series_list, ?::VARCHAR[] AS symbol_list),
+ranked AS (
+    SELECT b.date, b.symbol, b.series, b.open, b.high, b.low, b.close, b.volume,
+           row_number() OVER (
+               PARTITION BY b.symbol, b.date ORDER BY list_position(p.series_list, b.series)
+           ) AS rn
+    FROM bars_daily_adjusted b CROSS JOIN p
+    WHERE b.exchange = ?
+      AND b.date BETWEEN ? AND ?
+      AND list_contains(p.series_list, b.series)
+      AND list_contains(p.symbol_list, b.symbol)
+)
+SELECT date, symbol, series, open, high, low, close, volume
+FROM ranked
+WHERE rn = 1
+ORDER BY symbol, date
