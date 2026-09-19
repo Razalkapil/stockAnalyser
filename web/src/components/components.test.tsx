@@ -91,6 +91,29 @@ describe("StaleBanner", () => {
     render(<StaleBanner warning={{ job: "ingest_nse_prices", since: null, message: "Data is stale." }} />);
     expect(within(screen.getByRole("alert")).getByText(/Data is stale/)).toBeInTheDocument();
   });
+  it("shows a failed scheduled step even when the data is fresh", () => {
+    render(
+      <StaleBanner
+        warning={null}
+        alerts={[
+          { job: "nightly.scan", businessDate: "2026-09-18", status: "failed", message: "not run: prices failed first" },
+          { job: "weekly.xbrl", businessDate: "2026-09-13", status: "degraded", message: "2 fetch failures" },
+        ]}
+      />,
+    );
+    const alert = screen.getByRole("alert");
+    expect(within(alert).getByText(/nightly · scan failed \(2026-09-18\): not run: prices failed first/)).toBeInTheDocument();
+    expect(within(alert).getByText(/weekly · xbrl degraded/)).toBeInTheDocument();
+  });
+  it("stacks the stale-data message above the job alerts", () => {
+    render(
+      <StaleBanner
+        warning={{ job: "ingest_nse_prices", since: null, message: "Data is stale." }}
+        alerts={[{ job: "nightly.prices", businessDate: null, status: "failed", message: "exit 1" }]}
+      />,
+    );
+    expect(screen.getAllByText(/⚠/)).toHaveLength(2);
+  });
 });
 
 describe("EquityChart", () => {

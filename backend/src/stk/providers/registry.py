@@ -83,7 +83,12 @@ def get_price_provider(name: str) -> PriceProvider:
 
         return BseLegacyBhavcopyProvider()
 
-    # A future kite/broker adapter registers here as it lands.
+    if name == "kite":
+        # Documented stub: raises NotSupportedError from its constructor with the upgrade notes.
+        from stk.providers.broker.kite import KitePriceProvider  # noqa: PLC0415
+
+        KitePriceProvider()
+
     raise ConfigError(f"unknown price provider: {name!r}")
 
 

@@ -1,0 +1,11 @@
+[Unit]
+Description=stk weekly, Sunday morning
+
+[Timer]
+OnCalendar=Sun 10:00 Asia/Kolkata
+# Fire on next boot if the box was off at the scheduled time.
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

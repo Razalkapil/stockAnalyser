@@ -1,0 +1,11 @@
+[Unit]
+Description=stk backup, every night after the nightly run
+
+[Timer]
+OnCalendar=*-*-* 23:45 Asia/Kolkata
+# Fire on next boot if the box was off at the scheduled time.
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

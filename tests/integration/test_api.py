@@ -302,3 +302,21 @@ class TestStatusAndBriefs:
 
     def test_a_malformed_brief_date_is_422(self, world):
         assert world[0].get("/api/briefs/not-a-date").status_code == 422
+
+
+class TestJobAlerts:
+    def test_a_failed_nightly_step_reaches_the_status_payload(self, world):
+        from stk.core.time import today_ist  # noqa: PLC0415
+
+        client, db_path, _t, _ = world
+        assert client.get("/api/status").json()["jobAlerts"] == []
+        day = today_ist().isoformat()
+        conn = connect(db_path)
+        conn.execute(
+            "INSERT INTO job_runs (job_name, business_date, status, started_at, attempt, "
+            "error_message, code_version) VALUES ('nightly.scan', ?, 'failed', 'x', 1, "
+            "'exit 1: boom', 'v')", (day,))
+        conn.close()
+        (alert,) = client.get("/api/status").json()["jobAlerts"]
+        assert alert["job"] == "nightly.scan" and alert["status"] == "failed"
+        assert alert["businessDate"] == day and "boom" in alert["message"]

@@ -504,6 +504,20 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /**
+         * JobAlert
+         * @description A scheduled step whose latest run failed or ended degraded.
+         */
+        JobAlert: {
+            /** Businessdate */
+            businessDate: string | null;
+            /** Job */
+            job: string;
+            /** Message */
+            message: string;
+            /** Status */
+            status: string;
+        };
         /** JournalUpdate */
         JournalUpdate: {
             /** Note */
@@ -778,6 +792,8 @@ export interface components {
             /** Dataasof */
             dataAsOf: string | null;
             delayedFeed: components["schemas"]["DelayedFeed"] | null;
+            /** Jobalerts */
+            jobAlerts: components["schemas"]["JobAlert"][];
             /** Marketlabel */
             marketLabel: string;
             /** Marketopen */

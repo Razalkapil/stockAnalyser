@@ -1,362 +1,485 @@
 # Graph Report - stockAnalyser  (2026-09-19)
 
 ## Corpus Check
-- 151 files · ~85,944 words
+- 307 files · ~182,826 words
 - Verdict: corpus is large enough that graph structure adds value.
-- Unclassified: 22 file(s) not represented in the graph (top: (none) 11, .csv 7, .CSV 2)
+- Unclassified: 37 file(s) not represented in the graph (top: (none) 12, .csv 7, .service 6)
 
 ## Summary
-- 2023 nodes · 4968 edges · 120 communities (88 shown, 32 thin omitted)
-- Extraction: 92% EXTRACTED · 8% INFERRED · 0% AMBIGUOUS · INFERRED: 393 edges (avg confidence: 0.94)
+- 4304 nodes · 11766 edges · 246 communities (137 shown, 109 thin omitted)
+- Extraction: 94% EXTRACTED · 6% INFERRED · 0% AMBIGUOUS · INFERRED: 759 edges (avg confidence: 0.95)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `50c1a2d5`
+- Built from commit: `275d8062`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
-- doctor.py
+- get_strategy
 - assert_bars_sane
-- _fixture_for_date
-- liquidity.py
-- _resp
-- is_weekend
-- upsert_partition
-- Project brief for Claude Code — Indian stock suggester + virtual playground
-- RawArtifact
-- connect
+- ingest/backfill.py
+- package.json
+- validate_json_response
+- test_deploy.py
+- track_pick
+- Indian stock suggester + virtual playground — build plan
+- backup
+- migrate
 - build_factor_rows
 - connect
-- ProviderUnavailable
+- domain/orders.py
 - rebuild_adjusted_bars
-- httpx
-- TestFetchHistory
-- parse_ind_close_all
-- MasterRecord
+- derive_metric_rows
+- lab.py
+- health.py
+- base.py
 - job_run
 - compute_metrics
-- compute_costs
-- datetime
-- pathlib
-- _mock
-- ingest_calendar_year
+- config/costs.py
+- compute_liquidity_for_date
+- run_evening_review
+- Stocks.tsx
+- time.py
 - RateSchedule
 - _write
 - test_costs.py
-- base.py
-- format_inr
+- get_intraday_provider
+- commands/playground.py
 - 0001_init.sql
-- parse_subject
-- ingest.py
-- BseUdiffProvider
-- NseSecBhavdataProvider
-- NseFundamentalsProvider
-- NseLegacyBhavcopyProvider
 - ingest/corpactions.py
-- .test_a_pre_udiff_date_uses_the_legacy_source_not_a_failure
-- compute_liquidity_for_date
-- BseLegacyBhavcopyProvider
-- ConfigError
-- Table
-- domain/costs.py
-- test_backtest_engine.py
-- main.py
-- ingest/backfill.py
+- Side
+- Position
+- ProviderCapabilities
+- StrategyLab.tsx
+- commands/backup.py
+- compute_indicators
+- place
+- Any
+- playground_routes.py
+- playground.test.tsx
+- store/backup.py
+- IngestAssertionError
+- doctor
+- IntradayCandle
+- datetime
 - ingest_security_master
-- config/costs.py
-- raw_store.py
-- parse_legacy_bhavcopy
-- NSE
-- get_rate_schedule
-- ingest_indices_for_date
+- parse_sec_bhavdata_full
+- parse_xbrl
+- stk_backtest_data
+- flag_decay
+- TestPicks
+- _mock
 - CLAUDE.md
 - PointInTimeView
-- TestLiveEndpoint
-- test_nse_calendar_provider.py
-- setup.py
-- ingest_corporate_actions
-- TestUrlAndCapabilities
-- runs.py
-- parse_sec_bhavdata_full
-- ingest_fundamentals_for_security
-- TestParse
-- Indian stock suggester + virtual playground — build plan
+- parse_candles_json
+- test_dsl_backtest.py
+- RawArtifact
+- test_xbrl_ingest.py
+- apply_corporate_actions
+- backtest/runs.py
+- list_backups
+- hooks.ts
+- ContentValidationError
+- passes.py
 - yfinance/__init__.py
 - queries/__init__.py
 - stk
-- .fetch_filings_index
-- circuit_lock
-- PriceBand
-- NseIndicesProvider
-- CanonicalBar
-- IngestAssertionError
+- test_nightly.py
+- errors_of
 - slippage.py
-- _Run
-- prices
-- _upsert_action
+- runner.py
+- evaluate_gate
+- check_ai_runs
+- spec_problems
+- ingest.py
+- cap_quantity
+- auth.py
+- ingest_fundamentals_for_security
+- YFinanceIntradayProvider
 - backtest/engine.py
-- canonical_index_code
 - NotSupportedError
-- Oracle Cloud Always Free VM — setup notes
-- Connection
-- ticker_for
-- stockAnalyser
-- run_walk_forward
-- Phase 1 — data pipeline + store
-- nse/corpactions.py
-- given
+- repo.py
+- TestIsolatedDeliveryInconsistency
+- test_yfinance_provider.py
+- spec_dict
+- test_health.py
+- App.tsx
+- strategies/promotion.py
+- model.py
+- upsert_partition
+- Brief.tsx
+- test_backtest_engine.py
+- ADR 0003: Historical price source
+- days_from
+- services.py
+- compilerOptions
+- NSE
+- check_job_runs
+- connect
+- check_poller
+- evaluate.py
+- devDependencies
+- settings.py
+- AppSettings
+- entry_mask
+- app.py
+- is_liquid
 - assert_bars_match_requested_date
-- TestLiveEndpoint
-- enabled
-- TestLiveEndpoint
-- TestCapabilities
-- CorporateActionsProvider
-- get_price_provider
-- 0002_backtest.sql
-- history_probe.py
+- verify_backup
+- OrderDrawer.tsx
+- _make_bars
+- Project brief for Claude Code — Indian stock suggester + virtual playground
+- catalogue.py
 - backtest/__init__.py
+- Data sources — verified endpoints
+- TestParseHolidays
+- TestCli
+- main.tsx
+- backtest/walkforward.py
+- test_schema_drift.py
+- TestNestedTransactions
+- manifest_path
+- PathsConfig
+- ai/__init__.py
+- playground/fills.py
+- latest_backup_age_days
+- TestAuth
+- ingest_corporate_actions
+- Runbook
+- TestExchangeTxnBoundary
+- TestUrlAndCapabilities
+- test_yfinance_intraday.py
+- TestAdjustedFreshness
+- dsl/__init__.py
+- strategies/__init__.py
+- _DatedSeries
+- Phase 1 — data pipeline + store
+- TestIpftBoundary
+- backup.sh
+- install.sh
+- restore.sh
+- backfill_nse_prices
+- stk_ai_inputs
+- stk_ai_schemas
+- stk_api
+- stk_api_deps
+- stk_backtest_engine
+- stk_backtest_runs
+- stk_ingest_adjustments
+- stk_ingest_corpactions
+- stk_backtest_setup
+- stk_backtest_view
+- stk_backtest_walkforward
+- read_manifest
+- last_trading_day_on_or_before
+- operand
+- schema.d.ts
+- stk_cli_commands
+- stk_config_ai
+- stk_config_backtest
+- stk_config_horizons
+- ref_testing_library_jest_dom_vitest
+- stk_config_loader
+- stk_config_promotion
+- stk_config_settings
+- stk_config_universe
+- stk_core_errors
+- stk_core_logging
+- stk_core_money
+- stk_core_time
+- stk_core_version
+- get_settings
+- make_portfolio
+- 0006_playground.sql
+- stk_domain_costs
+- TestParse
+- TestStatusAndBriefs
+- TestFetchHistory
+- stk_domain_dsl_catalogue
+- logging.py
+- TestStocks
+- stk_domain_dsl_evaluate
+- TestLiquidityFloor
+- stk_domain_dsl_model
+- stk_domain_dsl_validate
+- get_rate_schedule
+- stk_domain_fills
+- stockAnalyser
+- stk_domain_indicators
+- stk_domain_metrics
+- MarketData
+- stk_domain_slippage
+- stk_domain_walkforward
+- stk_ingest_calendar
+- NseCorporateActionsProvider
+- Oracle Cloud Always Free VM — setup notes
+- stk_ingest_daily
+- stk_ingest_fundamentals
+- stk_ingest_fundamentals_metrics
+- stk_ingest_fundamentals_sweep
+- stk_ingest_fundamentals_xbrl
+- stk_ingest_indices
+- stk_ingest_jobs
+- stk_ingest_liquidity
+- stk_ingest_master
+- TestAuxiliarySeriesOhlc
+- stk_ingest_normalise
+- stk_ingest_raw_store
+- stk_playground_context
+- stk_playground_performance
+- stk_strategies_promotion
+- stk_providers_base
+- stk_providers_nse_indices
+- stk_providers_registry
+- stk_providers_yfinance_prices
+- stk_store
+- stk_store_db_engine
+- stk_store_parquet_layout
+- stk_store_parquet_schema
+- stk_store_parquet_writer
+- stk_strategies_dsl_strategy
+- stk_strategies_repo
+- stk_strategies_runner
+- stk_strategies_stats
+- stk_strategies_tracking
 
 ## God Nodes (most connected - your core abstractions)
-1. `_mock()` - 81 edges
-2. `connect()` - 74 edges
-3. `RawArtifact` - 51 edges
-4. `migrate()` - 48 edges
-5. `CanonicalBar` - 37 edges
-6. `NotSupportedError` - 36 edges
-7. `ContentValidationError` - 35 edges
-8. `DataNotPublished` - 34 edges
-9. `job_run()` - 31 edges
-10. `upsert_partition()` - 29 edges
+1. `connect()` - 146 edges
+2. `_mock()` - 90 edges
+3. `get_settings()` - 68 edges
+4. `RawArtifact` - 64 edges
+5. `migrate()` - 63 edges
+6. `place()` - 50 edges
+7. `StrategySpec` - 45 edges
+8. `DataNotPublished` - 42 edges
+9. `NotSupportedError` - 42 edges
+10. `Side` - 42 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `Ground rules (from the brief, do not relitigate without asking)` --references--> `corpactions()`  [INFERRED]
   CLAUDE.md → backend/src/stk/cli/commands/ingest.py
-- `Daily EOD prices (primary source): `sec_bhavdata_full`` --references--> `NseSecBhavdataProvider`  [INFERRED]
-  docs/data-sources.md → backend/src/stk/providers/nse/prices.py
+- `Things never verified live` --references--> `xbrl()`  [INFERRED]
+  docs/runbook.md → backend/src/stk/cli/commands/ingest.py
+- `Ingest pipeline` --references--> `ContentValidationError`  [INFERRED]
+  docs/BUILD_PLAN.md → backend/src/stk/core/errors.py
 - `Verification` --references--> `ContentValidationError`  [INFERRED]
   docs/BUILD_PLAN.md → backend/src/stk/core/errors.py
-- `Current status (update this section as phases complete)` --references--> `Strategy`  [INFERRED]
-  CLAUDE.md → backend/src/stk/backtest/engine.py
-- `Current status (update this section as phases complete)` --references--> `LookAheadError`  [INFERRED]
-  CLAUDE.md → backend/src/stk/backtest/view.py
+- `Failure playbook` --references--> `ContentValidationError`  [INFERRED]
+  docs/runbook.md → backend/src/stk/core/errors.py
 
 ## Import Cycles
 - None detected.
 
-## Communities (120 total, 32 thin omitted)
+## Communities (246 total, 109 thin omitted)
 
-### Community 0 - "doctor.py"
-Cohesion: 0.05
-Nodes (53): _check_endpoints(), doctor(), _previous_weekday(), command, date, `stk doctor` -- ingest health check. Thin by design: every actual check lives…, Step back to the nearest weekday. Holidays are not filtered -- a holiday simply…, Report on ingest health. Exits non-zero if anything looks wrong. (+45 more)
+### Community 0 - "get_strategy"
+Cohesion: 0.17
+Nodes (11): list_proposals(), get_strategy(), idea(), Model, The weekly strategy lab against a fake model: validation, backtest, gate, and…, reply(), run(), TestApi (+3 more)
 
 ### Community 1 - "assert_bars_sane"
-Cohesion: 0.23
-Nodes (7): assert_bars_sane(), Cheap, fast invariant checks over a batch of parsed bars. Deliberately does NOT…, _bar(), Tests for post-ingest sanity assertions. Includes a regression test for a real…, Regression test: a real live-ingest failure. Thin government securities…, The floor must not swallow real bugs once absolute values are large enough to…, TestAssertBarsSane
+Cohesion: 0.24
+Nodes (6): assert_bars_sane(), Cheap, fast invariant checks over a batch of parsed bars. Returns a list of…, _bar(), Regression test: a real live-ingest failure. Thin government securities…, The floor must not swallow real bugs once absolute values are large enough to…, TestAssertBarsSane
 
-### Community 2 - "_fixture_for_date"
-Cohesion: 0.30
-Nodes (6): _fixture_for_date(), _mock_date(), 2026-09-19/20 is a Sat/Sun -- must not even attempt a request., The core resilience property: one bad date must not abort the whole range --…, Real fixture content, with every DATE1 value rewritten to `d`., TestBackfillNsePrices
-
-### Community 3 - "liquidity.py"
-Cohesion: 0.08
-Nodes (29): LiquidityConfig, BaseModel, Loader for config/universe.yaml -- liquidity thresholds and the…, UniverseConfig, is_liquid(), is_tradeable_intraday(), LiquidityMetrics, LiquidityThresholds (+21 more)
-
-### Community 4 - "_resp"
-Cohesion: 0.12
-Nodes (11): Response, Tests for the content-type/magic-byte guard against the BSE 'silent 200'…, The exact BSE failure: 200 OK, HTML body -- must raise, not parse., The trap must not be swallowed anywhere -- calling code should never see a…, Exchanges do serve real CSVs with inconsistent content-type headers (e.g.…, A misleading content-type header must not override the actual body check., Mirror of the BSE CSV trap for the NSE/BSE zip download path., _resp() (+3 more)
-
-### Community 5 - "is_weekend"
-Cohesion: 0.08
-Nodes (18): is_weekend(), True for Saturday/Sunday. NSE's holiday-master API includes holidays that fall…, build_trading_day_set(), last_trading_day_on_or_before(), date, All weekday dates in [start, end] that are not in holiday_dates., Walk backward from target (inclusive) to find the nearest trading day. Bounded…, date (+10 more)
-
-### Community 6 - "upsert_partition"
+### Community 2 - "ingest/backfill.py"
 Cohesion: 0.07
-Nodes (35): Path, Schema, Table, Overwrite-by-partition write. Returns the row count of the resulting file.…, Read a partition file, or return an empty table matching ``schema`` if absent., Streaming sha256 of a file on disk., Write the row-count + sha256 sidecar for a just-written partition. The sha256…, The manifest for one partition, or None if none was written. (+27 more)
+Nodes (29): prices(), command, `stk backfill` -- historical price backfill., Backfill daily prices over a date range for one exchange. NSE source (legacy vs…, backfill_bse_prices(), _backfill_prices(), BackfillSummary, date (+21 more)
 
-### Community 7 - "Project brief for Claude Code — Indian stock suggester + virtual playground"
-Cohesion: 0.14
-Nodes (14): 10. Screens (designs come from Claude Design), 11. Build phases (do them in order; stop and check in with me after each), 12. How to work with me, 1. What the app does, 2. Hard constraints, 3. Stack, 4. Data layer, 5. Strategies — four horizons (+6 more)
+### Community 3 - "package.json"
+Cohesion: 0.06
+Nodes (30): @fontsource/ibm-plex-mono, @fontsource/ibm-plex-sans, jsdom, lightweight-charts, openapi-typescript, react-dom, @testing-library/jest-dom, @types/react (+22 more)
 
-### Community 8 - "RawArtifact"
-Cohesion: 0.09
-Nodes (35): build_client(), Response, Shared HTTP client factory and response validation. This module is the single…, Construct an httpx.Client with sane defaults for exchange fetches., Validate a response that is expected to be a zip file. Checks status, then…, Validate a response that is expected to be a plain CSV file.…, validate_csv_response(), validate_zip_response() (+27 more)
+### Community 4 - "validate_json_response"
+Cohesion: 0.12
+Nodes (13): Validate a response that is expected to be JSON., validate_json_response(), Response, Tests for the content-type/magic-byte guard against the BSE 'silent 200'…, The exact BSE failure: 200 OK, HTML body -- must raise, not parse., The trap must not be swallowed anywhere -- calling code should never see a…, Exchanges do serve real CSVs with inconsistent content-type headers (e.g.…, A misleading content-type header must not override the actual body check. (+5 more)
 
-### Community 9 - "connect"
+### Community 5 - "test_deploy.py"
 Cohesion: 0.08
-Nodes (30): connect(), _discover_migrations(), migrate(), Connection, Path, Open a connection with the app's standard pragmas applied., Explicit transaction context manager (conn is opened in autocommit mode)., Return (sequence_number, name, path) for every migrations/*.sql file, sorted. (+22 more)
+Nodes (21): ConfigParser, re, shlex, shutil, skipif, parse(), parametrize, Path (+13 more)
+
+### Community 6 - "track_pick"
+Cohesion: 0.06
+Nodes (33): Bar, _exit_on(), Live pick tracking -- pure. Given the bars that followed a pick's signal date,…, ``bars`` must be strictly AFTER the signal date, in date order., track_pick(), TrackedPick, _bars_by_symbol(), Connection (+25 more)
+
+### Community 7 - "Indian stock suggester + virtual playground — build plan"
+Cohesion: 0.14
+Nodes (14): Amendments, Context, Decisions locked this session, Design system (extracted from the handoff), Guiding principles for phases 0–1, Indian stock suggester + virtual playground — build plan, Open items for later phases, Phase 0 — repo, config, VM notes, history spike (+6 more)
+
+### Community 8 - "backup"
+Cohesion: 0.14
+Nodes (13): BackupError, RuntimeError, Restore ``backup`` into ``data_root`` (app.db and parquet/). Returns what was…, restore_backup(), tarfile, at(), backup(), date (+5 more)
+
+### Community 9 - "migrate"
+Cohesion: 0.05
+Nodes (38): migrate_cmd(), command, Apply all pending SQLite migrations., _discover_migrations(), migrate(), Path, Return (sequence_number, name, path) for every migrations/*.sql file, sorted., Apply all pending migrations in order. Returns the names applied. (+30 more)
 
 ### Community 10 - "build_factor_rows"
-Cohesion: 0.09
-Nodes (33): ActionFactor, build_factor_rows(), _factor_table(), FactorRow, factors_for_bar(), load_actions(), _LoadedActions, BaseModel (+25 more)
+Cohesion: 0.08
+Nodes (35): ActionFactor, _adjust_bar(), build_factor_rows(), _factor_table(), FactorRow, factors_for_bar(), load_actions(), _LoadedActions (+27 more)
 
 ### Community 11 - "connect"
-Cohesion: 0.06
-Nodes (46): load_benchmark(), load_market_data(), prepare_bars(), DataFrame, date, Path, Add prev_close and adv_turnover (both past-only) to a raw adjusted-bars frame., Adjusted bars for [start - warmup, end], prepared for the engine. (+38 more)
+Cohesion: 0.09
+Nodes (31): adv_turnover(), bars_on_day(), _d(), last_closes(), date, Decimal, Path, Playground reads from the price lake (all via store.duck; all UNADJUSTED). (+23 more)
 
-### Community 12 - "ProviderUnavailable"
+### Community 12 - "domain/orders.py"
 Cohesion: 0.07
-Nodes (36): ParseError, ProviderUnavailable, Exception, Base class for all application-raised errors., Transport-level failure: timeout, connection refused, DNS, 5xx., A response was structurally valid but semantically un-parseable. Used by the…, StkError, Validate a response that is expected to be JSON. (+28 more)
+Nodes (44): can_buy(), can_sell(), Lock, StrEnum, Fill-price rules -- pure. Two rules matter and both are easy to get subtly…, _blocked(), Candle, Fill (+36 more)
 
 ### Community 13 - "rebuild_adjusted_bars"
-Cohesion: 0.12
-Nodes (24): AdjustmentResult, Path, Rebuild adjustment_factors and bars_daily_adjusted for one exchange. Network-…, rebuild_adjusted_bars wrapped in a job_run scope. Kept separate so the rebuild…, rebuild_adjusted_bars(), rebuild_adjusted_bars_job(), adjustment_factors_path(), bars_daily_adjusted_partition() (+16 more)
-
-### Community 14 - "httpx"
-Cohesion: 0.14
-Nodes (13): httpx, json, respx, Integration tests for ingest_corporate_actions: fetch -> parse -> upsert., Tests for BseLegacyBhavcopyProvider, mocked via respx. Mirrors…, Tests for BseSecurityMasterProvider, mocked via respx., Tests for BseUdiffProvider, mocked via respx (no live network in the default…, Tests for NseCorporateActionsProvider, mocked via respx. (+5 more)
-
-### Community 15 - "TestFetchHistory"
-Cohesion: 0.29
-Nodes (5): _frame(), DataFrame, Yahoo reports no rupee turnover. close*volume is derived and must never be…, An empty result means a wrong ticker, a delisted name, or a rate limit -- never…, TestFetchHistory
-
-### Community 16 - "parse_ind_close_all"
-Cohesion: 0.17
-Nodes (8): parse_ind_close_all(), Parse NSE's ind_close_all_DDMMYYYY.csv into canonical index bars. Two…, 18775.3 crore = 1,87,753,000,000 rupees. The word "crore" must never survive…, NSE's file carries rows like "Nifty50 Dividend Points" that have a real close…, A row with no closing value is not a price bar at all., TestMalformedInput, TestNullHandling, TestParseRealFixture
-
-### Community 17 - "MasterRecord"
 Cohesion: 0.11
-Nodes (19): _fetch_all_records(), Connection, Returns True if this upsert closed out a rename (a different symbol was…, Fetch every exchange's master snapshot, tolerating one exchange's fetch failing…, _upsert_listing_and_detect_rename(), _upsert_security(), MasterRecord, One row of a security-master snapshot (NSE EQUITY_L.csv / BSE ListofScripData). (+11 more)
+Nodes (25): AdjustmentResult, Path, Rebuild adjustment_factors and bars_daily_adjusted for one exchange. Network-…, rebuild_adjusted_bars wrapped in a job_run scope. Kept separate so the rebuild…, rebuild_adjusted_bars(), rebuild_adjusted_bars_job(), adjustment_factors_path(), _adjusted() (+17 more)
+
+### Community 14 - "derive_metric_rows"
+Cohesion: 0.09
+Nodes (27): attach_fundamentals(), available_on(), _borrowings(), _cagr(), derive_metric_rows(), FilingFacts, DataFrame, date (+19 more)
+
+### Community 15 - "lab.py"
+Cohesion: 0.07
+Nodes (47): AnthropicClient, call_structured(), _errors(), LlmClient, Protocol, ValueError, The LLM boundary: a tiny protocol, the real Anthropic client, and structured-…, The real client. Credentials come from the environment (ANTHROPIC_API_KEY, or… (+39 more)
+
+### Community 16 - "health.py"
+Cohesion: 0.20
+Nodes (17): check_adjusted_freshness(), check_calendar_coverage(), check_stale_symbols(), check_unparsed_corporate_actions(), Problem, Connection, date, Path (+9 more)
+
+### Community 17 - "base.py"
+Cohesion: 0.05
+Nodes (54): ABC, ConfigError, Configuration failed to load or validate., _fetch_all_records(), Fetch every exchange's master snapshot, tolerating one exchange's fetch failing…, CalendarProvider, CorporateActionsProvider, FundamentalsProvider (+46 more)
 
 ### Community 18 - "job_run"
 Cohesion: 0.07
-Nodes (27): code_version(), The running code's version, for attributing written data to a commit. Both…, Short git SHA of HEAD, or "unknown" outside a git checkout. Never raises: an…, job_run(), JobRunHandle, JobSkipped, _next_attempt(), Connection (+19 more)
+Nodes (32): The nightly and weekly runs: an ordered list of `stk` commands, each isolated.…, ingest_xbrl_documents(), _pending(), _process(), Connection, Path, Fetch, persist, parse and store the XBRL behind each filing-metadata snapshot.…, Write a parsed filing's line items (replacing any earlier parse of the same… (+24 more)
 
 ### Community 19 - "compute_metrics"
-Cohesion: 0.08
-Nodes (23): cagr(), compute_metrics(), max_drawdown(), date, Backtest performance metrics -- pure. Statistics, not money: inputs are…, One closed round trip, net of all costs., Worst peak-to-trough decline as a NEGATIVE fraction (0.0 if never below a peak)., Annualised Sharpe from daily equity. 0.0 when there is no variance to divide by. (+15 more)
-
-### Community 20 - "compute_costs"
-Cohesion: 0.14
-Nodes (15): compute_costs(), Itemised charges for one order leg of ``turnover`` rupees. Excludes the DP…, given, date, Decimal, rates(), compute_costs against hand-worked examples. A wrong rate or a mis-scoped GST…, Changing STT or stamp duty must not change GST -- the one-line bug the config… (+7 more)
-
-### Community 21 - "datetime"
-Cohesion: 0.11
-Nodes (26): _adjust_bar(), Decimal, Corporate-action back-adjustment: factor timelines and the derived…, Index (benchmark) ingest. Same shape as ingest.daily's price path -- fetch,…, manifest_path(), Parquet path conventions. Partitioned by exchange then year:…, Where the row-count + sha256 sidecar for one partition lives. ``exchange`` is…, Canonical Arrow schema for daily bars. NSE UDiFF, BSE UDiFF and… (+18 more)
-
-### Community 22 - "pathlib"
-Cohesion: 0.12
-Nodes (15): Trading-calendar ingest: populating `trading_calendar` from NSE, and from what…, Fundamentals ingest: fetch a security's filings and upsert into…, Security-master ingest: ISIN-keyed merge of NSE + BSE listings into…, SQLite connection factory, pragmas, and the forward-only migration runner. No…, DuckDB connection factory, view registration, and named-SQL access. This is the…, collections, duckdb, importlib (+7 more)
-
-### Community 23 - "_mock"
-Cohesion: 0.12
-Nodes (14): ingest_nse_prices_for_date(), Ingest one day of NSE prices end-to-end: fetch, validate, persist raw, parse,…, 2010-01-04 is before the UDiFF cutover, so get_bse_price_provider_for_date must…, The BSE-specific failure mode: a non-trading day returns HTTP 200 with an HTML…, TestIngestBsePricesForDate, The wiring proof: on a date the calendar says did not trade, the nightly ingest…, Tri-state, not boolean: no calendar row means UNKNOWN, and unknown must be…, TestDailyIngestHonoursTheCalendar (+6 more)
-
-### Community 24 - "ingest_calendar_year"
 Cohesion: 0.10
-Nodes (26): CalendarIngestResult, ingest_calendar_from_bars(), ingest_calendar_year(), Connection, date, Path, Populate one calendar year for one exchange from NSE's holiday master. Writes a…, Derive calendar rows from the dates actually present in bars_daily. Covers only… (+18 more)
+Nodes (18): cagr(), compute_metrics(), max_drawdown(), date, Backtest performance metrics -- pure. Statistics, not money: inputs are…, One closed round trip, net of all costs., Worst peak-to-trough decline as a NEGATIVE fraction (0.0 if never below a peak)., Annualised Sharpe from daily equity. 0.0 when there is no variance to divide by. (+10 more)
+
+### Community 20 - "config/costs.py"
+Cohesion: 0.16
+Nodes (15): _dec(), Decimal, product(), Dated cost-rate schedule loader. Loads config/costs.yaml -- a history of…, Decimal from a YAML number without inheriting float noise (0.1 ->…, BrokerageRule, CostRates, ProductRates (+7 more)
+
+### Community 21 - "compute_liquidity_for_date"
+Cohesion: 0.15
+Nodes (20): compute_liquidity_for_date(), compute_liquidity_metrics(), LiquidityResult, Connection, date, Path, Table, Truncate-and-replace universe_current for symbols resolvable to a security_id… (+12 more)
+
+### Community 22 - "run_evening_review"
+Cohesion: 0.06
+Nodes (39): LlmError, LlmReply, RuntimeError, The call failed (network, auth, rate limit, refusal). Carries a message safe to…, Connection, date, ReviewResult, run_evening_review() (+31 more)
+
+### Community 23 - "Stocks.tsx"
+Cohesion: 0.13
+Nodes (23): react, EmptyState(), EquityChart(), points(), Num(), PickMarker, PriceChart(), Segmented() (+15 more)
+
+### Community 24 - "time.py"
+Cohesion: 0.03
+Nodes (76): `stk db` -- database management commands., _check_endpoints(), _previous_weekday(), date, `stk doctor` -- ingest health check. Thin by design: every actual check lives…, Probe each documented endpoint for reachability. Reports a transport or…, Step back to the nearest weekday. Holidays are not filtered -- a holiday simply…, `stk nightly` / `stk weekly` -- the scheduled runs (systemd timers call these). (+68 more)
 
 ### Community 25 - "RateSchedule"
-Cohesion: 0.20
-Nodes (10): _DatedRate, _DatedSeries, BaseModel, date, RateSchedule, Every rate in force for ``exchange`` on ``as_of_date``, as pure domain data., A rate that takes effect from a given date, until superseded., A chronologically sorted list of ``_DatedRate``, queryable by date. (+2 more)
+Cohesion: 0.27
+Nodes (8): _DatedRate, BaseModel, date, RateSchedule, Every rate in force for ``exchange`` on ``as_of_date``, as pure domain data., A rate that takes effect from a given date, until superseded., Return the rate in effect on ``as_of_date``. If ``as_of_date`` predates the…, Typed, date-resolvable view over config/costs.yaml.
 
 ### Community 26 - "_write"
 Cohesion: 0.09
 Nodes (12): _bars(), date, fixture, Path, Table, The load-bearing case for query-time identity resolution: a bar written under a…, exchange/year come from the directory names, not the file -- the liquidity and…, A fresh checkout has no bars_daily_adjusted. Querying it must return zero rows… (+4 more)
 
 ### Community 27 - "test_costs.py"
-Cohesion: 0.07
-Nodes (15): fixture, Tests for the dated cost-rate schedule (config/costs.yaml + RateSchedule).…, DP charge: flat, per-scrip, per-day, sell leg only -- dominates cost on small…, NSE exchange transaction charge changed 2024-10-01 and again 2026-03-01., NSE IPFT dropped from Rs 10/crore to Rs 0.01/crore on 2026-03-01., Stamp duty became uniform nationwide on 2020-07-01., STT: delivery both legs; intraday sell-leg only., GST must apply to brokerage/exchange_txn/sebi fee/IPFT and NOT to STT or stamp… (+7 more)
+Cohesion: 0.11
+Nodes (9): Tests for the dated cost-rate schedule (config/costs.yaml + RateSchedule).…, DP charge: flat, per-scrip, per-day, sell leg only -- dominates cost on small…, Stamp duty became uniform nationwide on 2020-07-01., STT: delivery both legs; intraday sell-leg only., GST must apply to brokerage/exchange_txn/sebi fee/IPFT and NOT to STT or stamp…, TestDpCharge, TestGstScope, TestStampDutyBoundary (+1 more)
 
-### Community 28 - "base.py"
-Cohesion: 0.07
-Nodes (44): ABC, Exception hierarchy for the ingest/provider stack. The rule this hierarchy…, format_ddmmyy_compact(), format_ddmmyyyy_compact(), format_yyyymmdd(), parse_ddmmmyyyy(), parse_ddmmyyyy_compact(), previous_calendar_day() (+36 more)
+### Community 28 - "get_intraday_provider"
+Cohesion: 0.26
+Nodes (8): get_intraday_provider(), The DELAYED intraday candle source for the paper-trading poller. Gated by its…, fixture, Set the two yfinance switches and force settings to re-read them; restore…, The whole point of a separate switch., switches(), set_(), TestSeparateSwitch
 
-### Community 29 - "format_inr"
-Cohesion: 0.14
-Nodes (13): bps(), format_inr(), Decimal, Decimal-safe money arithmetic and Indian-style (lakh/crore) formatting. Every…, Convert any numeric input to a Decimal rounded to paise., Express ``value`` as basis points of ``basis``. Returns 0 if basis is 0., Format a rupee amount with Indian digit grouping (lakh/crore).…, to_money() (+5 more)
+### Community 29 - "commands/playground.py"
+Cohesion: 0.08
+Nodes (32): _ctx(), eod(), poll(), portfolio_create(), portfolio_list(), command, help, Option (+24 more)
 
 ### Community 30 - "0001_init.sql"
-Cohesion: 0.17
-Nodes (20): corporate_actions, fundamentals_snapshots, ix_ca_exdate, ix_ca_parse_status, ix_ca_security_ex, ix_fund_provider, ix_fund_sec_period, ix_job_lookup (+12 more)
-
-### Community 31 - "parse_subject"
-Cohesion: 0.17
-Nodes (18): ActionType, parse_subject(), StrEnum, Parse a free-text corporate-action subject into typed actions. Handles compound…, hypothesis, given, parametrize, Table-driven tests for the free-text corporate-action subject parser. The… (+10 more)
-
-### Community 32 - "ingest.py"
-Cohesion: 0.07
-Nodes (46): adjustments(), calendar(), corpactions(), daily(), fundamentals(), indices(), liquidity(), master() (+38 more)
-
-### Community 33 - "BseUdiffProvider"
-Cohesion: 0.20
-Nodes (9): BseUdiffProvider, PriceProvider backed by BSE's UDiFF daily bhavcopy., _csv_response(), Response, The confirmed-live BSE trap: a weekend, holiday, or invalid date returns HTTP…, Not text/html, but also doesn't look like the expected CSV -- must still be…, TestCapabilities, TestFetchEod (+1 more)
-
-### Community 34 - "NseSecBhavdataProvider"
 Cohesion: 0.14
-Nodes (11): NseSecBhavdataProvider, PriceProvider backed by NSE's sec_bhavdata_full daily file., _csv_response(), live, Response, Defence-in-depth: even though NSE's archive host has not been observed doing…, Real network smoke test -- excluded from the default run. Run explicitly with…, TestCapabilities (+3 more)
+Nodes (23): corporate_actions, fundamentals_snapshots, ix_ca_exdate, ix_ca_parse_status, ix_ca_security_ex, ix_fund_provider, ix_fund_sec_period, ix_job_lookup (+15 more)
 
-### Community 35 - "NseFundamentalsProvider"
-Cohesion: 0.15
-Nodes (15): Connection, _resolve_security_id(), _upsert_snapshot(), FundamentalsSnapshotIn, Period, StrEnum, A normalised fundamentals statement, ready for insertion into…, Normalised statements ready for fundamentals_snapshots insertion. (+7 more)
-
-### Community 36 - "NseLegacyBhavcopyProvider"
-Cohesion: 0.18
-Nodes (8): NseLegacyBhavcopyProvider, PriceProvider backed by NSE's legacy per-date cm*bhav.csv.zip archive., live, TestCapabilities, TestFetchEod, TestLiveEndpoint, TestParseEod, _zip_bytes()
-
-### Community 37 - "ingest/corpactions.py"
-Cohesion: 0.23
-Nodes (17): _ClauseResult, _parse_bonus(), _parse_clause(), _parse_decimal(), _parse_dividend(), _parse_face_value_split(), _parse_rights(), ParsedAction (+9 more)
-
-### Community 38 - ".test_a_pre_udiff_date_uses_the_legacy_source_not_a_failure"
-Cohesion: 0.21
-Nodes (9): _bse_fixture_for_date(), _bse_legacy_fixture(), _mock_bse_date(), _mock_bse_legacy_date(), date, BSE shares _backfill_prices with NSE (see test cases above for the generic…, 2020-01-01 is between BSE's two confirmed sources' boundary (2010-01-04 legacy…, Real BSE UDiFF fixture content, with every TradDt/BizDt value rewritten to `d`. (+1 more)
-
-### Community 39 - "compute_liquidity_for_date"
-Cohesion: 0.27
-Nodes (11): compute_liquidity_for_date(), Compute and persist one exchange's liquidity features for one date. Idempotent…, liquidity_daily_partition(), _make_universe_config(), date, Path, No security master data exists yet -- documented known limitation in…, n consecutive weekdays ending at (and including) end. (+3 more)
-
-### Community 40 - "BseLegacyBhavcopyProvider"
-Cohesion: 0.13
-Nodes (10): ProviderCapabilities, Declares what a provider can actually do, so callers can degrade gracefully…, BseLegacyBhavcopyProvider, PriceProvider backed by BSE's legacy per-date EQ*.CSV.ZIP archive., live, TestCapabilities, TestFetchEod, TestLiveEndpoint (+2 more)
-
-### Community 41 - "ConfigError"
+### Community 31 - "ingest/corpactions.py"
 Cohesion: 0.07
-Nodes (36): _deep_merge(), find_config_dir(), load_named_yaml(), load_yaml_config(), Any, Path, YAML config loading and layering. Precedence, highest wins: 1. Process env /…, Recursively merge ``overlay`` onto ``base``. ``overlay`` wins on conflicts. (+28 more)
+Nodes (64): ActionType, _bond_interest(), _bonus(), _cash_distribution(), _cash_dividend(), _ClauseResult, _face_value_change(), build() (+56 more)
 
-### Community 43 - "domain/costs.py"
+### Community 32 - "Side"
+Cohesion: 0.08
+Nodes (32): command, quote(), `stk costs` -- inspect the transaction-cost model., Itemise the charges on one order leg, using the rates in force on a date. Rates…, bps(), Decimal, Decimal-safe money arithmetic and Indian-style (lakh/crore) formatting. Every…, Express ``value`` as basis points of ``basis``. Returns 0 if basis is 0. (+24 more)
+
+### Community 33 - "Position"
+Cohesion: 0.08
+Nodes (28): apply_buy(), apply_sell(), apply_split_or_bonus(), dividend_cash(), Position, PositionError, Decimal, ValueError (+20 more)
+
+### Community 34 - "ProviderCapabilities"
+Cohesion: 0.07
+Nodes (19): ProviderCapabilities, Declares what a provider can actually do, so callers can degrade gracefully…, NseLegacyBhavcopyProvider, PriceProvider backed by NSE's legacy per-date cm*bhav.csv.zip archive., NseSecBhavdataProvider, PriceProvider backed by NSE's sec_bhavdata_full daily file., TestCapabilities, TestFetchEod (+11 more)
+
+### Community 35 - "StrategyLab.tsx"
+Cohesion: 0.17
+Nodes (26): label, PickCard(), useProposalAction(), useProposals(), useStrategyAction(), DASH, fmtClock(), fmtDate() (+18 more)
+
+### Community 36 - "commands/backup.py"
 Cohesion: 0.19
-Nodes (14): command, quote(), `stk costs` -- inspect the transaction-cost model., Itemise the charges on one order leg, using the rates in force on a date. Rates…, CostBreakdown, dp_charge(), Product, Decimal (+6 more)
+Nodes (16): list_cmd(), Argument, command, exists, help, Option, Path, `stk backup` -- back up, verify and restore the application state. (+8 more)
 
-### Community 44 - "test_backtest_engine.py"
-Cohesion: 0.12
-Nodes (23): Bar, buy(), config(), days_of(), flat(), make_data(), poison_after(), date (+15 more)
+### Community 37 - "compute_indicators"
+Cohesion: 0.08
+Nodes (32): all_columns(), Every concrete column name the catalogue can produce., _breakout_levels(), compute_indicators(), _grouped(), _momentum(), _oscillators(), DataFrame (+24 more)
 
-### Community 45 - "main.py"
-Cohesion: 0.15
-Nodes (12): migrate_cmd(), command, `stk db` -- database management commands., Apply all pending SQLite migrations., _init(), `stk` -- the project's single CLI entry point. Subcommands are grouped by…, configure_logging(), Configure structlog + stdlib logging. Call once at process startup. (+4 more)
+### Community 38 - "place"
+Cohesion: 0.08
+Nodes (29): at(), candle(), ledger_reconciles(), order(), place(), date, datetime, parametrize (+21 more)
 
-### Community 46 - "ingest/backfill.py"
-Cohesion: 0.25
-Nodes (11): `stk backfill` -- historical price backfill., backfill_bse_prices(), backfill_nse_prices(), _backfill_prices(), BackfillSummary, date, Path, Historical price backfill. Reuses the same per-exchange ingest function… (+3 more)
+### Community 39 - "Any"
+Cohesion: 0.11
+Nodes (27): build_lab_input(), catalogue_doc(), dsl_schema(), Connection, Path, _r(), Assemble the strategy lab's input: what exists, how it is doing, and what the…, load_horizons() (+19 more)
+
+### Community 40 - "playground_routes.py"
+Cohesion: 0.05
+Nodes (68): _err(), _f(), new_order(), new_portfolio(), play_ctx(), portfolio(), portfolios(), preview() (+60 more)
+
+### Community 41 - "playground.test.tsx"
+Cohesion: 0.14
+Nodes (26): react-router-dom, @tanstack/react-query, @testing-library/react, @testing-library/user-event, vitest, TicketProbe(), Ctx, TicketCtx (+18 more)
+
+### Community 42 - "store/backup.py"
+Cohesion: 0.22
+Nodes (14): BackupResult, _check_archive(), _check_database(), _check_files(), _is_within(), datetime, Path, Backups: a consistent SQLite snapshot, the parquet lake, and a checksummed… (+6 more)
+
+### Community 43 - "IngestAssertionError"
+Cohesion: 0.17
+Nodes (14): IngestAssertionError, Exception, Base class for all application-raised errors., A post-ingest sanity check failed (row counts, OHLC invariants, ...)., StkError, assert_index_bars_sane(), _assert_turnover_plausible(), _judge_delivery_violations() (+6 more)
+
+### Community 44 - "doctor"
+Cohesion: 0.19
+Nodes (9): doctor(), command, help, Option, Path, Report on ingest health. Exits non-zero if anything looks wrong., check_backup_age(), envvar (+1 more)
+
+### Community 45 - "IntradayCandle"
+Cohesion: 0.17
+Nodes (6): IntradayCandle, datetime, One intraday OHLCV candle. ``start`` is timezone-AWARE (IST) -- naive datetimes…, Parse a previously fetched artifact (offline; no network)., field_validator, Exception
+
+### Community 46 - "datetime"
+Cohesion: 0.05
+Nodes (61): `stk api` -- serve the dashboard's API and manage its tokens., Exception hierarchy for the ingest/provider stack. The rule this hierarchy…, Corporate-action back-adjustment: factor timelines and the derived…, Nightly ingest orchestration. NSE and BSE prices both go through…, Index (benchmark) ingest. Same shape as ingest.daily's price path -- fetch,…, Liquidity feature computation and the tradeable-universe snapshot. Reads…, Security-master ingest: ISIN-keyed merge of NSE + BSE listings into…, SQLite connection factory, pragmas, and the forward-only migration runner. No… (+53 more)
 
 ### Community 47 - "ingest_security_master"
-Cohesion: 0.27
-Nodes (10): ingest_security_master(), MasterIngestResult, Path, Fetch and merge the NSE + BSE security masters into securities/…, _bse_row(), _mock_bse(), _mock_nse(), _nse_row() (+2 more)
-
-### Community 48 - "config/costs.py"
 Cohesion: 0.19
-Nodes (11): _dec(), Decimal, product(), Dated cost-rate schedule loader. Loads config/costs.yaml -- a history of…, Decimal from a YAML number without inheriting float noise (0.1 ->…, BrokerageRule, CostRates, ProductRates (+3 more)
+Nodes (14): ingest_security_master(), MasterIngestResult, Connection, Path, Returns True if this upsert closed out a rename (a different symbol was…, Fetch and merge the NSE + BSE security masters into securities/…, _upsert_listing_and_detect_rename(), _upsert_security() (+6 more)
 
-### Community 49 - "raw_store.py"
-Cohesion: 0.31
-Nodes (8): _guess_suffix(), persist_artifact(), Connection, date, Path, Persistence of raw fetched bytes, content-addressed for idempotency. Every…, Write the artifact's bytes to disk and record it in raw_artifacts. Returns the…, _raw_path()
+### Community 48 - "parse_sec_bhavdata_full"
+Cohesion: 0.24
+Nodes (5): parse_sec_bhavdata_full(), Parse NSE's sec_bhavdata_full_{DDMMYYYY}.csv into canonical bars. This file…, The real NSE file has a leading space on every header/value after the first…, This is the critical rule: '-' means unreported, not zero., TestParseSecBhavdataFull
 
-### Community 50 - "parse_legacy_bhavcopy"
-Cohesion: 0.29
-Nodes (5): parse_legacy_bhavcopy(), Parse NSE's legacy cm{DDMONYYYY}bhav.csv format (2010 through ~2019-10-01,…, The real 2010 file uses '4-JAN-2010', not '04-JAN-2010'., This format predates delivery reporting -- delivery fields must be None, not…, TestParseLegacyBhavcopy
+### Community 49 - "parse_xbrl"
+Cohesion: 0.07
+Nodes (28): _index_facts(), _local(), _parse_date(), parse_xbrl(), take(), _plain_contexts(), date, ValueError (+20 more)
 
-### Community 51 - "NSE"
-Cohesion: 0.18
-Nodes (10): Blocking behaviour summary, Corporate actions, Daily EOD prices (primary source): `sec_bhavdata_full`, Data sources — verified endpoints, Fundamentals (official, no XBRL parsing needed), NSE, Price bands (for circuit-lock detection), Security master (+2 more)
+### Community 51 - "flag_decay"
+Cohesion: 0.47
+Nodes (3): flag_decay(), Move live strategies whose live hit rate has slumped to ``decaying``. Returns…, TestStatsAndDecay
 
-### Community 52 - "get_rate_schedule"
-Cohesion: 0.22
-Nodes (8): make_rates_fn(), RatesFn, Rates in force on each fill's own date, memoised per (exchange, date)., get_rate_schedule(), Path, Return the process-wide RateSchedule singleton, loading config/costs.yaml on…, fixture, schedule()
-
-### Community 53 - "ingest_indices_for_date"
-Cohesion: 0.16
-Nodes (11): IndicesIngestResult, ingest_indices_for_date(), date, Path, Table, Ingest one day of NSE index closes end-to-end. Idempotent., _to_table(), indices_daily_partition() (+3 more)
+### Community 53 - "_mock"
+Cohesion: 0.13
+Nodes (15): IndicesIngestResult, ingest_indices_for_date(), date, Path, Table, Ingest one day of NSE index closes end-to-end. Idempotent., _to_table(), indices_daily_partition() (+7 more)
 
 ### Community 54 - "CLAUDE.md"
 Cohesion: 0.29
@@ -364,159 +487,359 @@ Nodes (5): graphify, Ground rules (from the brief, do not relitigate without ask
 
 ### Community 55 - "PointInTimeView"
 Cohesion: 0.12
-Nodes (18): AssertionError, An intent to buy at the next open., Signal, Strategy, LookAheadError, PointInTimeView, DataFrame, Every bar dated <= ``decision_date`` (all symbols). (+10 more)
+Nodes (19): An intent to buy at the next open., Signal, PointInTimeView, DataFrame, Every bar dated <= ``decision_date`` (all symbols)., Fundamentals rows whose ``available_at`` <= ``decision_date`` (else None if no…, Read-only view of ``MarketData`` as it stood at the close of ``decision_date``., All symbols' bars dated exactly ``decision_date``. (+11 more)
 
-### Community 56 - "TestLiveEndpoint"
-Cohesion: 0.29
-Nodes (4): live, Documented shape checks. Run deliberately: `pytest -m live`., The finding that justified using this endpoint for the whole backfill range…, TestLiveEndpoint
+### Community 56 - "parse_candles_json"
+Cohesion: 0.36
+Nodes (6): parse_candles_json(), Pure: bytes -> candles, sorted by start, in IST. Rejects a malformed record…, payload(), parametrize, rec(), TestParse
 
-### Community 57 - "test_nse_calendar_provider.py"
-Cohesion: 0.25
-Nodes (5): Trading-calendar domain logic built from raw holiday data. Combines a…, Tests for trading-calendar domain logic (weekday-holiday intersection)., provider(), fixture, Unit tests for the NSE holiday-master provider. The two behaviours that carry…
-
-### Community 58 - "setup.py"
+### Community 57 - "test_dsl_backtest.py"
 Cohesion: 0.17
-Nodes (15): EngineConfig, build_engine_config(), Turn config files into the engine's inputs., BacktestConfig, load_backtest_config(), BaseModel, Path, Typed loader for config/backtest.yaml. (+7 more)
+Nodes (14): prepare_frame(), DataFrame, Series, Raw adjusted bars -> the frame a ``DslStrategy`` and the engine both read., engine_config(), make_bars(), oversold_spec(), DataFrame (+6 more)
 
-### Community 59 - "ingest_corporate_actions"
+### Community 58 - "RawArtifact"
+Cohesion: 0.04
+Nodes (82): DataNotPublished, ProviderUnavailable, Transport-level failure: timeout, connection refused, DNS, 5xx., The source has not yet published data for the requested date. Distinct from…, build_client(), Response, Shared HTTP client factory and response validation. This module is the single…, Validate a response that is expected to be an XBRL/XML document. Guards the… (+74 more)
+
+### Community 59 - "test_xbrl_ingest.py"
+Cohesion: 0.26
+Nodes (11): add_snapshot(), db(), meta_row(), fixture, Path, XBRL ingest end to end: real filings served through a mocked network., rows(), run() (+3 more)
+
+### Community 60 - "apply_corporate_actions"
+Cohesion: 0.34
+Nodes (5): apply_corporate_actions(), date, add_action(), NSE republishing a corrected subject creates a second row by design., TestCorporateActions
+
+### Community 61 - "backtest/runs.py"
+Cohesion: 0.16
+Nodes (22): BacktestResult, _begin(), _finish(), _insert_trades(), load_run_summary(), _metric_rows(), Connection, date (+14 more)
+
+### Community 62 - "list_backups"
 Cohesion: 0.27
-Nodes (7): CorpActionIngestResult, ingest_corporate_actions(), date, Path, Fetch corporate actions, parse subjects, and upsert into corporate_actions. One…, _row(), TestIngestCorporateActions
+Nodes (6): _backup_dirs(), list_backups(), Directories this module created: date-named AND holding a manifest. Nothing…, Keep the newest ``keep_daily`` backups, plus the newest ``keep_weekly`` SUNDAY…, rotate(), TestRotation
 
-### Community 61 - "runs.py"
-Cohesion: 0.19
-Nodes (21): BacktestResult, _begin(), _finish(), _insert_trades(), load_run_summary(), _metric_rows(), Any, date (+13 more)
+### Community 63 - "hooks.ts"
+Cohesion: 0.10
+Nodes (32): ref_schema, useCancelOrder(), useCreatePortfolio(), useJournal(), usePlaceOrder(), usePortfolio(), usePortfolioInvalidation(), usePortfolios() (+24 more)
 
-### Community 62 - "parse_sec_bhavdata_full"
-Cohesion: 0.24
-Nodes (5): parse_sec_bhavdata_full(), Parse NSE's sec_bhavdata_full_{DDMMYYYY}.csv into canonical bars. This file…, The real NSE file has a leading space on every header/value after the first…, This is the critical rule: '-' means unreported, not zero., TestParseSecBhavdataFull
+### Community 64 - "ContentValidationError"
+Cohesion: 0.04
+Nodes (51): ContentValidationError, ParseError, A response passed HTTP status but failed content-type/magic-byte checks. This…, A response was structurally valid but semantically un-parseable. Used by the…, format_yyyymmdd(), Format a date as 'YYYYMMDD' for UDiFF filename construction., canonical_index_code(), _decimal_or_none() (+43 more)
 
-### Community 63 - "ingest_fundamentals_for_security"
+### Community 65 - "passes.py"
+Cohesion: 0.12
+Nodes (35): PlayCtx, CorpActionResult, FillContext, Where a fill's price came from -- recorded on every trade and shown in the UI., EodResult, Connection, date, The end-of-day playground step: corporate actions, then EOD fills, then… (+27 more)
+
+### Community 69 - "test_nightly.py"
+Cohesion: 0.07
+Nodes (39): _job_alerts(), Scheduled steps (nightly.*, weekly.*) whose NEWEST attempt for a date did not…, _finish(), nightly(), command, help, Option, Corporate actions, prices, indices, liquidity, scan, track, paper EOD, AI… (+31 more)
+
+### Community 84 - "errors_of"
+Cohesion: 0.20
+Nodes (3): errors_of(), close > 500 would mean different things depending on when corporate actions…, TestSemanticValidation
+
+### Community 85 - "slippage.py"
+Cohesion: 0.13
+Nodes (15): BarPrices, circuit_lock(), Decimal, Classify a bar as upper-locked, lower-locked or neither. See module docstring., apply_slippage(), Decimal, Tiered slippage and the participation cap -- pure. Slippage is a function of…, Basis points of slippage for a name with the given trailing ADV turnover.… (+7 more)
+
+### Community 86 - "runner.py"
+Cohesion: 0.04
+Nodes (80): _index_moves(), Path, create_app(), Path, ApiContext, get_conn(), get_ctx(), Connection (+72 more)
+
+### Community 87 - "evaluate_gate"
+Cohesion: 0.12
+Nodes (14): evaluate_gate(), GateCheck, GateReport, GateThresholds, The promotion gate -- pure. A strategy goes live only if, over its walk-forward…, WindowSummary, (new status, reason) for a gate verdict., status_for() (+6 more)
+
+### Community 88 - "check_ai_runs"
+Cohesion: 0.38
+Nodes (4): check_ai_runs(), The AI never blocks the pipeline, which means its failures are silent unless…, _ai_run(), TestAiRuns
+
+### Community 89 - "spec_problems"
+Cohesion: 0.13
+Nodes (15): lab_problems(), Everything that can be wrong with a proposed spec, checked without running…, Semantic problems in a reply. Drives the retry; per-idea failures are handled…, Demotion, LabReply, NewStrategyIdea, BaseModel, What the weekly lab is asked to emit. The strategy itself travels as a JSON… (+7 more)
+
+### Community 90 - "ingest.py"
+Cohesion: 0.05
+Nodes (65): adjustments(), calendar(), corpactions(), daily(), fundamentals(), fundamentals_sweep(), indices(), liquidity() (+57 more)
+
+### Community 91 - "cap_quantity"
+Cohesion: 0.36
+Nodes (4): cap_quantity(), Largest fillable quantity given a bar's volume and a participation cap (0..1]., parametrize, TestParticipationCap
+
+### Community 92 - "auth.py"
+Cohesion: 0.12
+Nodes (22): create_token(), hash_token(), list_tokens(), Connection, Row, Single-user bearer-token auth. Only a SHA-256 of each token is stored, so a…, Create a named token and return it. This is the ONLY time it is available in…, revoke_token() (+14 more)
+
+### Community 93 - "ingest_fundamentals_for_security"
 Cohesion: 0.27
 Nodes (6): FundamentalsIngestResult, ingest_fundamentals_for_security(), Path, Fetch one security's recent filings and upsert into fundamentals_snapshots. One…, _insert_security(), TestIngestFundamentalsForSecurity
 
-### Community 65 - "Indian stock suggester + virtual playground — build plan"
-Cohesion: 0.15
-Nodes (13): Context, Decisions locked this session, Design system (extracted from the handoff), Guiding principles for phases 0–1, Indian stock suggester + virtual playground — build plan, Open items for later phases, Phase 0 — repo, config, VM notes, history spike, Phases 2–8 (outline only) (+5 more)
-
-### Community 84 - ".fetch_filings_index"
-Cohesion: 0.40
-Nodes (3): date, Download the full-market EOD file for one date. Raises: ProviderUnavailable:…, What filings exist -- cheap, used to decide what to fetch.
-
-### Community 85 - "circuit_lock"
-Cohesion: 0.17
-Nodes (14): BarPrices, can_buy(), can_sell(), circuit_lock(), Lock, Decimal, StrEnum, Fill-price rules -- pure. Two rules matter and both are easy to get subtly… (+6 more)
-
-### Community 86 - "PriceBand"
-Cohesion: 0.40
-Nodes (3): PriceBand, A daily price-band record (NSE sec_list.csv)., Daily price-band list, used for circuit-lock detection. Optional.
-
-### Community 87 - "NseIndicesProvider"
-Cohesion: 0.16
-Nodes (12): index_archive_url(), NseIndicesProvider, date, Fetches NSE's daily all-index close file., Fetch one date's index file, validated and ready to persist., get_indices_provider(), Construct the index (benchmark) provider by name. Not behind an ABC yet: there…, Index closes (benchmark) — `ind_close_all` (+4 more)
-
-### Community 88 - "CanonicalBar"
-Cohesion: 0.09
-Nodes (22): ContentValidationError, A response passed HTTP status but failed content-type/magic-byte checks. This…, _decimal_or_none(), _int_or_none(), parse_bse_legacy_bhavcopy(), _parse_iso_date(), parse_udiff(), date (+14 more)
-
-### Community 89 - "IngestAssertionError"
-Cohesion: 0.20
-Nodes (13): IngestAssertionError, A post-ingest sanity check failed (row counts, OHLC invariants, ...)., assert_index_bars_match_requested_date(), assert_index_bars_sane(), _assert_turnover_plausible(), date, Post-ingest sanity assertions. Run after every parse, before a partition write…, Post-parse sanity checks for index bars. Deliberately narrower than… (+5 more)
-
-### Community 90 - "slippage.py"
-Cohesion: 0.15
-Nodes (11): apply_slippage(), cap_quantity(), Decimal, Tiered slippage and the participation cap -- pure. Slippage is a function of…, Basis points of slippage for a name with the given trailing ADV turnover.…, Adverse slippage: buys fill higher, sells fill lower., Largest fillable quantity given a bar's volume and a participation cap (0..1]., slippage_bps() (+3 more)
-
-### Community 91 - "_Run"
-Cohesion: 0.29
-Nodes (9): _d(), _Position, Any, date, Decimal, Mutable state and steps of one backtest run., Which exit (if any) this bar triggers, and at what pre-slippage price., _Run (+1 more)
-
-### Community 92 - "prices"
-Cohesion: 0.50
-Nodes (3): prices(), command, Backfill daily prices over a date range for one exchange. NSE source (legacy vs…
-
-### Community 93 - "_upsert_action"
-Cohesion: 0.67
-Nodes (4): Connection, Parse raw.subject_raw and upsert one corporate_actions row keyed on (source,…, _resolve_security_id(), _upsert_action()
-
-### Community 94 - "backtest/engine.py"
-Cohesion: 0.11
-Nodes (20): Load market data for a backtest, and prepare it point-in-time. Everything a…, _align_benchmark(), DataFrame, RatesFn, Daily event-loop backtester. Sequence for each trading date d (the order is the…, Benchmark closes aligned to ``dates`` (forward-filled), or (None, True) if…, run_backtest(), Trade (+12 more)
-
-### Community 95 - "canonical_index_code"
+### Community 94 - "YFinanceIntradayProvider"
 Cohesion: 0.33
-Nodes (5): canonical_index_code(), Stable identity for an index whose printed name changes over time. Returns None…, parametrize, The finding this mapping exists for: NSE's benchmark is printed as three…, TestCanonicalIndexCode
+Nodes (3): YFinanceIntradayProvider, TestFetch, history()
+
+### Community 95 - "backtest/engine.py"
+Cohesion: 0.16
+Nodes (20): _align_benchmark(), _d(), EngineConfig, _Position, DataFrame, date, Decimal, Protocol (+12 more)
 
 ### Community 96 - "NotSupportedError"
+Cohesion: 0.05
+Nodes (40): NotSupportedError, A provider does not implement an optional capability., The verbatim filing document (e.g. XBRL) behind a ``FilingRef.source_url``.…, KitePriceProvider, Zerodha Kite Connect adapter -- a deliberate, documented STUB. Why it exists:…, Placeholder. Constructing it raises, so selecting ``kite`` in config fails at…, BseLegacyBhavcopyProvider, PriceProvider backed by BSE's legacy per-date EQ*.CSV.ZIP archive. (+32 more)
+
+### Community 97 - "repo.py"
+Cohesion: 0.08
+Nodes (25): canonical_json(), list_strategies(), _now(), Connection, Row, Strategy registry: strategies, immutable versions, and status history. A spec…, Change a strategy's status and record the event. Returns False if the status is…, Stable serialisation so equal rules always hash equal. (+17 more)
+
+### Community 98 - "TestIsolatedDeliveryInconsistency"
+Cohesion: 0.33
+Nodes (3): Regression from a real backfill: NSE's 2024-02-19 file has WTICAB with…, e.g. a units/column-shift bug: 5% of rows violate it., TestIsolatedDeliveryInconsistency
+
+### Community 99 - "test_yfinance_provider.py"
+Cohesion: 0.15
+Nodes (9): enabled(), provider(), fixture, Unit tests for the yfinance fallback provider. Almost every test here is about…, Turn the feature flag on for tests that need the provider built. get_settings()…, The flag the UI's `approx` badge and every backtest honesty check ultimately…, TestCapabilities, TestUnsupportedOperations (+1 more)
+
+### Community 101 - "test_health.py"
+Cohesion: 0.17
+Nodes (14): check_partition_manifests(), Every partition file against its recorded row count and sha256. A mismatch…, _add_calendar(), date, Path, Unit tests for the individual `stk doctor` checks. Each check is exercised…, Trading days before the first ingested bar are history we have not backfilled…, A fresh install must not report every symbol as stale. (+6 more)
+
+### Community 102 - "App.tsx"
+Cohesion: 0.13
+Nodes (23): queryClient, Shell(), chip, NAV, SearchBox(), TopBar(), apiDelete(), ApiError (+15 more)
+
+### Community 103 - "strategies/promotion.py"
+Cohesion: 0.16
+Nodes (19): DecayConfig, PromotionConfig, BaseModel, Typed loader for config/promotion.yaml., _Thresholds, promote(), Connection, date (+11 more)
+
+### Community 104 - "model.py"
+Cohesion: 0.14
+Nodes (32): Add, Cond, Div, ExitRules, Horizon, Ind, Mul, Not (+24 more)
+
+### Community 105 - "upsert_partition"
+Cohesion: 0.12
+Nodes (23): load_market_data(), date, Path, Adjusted bars for [start - warmup, end], prepared for the engine., bars_daily_adjusted_partition(), Overwrite-by-partition write. Returns the row count of the resulting file.…, upsert_partition(), adjusted_table() (+15 more)
+
+### Community 106 - "Brief.tsx"
+Cohesion: 0.24
+Nodes (8): bar, StaleBanner(), useBrief(), useBriefs(), tint, Brief(), card, cardTitle
+
+### Community 107 - "test_backtest_engine.py"
+Cohesion: 0.11
+Nodes (24): buy(), config(), days_of(), flat(), make_data(), poison_after(), Bar, date (+16 more)
+
+### Community 108 - "ADR 0003: Historical price source"
+Cohesion: 0.22
+Nodes (6): RunReport, A more important finding: NSE's own archive occasionally serves mislabeled content, ADR 0003: Historical price source, Consequences, Context, Daily EOD prices (deep history, 2010-2019): legacy `cm*bhav.csv.zip`
+
+### Community 109 - "days_from"
+Cohesion: 0.44
+Nodes (4): days_from(), parametrize, Regression for a bug found by a real backfill: NSE publishes several series for…, TestOneBarPerSymbolPerDay
+
+### Community 110 - "services.py"
 Cohesion: 0.09
-Nodes (22): DataNotPublished, NotSupportedError, ProviderError, Base class for provider-adapter failures., The source has not yet published data for the requested date. Distinct from…, A provider does not implement an optional capability., Interval, Per-symbol history. Optional -- full-market-file providers (bhavcopy-based)… (+14 more)
+Nodes (45): _brief_dates(), build_status(), _company_names(), expected_data_date(), _fundamentals_for(), get_brief(), latest_bar_date(), latest_pick_date() (+37 more)
 
-### Community 97 - "Oracle Cloud Always Free VM — setup notes"
+### Community 111 - "compilerOptions"
+Cohesion: 0.11
+Nodes (17): compilerOptions, isolatedModules, jsx, lib, module, moduleResolution, noEmit, noFallthroughCasesInSwitch (+9 more)
+
+### Community 112 - "NSE"
+Cohesion: 0.22
+Nodes (9): assert_index_bars_match_requested_date(), date, Same guard as assert_bars_match_requested_date, for index bars. ADR 0003…, Corporate actions, Daily EOD prices (primary source): `sec_bhavdata_full`, Index closes (benchmark) — `ind_close_all`, NSE, Price bands (for circuit-lock detection) (+1 more)
+
+### Community 116 - "check_job_runs"
+Cohesion: 0.33
+Nodes (4): check_job_runs(), Degraded or failed job runs in the lookback window. Only the LATEST attempt per…, job_runs is observability, not a lock -- repeated attempts are expected, and…, TestJobRuns
+
+### Community 117 - "connect"
+Cohesion: 0.13
+Nodes (14): ingest_nse_prices_for_date(), Ingest one day of NSE prices end-to-end: fetch, validate, persist raw, parse,…, connect(), Connection, Open a connection with the app's standard pragmas applied., bars_daily_partition(), TestJobAlerts, The full-stack version of the parquet writer's idempotency property: running… (+6 more)
+
+### Community 118 - "check_poller"
+Cohesion: 0.36
+Nodes (4): check_poller(), datetime, Orders resting while the feed has been down are the failure to make visible:…, TestPoller
+
+### Community 119 - "evaluate.py"
+Cohesion: 0.19
+Nodes (21): column_for(), add_prev_columns(), _arith(), _as_series(), _column(), _eval_cond(), eval_node(), eval_operand() (+13 more)
+
+### Community 120 - "devDependencies"
+Cohesion: 0.17
+Nodes (12): devDependencies, jsdom, openapi-typescript, @testing-library/jest-dom, @testing-library/react, @testing-library/user-event, @types/react, @types/react-dom (+4 more)
+
+### Community 121 - "settings.py"
+Cohesion: 0.31
+Nodes (9): AppMeta, HttpConfig, HttpEndpointConfig, IngestConfig, ProvidersConfig, BaseModel, Typed application settings. Loads config/defaults.yaml + config/env/{env}.yaml…, YFinanceHttpConfig (+1 more)
+
+### Community 122 - "AppSettings"
+Cohesion: 0.32
+Nodes (6): AppSettings, pydantic-settings source that loads config/defaults.yaml + env overlay., Root settings object. Construct via ``get_settings()``., _YamlSettingsSource, BaseSettings, PydanticBaseSettingsSource
+
+### Community 123 - "entry_mask"
+Cohesion: 0.30
+Nodes (5): entry_mask(), frame(), DataFrame, No delivery data / no benchmark / no ROCE must read as 'condition false'., TestInterpreter
+
+### Community 124 - "app.py"
+Cohesion: 0.07
+Nodes (52): alias, approve(), bars(), brief(), briefs(), health(), openapi_document(), picks() (+44 more)
+
+### Community 125 - "is_liquid"
+Cohesion: 0.10
+Nodes (19): LiquidityConfig, BaseModel, Loader for config/universe.yaml -- liquidity thresholds and the…, UniverseConfig, is_liquid(), is_tradeable_intraday(), LiquidityMetrics, LiquidityThresholds (+11 more)
+
+### Community 126 - "assert_bars_match_requested_date"
+Cohesion: 0.32
+Nodes (5): assert_bars_match_requested_date(), Assert every parsed bar's date matches the date we actually requested from the…, Regression tests for a real bug found via live backfill testing: NSE's own…, Even if only some rows are wrong, the whole file must be rejected., TestAssertBarsMatchRequestedDate
+
+### Community 127 - "verify_backup"
+Cohesion: 0.36
+Nodes (4): Everything that can be checked without restoring: manifest, checksums, the…, verify_backup(), The checksum only proves the file is what was WRITTEN; integrity_check proves…, TestVerify
+
+### Community 128 - "OrderDrawer.tsx"
+Cohesion: 0.27
+Nodes (7): input, label, num(), OrderDrawer(), OrderType, useCostPreview(), useStock()
+
+### Community 129 - "_make_bars"
+Cohesion: 0.14
+Nodes (15): Schema, Table, Read a partition file, or return an empty table matching ``schema`` if absent., read_partition(), _make_bars(), date, Table, A stronger idempotency check: not just the same row count, but the same file… (+7 more)
+
+### Community 130 - "Project brief for Claude Code — Indian stock suggester + virtual playground"
+Cohesion: 0.14
+Nodes (14): 10. Screens (designs come from Claude Design), 11. Build phases (do them in order; stop and check in with me after each), 12. How to work with me, 1. What the app does, 2. Hard constraints, 3. Stack, 4. Data layer, 5. Strategies — four horizons (+6 more)
+
+### Community 131 - "catalogue.py"
+Cohesion: 0.38
+Nodes (5): _i(), Indicator, Kind, StrEnum, The closed catalogue of indicators a strategy may reference. A spec naming…
+
+### Community 133 - "Data sources — verified endpoints"
 Cohesion: 0.29
-Nodes (7): Known friction points during signup, Oracle Cloud Always Free VM — setup notes, Provisioning the instance (once signup succeeds), Swap (important on ARM Always Free), Verifying capacity/ARM compatibility for Python deps now (optional, can do anytime), What phase 8 will set up on this box, What you're aiming for
+Nodes (6): Blocking behaviour summary, BSE, Data sources — verified endpoints, Security master, Things still to verify (do not treat as settled), Transaction charges — verification ledger
 
-### Community 99 - "ticker_for"
-Cohesion: 0.47
-Nodes (3): Yahoo ticker for an Indian listing., ticker_for(), TestTickerMapping
+### Community 134 - "TestParseHolidays"
+Cohesion: 0.23
+Nodes (5): _artifact(), CBM (corporate bond market) is the first key in NSE's payload and is…, NSE lists holidays falling on a Saturday/Sunday. The PROVIDER must not drop…, An out-of-range year (2010, 2027) returns HTTP 200 with no CM rows. Returning…, TestParseHolidays
 
-### Community 101 - "stockAnalyser"
+### Community 135 - "TestCli"
+Cohesion: 0.29
+Nodes (3): fixture, `stk backup ...` end to end, pointed at a temp data root through the env…, TestCli
+
+### Community 136 - "main.tsx"
+Cohesion: 0.17
+Nodes (11): ref_fontsource_ibm_plex_mono_400_css, ref_fontsource_ibm_plex_mono_500_css, ref_fontsource_ibm_plex_mono_600_css, ref_fontsource_ibm_plex_mono_700_css, ref_fontsource_ibm_plex_sans_400_css, ref_fontsource_ibm_plex_sans_500_css, ref_fontsource_ibm_plex_sans_600_css, ref_fontsource_ibm_plex_sans_700_css (+3 more)
+
+### Community 137 - "backtest/walkforward.py"
+Cohesion: 0.12
+Nodes (19): _outcome(), DataFrame, RatesFn, Walk-forward harness: tune on the training window, judge on the unseen test…, run_walk_forward(), WindowResult, _add_months(), generate_windows() (+11 more)
+
+### Community 140 - "manifest_path"
+Cohesion: 0.20
+Nodes (10): manifest_path(), Path, Where the row-count + sha256 sidecar for one partition lives. ``exchange`` is…, Path, Streaming sha256 of a file on disk., Write the row-count + sha256 sidecar for a just-written partition. The sha256…, sha256_of_file(), write_manifest() (+2 more)
+
+### Community 143 - "playground/fills.py"
+Cohesion: 0.07
+Nodes (63): delete_order(), journal(), Convert any numeric input to a Decimal rounded to paise., to_money(), is_market_hours(), now_ist(), datetime, Current wall-clock time in IST. (+55 more)
+
+### Community 144 - "latest_backup_age_days"
+Cohesion: 0.40
+Nodes (4): latest_backup_age_days(), date, Days since the newest backup, or None if there is none., TestAge
+
+### Community 145 - "TestAuth"
+Cohesion: 0.28
+Nodes (3): anon(), parametrize, TestAuth
+
+### Community 146 - "ingest_corporate_actions"
+Cohesion: 0.20
+Nodes (10): CorpActionIngestResult, ingest_corporate_actions(), date, Path, Raised AFTER every row has been stored, naming every subject that matched…, Fetch corporate actions, parse subjects, and upsert into corporate_actions. One…, UnparsedCorporateActionsError, Regression, found on real data: the ingest used to raise on the FIRST unparsed… (+2 more)
+
+### Community 147 - "Runbook"
+Cohesion: 0.33
+Nodes (6): Backups and restore, Failure playbook, First install, Runbook, Things never verified live, Watching it
+
+### Community 150 - "test_yfinance_intraday.py"
+Cohesion: 0.33
+Nodes (4): FakeFrame, The intraday provider: gated by its own switch, raw-bytes-first, and strict…, Just enough of a pandas frame for fetch_candles_raw., yfinance
+
+### Community 155 - "Phase 1 — data pipeline + store"
+Cohesion: 0.50
+Nodes (4): Cost config scaffold, Ingest pipeline, Parquet layout, Phase 1 — data pipeline + store
+
+### Community 160 - "backfill_nse_prices"
+Cohesion: 0.13
+Nodes (18): backfill_nse_prices(), Path, Ingest every weekday of NSE prices in [start, end] (inclusive), sequentially.…, _bse_fixture_for_date(), _bse_legacy_fixture(), _fixture_for_date(), _mock_bse_date(), _mock_bse_legacy_date() (+10 more)
+
+### Community 172 - "read_manifest"
+Cohesion: 0.13
+Nodes (14): The manifest for one partition, or None if none was written., read_manifest(), _isolated_config_dir(), fixture, Path, Point STK_CONFIG_DIR at the real repo config/ for every test. Tests run from…, tmp_db_path(), tmp_parquet_root() (+6 more)
+
+### Community 173 - "last_trading_day_on_or_before"
+Cohesion: 0.38
+Nodes (4): last_trading_day_on_or_before(), date, Walk backward from target (inclusive) to find the nearest trading day. Bounded…, TestLastTradingDayOnOrBefore
+
+### Community 175 - "schema.d.ts"
+Cohesion: 0.33
+Nodes (5): components, $defs, operations, paths, webhooks
+
+### Community 190 - "get_settings"
+Cohesion: 0.06
+Nodes (48): evening(), lab(), command, help, Option, Every AI call in the last N days: how it ended, tokens, and the estimated cost., Rank and explain the day's picks, flag conflicts, and write the market brief.…, Weekly strategy lab: ask for new strategy ideas and demotions. Each idea is… (+40 more)
+
+### Community 191 - "make_portfolio"
+Cohesion: 0.22
+Nodes (5): make_portfolio(), parametrize, TestAuth, TestOrders, TestPortfolios
+
+### Community 192 - "0006_playground.sql"
+Cohesion: 0.08
+Nodes (38): backtest_equity, backtest_metrics, backtest_runs, backtest_trades, backtest_windows, ix_backtest_runs_strategy, ix_backtest_trades_run, ix_status_events_strategy (+30 more)
+
+### Community 196 - "TestFetchHistory"
+Cohesion: 0.29
+Nodes (5): _frame(), DataFrame, Yahoo reports no rupee turnover. close*volume is derived and must never be…, An empty result means a wrong ticker, a delisted name, or a rate limit -- never…, TestFetchHistory
+
+### Community 198 - "logging.py"
+Cohesion: 0.15
+Nodes (12): _init(), configure_logging(), get_logger(), Structured logging setup. JSON output in production (so the systemd journal /…, Configure structlog + stdlib logging. Call once at process startup., BoundLogger, callback, main() (+4 more)
+
+### Community 204 - "get_rate_schedule"
+Cohesion: 0.29
+Nodes (7): get_rate_schedule(), Path, Return the process-wide RateSchedule singleton, loading config/costs.yaml on…, fixture, schedule(), fixture, schedule()
+
+### Community 206 - "stockAnalyser"
 Cohesion: 0.33
 Nodes (6): A note on scope, Common commands, Layout, Setup, Status, stockAnalyser
 
-### Community 102 - "run_walk_forward"
-Cohesion: 0.21
-Nodes (11): _outcome(), DataFrame, RatesFn, run_walk_forward(), Window, Params, StrategyFactory, TestStorage (+3 more)
+### Community 209 - "MarketData"
+Cohesion: 0.12
+Nodes (12): AssertionError, prepare_bars(), DataFrame, Load market data for a backtest, and prepare it point-in-time. Everything a…, Add prev_close and adv_turnover (both past-only) to a raw adjusted-bars frame.…, LookAheadError, MarketData, date (+4 more)
 
-### Community 104 - "Phase 1 — data pipeline + store"
-Cohesion: 0.50
-Nodes (4): Cost config scaffold, Parquet layout, Phase 1 — data pipeline + store, SQLite schema (phase 1 tables)
+### Community 214 - "NseCorporateActionsProvider"
+Cohesion: 0.16
+Nodes (12): A corporate-action row with the subject text UNPARSED. Parsing free-text…, RawCorporateAction, NseCorporateActionsProvider, _parse_ddmmmyyyy_or_none(), date, Stable hash of the fields that define this action's identity and content --…, CorporateActionsProvider backed by NSE's corporates-corporateActions API., _source_hash() (+4 more)
 
-### Community 105 - "nse/corpactions.py"
-Cohesion: 0.21
-Nodes (10): A corporate-action row with the subject text UNPARSED. Parsing free-text…, RawCorporateAction, NseCorporateActionsProvider, _parse_ddmmmyyyy_or_none(), date, NSE corporate-actions provider. Verified live 2026-09-18: unlike the vague…, Stable hash of the fields that define this action's identity and content --…, CorporateActionsProvider backed by NSE's corporates-corporateActions API. (+2 more)
+### Community 215 - "Oracle Cloud Always Free VM — setup notes"
+Cohesion: 0.29
+Nodes (7): ARM wheel availability (checked), Known friction points during signup, Oracle Cloud Always Free VM — setup notes, Provisioning the instance (once signup succeeds), Swap (important on ARM Always Free), What is set up on this box, What you're aiming for
 
-### Community 107 - "assert_bars_match_requested_date"
-Cohesion: 0.15
-Nodes (11): assert_bars_match_requested_date(), Assert every parsed bar's date matches the date we actually requested from the…, A more important finding: NSE's own archive occasionally serves mislabeled content, ADR 0003: Historical price source, Consequences, Context, Decision, Daily EOD prices (deep history, 2010-2019): legacy `cm*bhav.csv.zip` (+3 more)
-
-### Community 109 - "enabled"
-Cohesion: 0.50
-Nodes (4): enabled(), provider(), fixture, Turn the feature flag on for tests that need the provider built. get_settings()…
-
-### Community 117 - "CorporateActionsProvider"
-Cohesion: 0.28
-Nodes (6): CorporateActionsProvider, Source of corporate-action announcements, subjects unparsed., Corporate actions since ``since`` (or all available if None)., get_corporate_actions_provider(), Construct a CorporateActionsProvider by its config name (see…, TestGetCorporateActionsProvider
-
-### Community 118 - "get_price_provider"
-Cohesion: 0.09
-Nodes (17): get_bse_price_provider_for_date(), get_nse_price_provider_for_date(), get_price_provider(), date, Automatic source selection for BSE prices by date, mirroring…, Construct a PriceProvider by its config name (see providers.prices in…, Automatic source selection for NSE prices by date, per the confirmed…, BSE (+9 more)
-
-### Community 122 - "0002_backtest.sql"
-Cohesion: 0.46
-Nodes (7): backtest_equity, backtest_metrics, backtest_runs, backtest_trades, backtest_windows, ix_backtest_runs_strategy, ix_backtest_trades_run
-
-### Community 124 - "history_probe.py"
-Cohesion: 0.20
-Nodes (9): get_logger(), Structured logging setup. JSON output in production (so the systemd journal /…, BoundLogger, main(), probe(), date, Phase-0 history spike: how far back does sec_bhavdata_full actually go? Per…, structlog (+1 more)
+### Community 226 - "TestAuxiliarySeriesOhlc"
+Cohesion: 0.32
+Nodes (4): parametrize, Regression for a real failure found by a live backfill (2025-07 .. 2025-11).…, Only the OHLC-ordering check is relaxed -- a non-positive close is wrong…, TestAuxiliarySeriesOhlc
 
 ## Knowledge Gaps
-- **52 isolated node(s):** `What this is`, `Repo layout`, `Working here`, `graphify`, `Blocking behaviour summary` (+47 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 695 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **32 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **143 isolated node(s):** `stk`, `raw_artifacts`, `trading_calendar`, `api_tokens`, `poller_runs` (+138 more)
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 1349 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **109 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `Current status (update this section as phases complete)` connect `ingest.py` to `liquidity.py`, `upsert_partition`, `rebuild_adjusted_bars`, `MasterRecord`, `compute_costs`, `parse_subject`, `NseFundamentalsProvider`, `ConfigError`, `domain/costs.py`, `ingest_security_master`, `CLAUDE.md`, `PointInTimeView`, `ingest_corporate_actions`, `ingest_fundamentals_for_security`, `CanonicalBar`, `NotSupportedError`, `nse/corpactions.py`, `assert_bars_match_requested_date`, `get_price_provider`?**
-  _High betweenness centrality (0.092) - this node is a cross-community bridge._
-- **Why does `connect()` connect `connect` to `doctor.py`, `ingest.py`, `_fixture_for_date`, `liquidity.py`, `ingest/corpactions.py`, `compute_liquidity_for_date`, `rebuild_adjusted_bars`, `ingest_security_master`, `_mock`, `datetime`, `pathlib`, `ingest_indices_for_date`, `ingest_calendar_year`, `_write`, `ingest_corporate_actions`, `ingest_fundamentals_for_security`?**
-  _High betweenness centrality (0.050) - this node is a cross-community bridge._
-- **Why does `DataNotPublished` connect `NotSupportedError` to `doctor.py`, `ingest.py`, `BseUdiffProvider`, `NseSecBhavdataProvider`, `NseLegacyBhavcopyProvider`, `is_weekend`, `RawArtifact`, `BseLegacyBhavcopyProvider`, `ProviderUnavailable`, `TestFetchHistory`, `ingest_indices_for_date`, `datetime`, `NseIndicesProvider`, `TestLiveEndpoint`, `base.py`?**
-  _High betweenness centrality (0.038) - this node is a cross-community bridge._
-- **Are the 16 inferred relationships involving `RawArtifact` (e.g. with `persist_artifact()` and `fetch_bse_csv_file()`) actually correct?**
-  _`RawArtifact` has 16 INFERRED edges - model-reasoned connections that need verification._
-- **Are the 3 inferred relationships involving `migrate()` (e.g. with `.test_empty_walk_forward_rejected()` and `.test_single_run_round_trips()`) actually correct?**
-  _`migrate()` has 3 INFERRED edges - model-reasoned connections that need verification._
-- **What connects `What this is`, `Repo layout`, `Working here` to the rest of the system?**
-  _52 weakly-connected nodes found - possible documentation gaps or missing edges._
-- **Should `doctor.py` be split into smaller, more focused modules?**
-  _Cohesion score 0.053946053946053944 - nodes in this community are weakly interconnected._
+- **Why does `connect()` connect `connect` to `get_strategy`, `ingest/backfill.py`, `backup`, `migrate`, `backtest/walkforward.py`, `TestNestedTransactions`, `rebuild_adjusted_bars`, `lab.py`, `TestAuth`, `ingest_corporate_actions`, `job_run`, `compute_liquidity_for_date`, `time.py`, `_write`, `commands/playground.py`, `ingest/corpactions.py`, `backfill_nse_prices`, `doctor`, `datetime`, `ingest_security_master`, `TestPicks`, `_mock`, `test_xbrl_ingest.py`, `backtest/runs.py`, `get_settings`, `make_portfolio`, `TestStatusAndBriefs`, `test_nightly.py`, `runner.py`, `ingest.py`, `auth.py`, `ingest_fundamentals_for_security`, `repo.py`, `test_backtest_engine.py`?**
+  _High betweenness centrality (0.077) - this node is a cross-community bridge._
+- **Why does `Current status (update this section as phases complete)` connect `ingest.py` to `assert_bars_sane`, `lab.py`, `base.py`, `ingest_corporate_actions`, `ingest/corpactions.py`, `Side`, `ingest_security_master`, `CLAUDE.md`, `PointInTimeView`, `RawArtifact`, `ContentValidationError`, `MarketData`, `NseCorporateActionsProvider`, `ingest_fundamentals_for_security`, `backtest/engine.py`, `NotSupportedError`, `upsert_partition`, `ADR 0003: Historical price source`, `app.py`, `is_liquid`, `assert_bars_match_requested_date`?**
+  _High betweenness centrality (0.036) - this node is a cross-community bridge._
+- **Why does `transaction()` connect `app.py` to `repo.py`, `track_pick`, `migrate`, `TestNestedTransactions`, `datetime`, `ingest_security_master`, `lab.py`, `playground/fills.py`, `connect`, `run_evening_review`, `runner.py`, `ingest.py`, `apply_corporate_actions`, `backtest/runs.py`?**
+  _High betweenness centrality (0.030) - this node is a cross-community bridge._
+- **What connects `stk`, `raw_artifacts`, `trading_calendar` to the rest of the system?**
+  _143 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **Should `ingest/backfill.py` be split into smaller, more focused modules?**
+  _Cohesion score 0.07357357357357357 - nodes in this community are weakly interconnected._
+- **Should `package.json` be split into smaller, more focused modules?**
+  _Cohesion score 0.06451612903225806 - nodes in this community are weakly interconnected._
+- **Should `validate_json_response` be split into smaller, more focused modules?**
+  _Cohesion score 0.11965811965811966 - nodes in this community are weakly interconnected._

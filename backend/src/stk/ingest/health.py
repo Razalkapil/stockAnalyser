@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from stk.store import duck
@@ -261,6 +261,63 @@ def check_adjusted_freshness(conn: sqlite3.Connection, parquet_root: Path) -> li
     return []
 
 
+#: An AI review/lab that has failed on this many consecutive runs is a problem, not an outage.
+AI_FAILURE_STREAK = 3
+#: The poller is judged only against a recent window: an outage last month is history.
+POLLER_WINDOW_HOURS = 48
+BACKUP_MAX_AGE_DAYS = 2
+
+
+def check_ai_runs(conn: sqlite3.Connection) -> list[Problem]:
+    """The AI never blocks the pipeline, which means its failures are silent unless something
+    looks. A streak of failed runs of one kind (a lapsed key, a changed model name) is a real
+    problem; a single failure is not."""
+    problems: list[Problem] = []
+    for kind in ("evening_review", "strategy_lab"):
+        rows = conn.execute(
+            "SELECT status, error FROM ai_runs WHERE kind=? AND status != 'skipped' "
+            "ORDER BY run_id DESC LIMIT ?", (kind, AI_FAILURE_STREAK)).fetchall()
+        if len(rows) == AI_FAILURE_STREAK and all(r["status"] in ("failed", "invalid_output")
+                                                  for r in rows):
+            problems.append(Problem(
+                "ai_failing",
+                f"the last {AI_FAILURE_STREAK} {kind} runs all failed "
+                f"(latest: {rows[0]['error'] or rows[0]['status']})"))
+    return problems
+
+
+def check_poller(conn: sqlite3.Connection, *, now: datetime) -> list[Problem]:
+    """Orders resting while the feed has been down are the failure to make visible: from the
+    outside an outage looks identical to a quiet market."""
+    since = (now - timedelta(hours=POLLER_WINDOW_HOURS)).isoformat()
+    pending = conn.execute(
+        "SELECT COUNT(*) AS n FROM orders WHERE status='pending_eod'").fetchone()["n"]
+    stale = conn.execute(
+        "SELECT COUNT(*) AS n FROM poller_runs WHERE started_at >= ? AND status IN "
+        "('stale','failed')", (since,)).fetchone()["n"]
+    out: list[Problem] = []
+    if pending:
+        out.append(Problem("orders_pending_eod", f"{pending} order(s) are parked as pending_eod "
+                           "(the delayed feed was down) and will be decided by the EOD bar",
+                           severity="info"))
+    if stale:
+        out.append(Problem("poller_feed_stale",
+                           f"the intraday feed was stale or failed on {stale} poll(s) in the last "
+                           f"{POLLER_WINDOW_HOURS}h", severity="info"))
+    return out
+
+
+def check_backup_age(latest_age_days: int | None, *, expected: bool = True) -> list[Problem]:
+    if not expected:
+        return []
+    if latest_age_days is None:
+        return [Problem("backup_missing", "no backup exists -- app.db holds your paper portfolios,"
+                        " journal and AI history, which exist nowhere else")]
+    if latest_age_days > BACKUP_MAX_AGE_DAYS:
+        return [Problem("backup_stale", f"the newest backup is {latest_age_days} days old")]
+    return []
+
+
 def run_all_checks(
     conn: sqlite3.Connection,
     parquet_root: Path,
@@ -279,4 +336,6 @@ def run_all_checks(
         problems.extend(check_stale_symbols(conn, parquet_root, exchange=exchange, today=today))
     problems.extend(check_partition_manifests(parquet_root))
     problems.extend(check_adjusted_freshness(conn, parquet_root))
+    problems.extend(check_ai_runs(conn))
+    problems.extend(check_poller(conn, now=datetime.now(UTC)))
     return problems

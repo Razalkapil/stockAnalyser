@@ -1,0 +1,23 @@
+[Unit]
+Description=stk paper-trading poller (delayed candles; idles outside market hours)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=stk
+Group=stk
+WorkingDirectory=/srv/stockanalyser/app
+EnvironmentFile=/etc/stockanalyser/env
+# The poller decides for itself whether the market is open (trading calendar + 09:15-15:30 IST),
+# so this can simply run all the time. A stale feed parks orders for the EOD bar; it never fills.
+ExecStart=/srv/stockanalyser/app/.venv/bin/stk playground poll
+Restart=always
+RestartSec=30
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/srv/stockanalyser
+
+[Install]
+WantedBy=multi-user.target

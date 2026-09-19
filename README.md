@@ -6,7 +6,7 @@ Full requirements: [`docs/PROJECT_BRIEF.md`](docs/PROJECT_BRIEF.md). Implementat
 
 ## Status
 
-Phase 0 (repo/tooling) and Phase 1 (data pipeline + store) are done: live-verified daily price ingest and backfill for both NSE and BSE (2010-present), the security master (NSE + BSE, merged by ISIN), corporate actions (fetch + parse + upsert), fundamentals filing metadata, and the liquidity filter. See `CLAUDE.md`'s "Current status" section for the up-to-date breakdown, including what's deliberately deferred (XBRL line-item parsing, BSE suspension/delisting detection, the yfinance fallback). Phases 2-8 are not started — the build plan explicitly scopes execution to phases 0-1 with a check-in before moving on.
+All eight phases are built: the data pipeline for both exchanges, the backtest engine with an Indian cost model, the strategy DSL and promotion gate, pick tracking, the FastAPI + React dashboard, the paper-trading playground, the two AI jobs, and deploy artifacts with a runbook. See `CLAUDE.md`'s "Current status" for the detail and — importantly — the list of what has **not** been verified live (the AI jobs against the real API, the deploy on a real VM, the XBRL sweep). Operating it: [`docs/runbook.md`](docs/runbook.md).
 
 ## Setup
 
@@ -27,7 +27,13 @@ uv run stk ingest master            # refresh securities/listings from NSE + BSE
 uv run stk ingest corpactions       # fetch/parse/upsert corporate actions
 uv run stk ingest liquidity         # recompute the liquidity feature set + universe_current
 uv run stk ingest fundamentals RELIANCE --isin INE002A01018   # one security's filing metadata
-uv run stk doctor                   # ingest health check; exits non-zero on problems
+uv run stk doctor                   # health check; exits non-zero on problems
+uv run stk strategies seed          # register the ten seed strategies
+uv run stk strategies promote --all # walk-forward backtest + promotion gate
+uv run stk scan                     # today's picks from live strategies
+uv run stk nightly                  # the whole nightly run (systemd calls this)
+uv run stk api serve                # dashboard API on 127.0.0.1:8000 (web: cd web && npm run dev)
+uv run stk backup run --dest ~/stk-backups   # verified backup of app.db + the lake
 
 uv run pytest                       # full test suite (live-network tests excluded)
 uv run pytest -m live               # also run tests that hit real NSE/BSE endpoints
@@ -38,8 +44,9 @@ uv run mypy backend/src/stk
 ## Layout
 
 ```
-backend/src/stk/   the "stk" package: config, core, providers, ingest, store, domain, cli
-web/               React + Vite + TS front-end (phase 4, not yet started)
+backend/src/stk/   the "stk" package: config, core, providers, ingest, store, domain, backtest, strategies, playground, ai, api, cli
+web/               React + Vite + TS dashboard (types generated from the API's OpenAPI)
+deploy/            systemd units + timers, Caddyfile, backup/restore/install scripts
 config/            committed, non-secret YAML configuration
 data/              gitignored: raw exchange bytes, parquet, SQLite (data/app.db)
 tests/             unit/, integration/, fixtures/ (real, trimmed exchange responses)

@@ -14,10 +14,12 @@ from stk.cli.commands import (
     api,
     backfill,
     backtest,
+    backup,
     costs,
     db,
     doctor,
     ingest,
+    nightly,
     picks,
     playground,
     strategies,
@@ -31,12 +33,15 @@ app.add_typer(ingest.app, name="ingest")
 app.add_typer(backfill.app, name="backfill")
 app.add_typer(backtest.app, name="backtest")
 app.add_typer(costs.app, name="costs")
+app.add_typer(backup.app, name="backup")
 app.add_typer(strategies.app, name="strategies")
 app.add_typer(picks.app, name="picks")
 app.add_typer(api.app, name="api")
 app.add_typer(ai.app, name="ai")
 app.add_typer(playground.app, name="playground")
 app.command("scan")(picks.scan_cmd)
+app.command("nightly")(nightly.nightly)
+app.command("weekly")(nightly.weekly)
 app.add_typer(doctor.app)
 
 

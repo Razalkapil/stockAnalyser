@@ -354,6 +354,42 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "JobAlert": {
+        "description": "A scheduled step whose latest run failed or ended degraded.",
+        "properties": {
+          "businessDate": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Businessdate"
+          },
+          "job": {
+            "title": "Job",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job",
+          "businessDate",
+          "status",
+          "message"
+        ],
+        "title": "JobAlert",
+        "type": "object"
+      },
       "JournalUpdate": {
         "properties": {
           "note": {
@@ -1402,6 +1438,13 @@
               }
             ]
           },
+          "jobAlerts": {
+            "items": {
+              "$ref": "#/components/schemas/JobAlert"
+            },
+            "title": "Jobalerts",
+            "type": "array"
+          },
           "marketLabel": {
             "title": "Marketlabel",
             "type": "string"
@@ -1431,7 +1474,8 @@
           "marketLabel",
           "dataAsOf",
           "delayedFeed",
-          "staleWarning"
+          "staleWarning",
+          "jobAlerts"
         ],
         "title": "Status",
         "type": "object"

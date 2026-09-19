@@ -1,0 +1,11 @@
+[Unit]
+Description=stk doctor, every morning before the market opens
+
+[Timer]
+OnCalendar=*-*-* 07:30 Asia/Kolkata
+# Fire on next boot if the box was off at the scheduled time.
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

@@ -85,7 +85,33 @@ def build_status(conn: sqlite3.Connection, parquet_root: Path) -> s.Status:
         # There is no intraday feed until the playground poller exists; quotes are end-of-day.
         delayed_feed=s.DelayedFeed(lag_minutes=15, stale=False) if open_now else None,
         stale_warning=_stale_warning(conn, as_of, expected_data_date(conn, now)),
+        job_alerts=_job_alerts(conn, now.date()),
     )
+
+
+#: A failure older than this is history, not an alert.
+ALERT_WINDOW_DAYS = 3
+
+
+def _job_alerts(conn: sqlite3.Connection, today: date) -> list[s.JobAlert]:
+    """Scheduled steps (nightly.*, weekly.*) whose NEWEST attempt for a date did not succeed.
+
+    Newest attempt, not any attempt: a step that failed at 20:30 and was re-run successfully at
+    21:10 is fixed and must stop alerting. Nothing here can be silent -- the orchestrator
+    records a failed row for every step it could not run, including the ones it blocked.
+    """
+    since = (today - timedelta(days=ALERT_WINDOW_DAYS)).isoformat()
+    rows = conn.execute(
+        """SELECT j.job_name, j.business_date, j.status, j.error_message
+           FROM job_runs j
+           WHERE (j.job_name LIKE 'nightly.%' OR j.job_name LIKE 'weekly.%')
+             AND j.business_date >= ?
+             AND j.status IN ('failed','degraded')
+             AND j.attempt = (SELECT MAX(attempt) FROM job_runs k
+                              WHERE k.job_name = j.job_name AND k.business_date IS j.business_date)
+           ORDER BY j.business_date DESC, j.job_name""", (since,)).fetchall()
+    return [s.JobAlert(job=r["job_name"], business_date=r["business_date"], status=r["status"],
+                       message=(r["error_message"] or r["status"])[:300]) for r in rows]
 
 
 def _stale_warning(

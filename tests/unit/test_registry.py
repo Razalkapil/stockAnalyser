@@ -97,3 +97,13 @@ class TestGetFundamentalsProvider:
     def test_unknown_name_raises_config_error(self):
         with pytest.raises(ConfigError, match="unknown fundamentals provider"):
             get_fundamentals_provider("not_a_real_provider")
+
+
+def test_the_kite_stub_fails_loudly_and_explains_itself():
+    import pytest  # noqa: PLC0415
+
+    from stk.core.errors import NotSupportedError  # noqa: PLC0415
+    from stk.providers.registry import get_price_provider  # noqa: PLC0415
+
+    with pytest.raises(NotSupportedError, match="Kite Connect"):
+        get_price_provider("kite")

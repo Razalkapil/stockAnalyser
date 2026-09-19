@@ -23,6 +23,15 @@ class StaleWarning(Wire):
     message: str
 
 
+class JobAlert(Wire):
+    """A scheduled step whose latest run failed or ended degraded."""
+
+    job: str
+    business_date: str | None
+    status: str
+    message: str
+
+
 class Status(Wire):
     now_ist: str
     market_open: bool
@@ -30,6 +39,7 @@ class Status(Wire):
     data_as_of: str | None
     delayed_feed: DelayedFeed | None
     stale_warning: StaleWarning | None
+    job_alerts: list[JobAlert]
 
 
 class Pick(Wire):

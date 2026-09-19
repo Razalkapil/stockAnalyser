@@ -49,16 +49,22 @@ sudo swapon /swapfile
 echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 ```
 
-## What phase 8 will set up on this box
+## What is set up on this box
 
-(Not done yet — recorded here so the provisioning above is done with the end state in mind.)
+Done by [`deploy/install.sh`](../deploy/install.sh) and described in [`runbook.md`](runbook.md):
 
-- **uv** + the same `uv sync --all-groups` this repo uses locally, for identical dependency resolution (this is why `requires-python` is pinned tight in `pyproject.toml`).
-- A **systemd timer** for `stk ingest daily` (nightly, after both exchanges publish bhavcopy).
-- A **systemd service** for the intraday playground poller (phase 5), active only 9:15-15:30 IST on trading days.
-- **Caddy** as the reverse proxy + automatic HTTPS in front of the FastAPI app (phase 4+).
-- A backup routine for `data/app.db` (SQLite) and `data/parquet/` — both are the only state that matters; everything else is reproducible from `data/raw/` or from re-running ingest.
+- **uv** + `uv sync --frozen`, for the same dependency resolution as local development.
+- **systemd** services for the API and the paper-trading poller, and **timers** for the nightly run, the weekly run, backups and the doctor.
+- **Caddy** as the reverse proxy + automatic HTTPS in front of the API, serving the built web app.
+- **Backups** of `data/app.db` (SQLite) and `data/parquet/` — the only state that matters; everything else is re-derivable. Set an off-box copy (`STK_OFFSITE_CMD`).
 
-## Verifying capacity/ARM compatibility for Python deps now (optional, can do anytime)
+## ARM wheel availability (checked)
 
-If you want to de-risk the ARM wheel question before phase 8, the packages most likely to have ARM64 wheel gaps are `duckdb`, `pyarrow`, and `curl_cffi`. All three publish `manylinux_aarch64` wheels on PyPI as of the versions pinned in `backend/pyproject.toml` (uv resolved them without a source build in this project's development environment), so this is a low risk — but re-confirm with `uv sync` on the actual VM once it exists, since wheel availability can lag for brand-new releases.
+Resolving the locked dependency set for `aarch64-manylinux_2_28` / Python 3.12 with `--only-binary :all:` succeeds (checked 2026-09-19 with `uv pip compile --python-platform aarch64-manylinux_2_28`): every package, including `duckdb`, `pyarrow`, `curl_cffi`, `numpy`, `pandas` and `pydantic-core`, has a prebuilt aarch64 wheel, so nothing compiles from source. This checks PyPI metadata, not an install on the VM — re-confirm with `uv sync --frozen` once it exists, since wheel availability can lag for brand-new releases.
+
+Re-run the check after upgrading dependencies:
+
+```bash
+uv export --frozen --no-hashes --no-emit-workspace --all-groups -o req.txt
+uv pip compile --python-platform aarch64-manylinux_2_28 --python-version 3.12 --only-binary :all: --no-deps req.txt -o /tmp/aarch64.txt
+```

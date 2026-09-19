@@ -1,0 +1,38 @@
+# Caddy: automatic HTTPS, the built web app, and the API behind /api.
+#
+# Replace stk.example.com with the DNS name pointing at the VM (Let's Encrypt needs it), and
+# make sure ports 80 and 443 are open in the Oracle security list (docs/ORACLE_VM_SETUP.md).
+stk.example.com {
+	encode zstd gzip
+
+	# The API listens on localhost only; this is the single way in from outside. The API itself
+	# still requires a bearer token (`stk api token create`).
+	handle /api/* {
+		reverse_proxy 127.0.0.1:8000
+	}
+
+	# The built single-page app (cd web && npm ci && npm run build). Any path that is not a real
+	# file falls back to index.html so client-side routes survive a reload.
+	handle {
+		root * /srv/stockanalyser/app/web/dist
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		# Fonts and charts are bundled. The only third party is the opt-in TradingView embed
+		# (script from s3.tradingview.com, chart frame + data from *.tradingview.com).
+		Content-Security-Policy "default-src 'self'; script-src 'self' https://s3.tradingview.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://*.tradingview.com; frame-src https://*.tradingview.com https://www.tradingview-widget.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+		-Server
+	}
+
+	# Hashed assets never change; index.html must always be re-fetched.
+	@assets path /assets/*
+	header @assets Cache-Control "public, max-age=31536000, immutable"
+	@index path /index.html /
+	header @index Cache-Control "no-cache"
+}

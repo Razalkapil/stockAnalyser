@@ -11,14 +11,17 @@ means "look at this".
 from __future__ import annotations
 
 from datetime import date, timedelta
+from pathlib import Path
+from typing import Annotated
 
 import typer
 
 from stk.config.settings import get_settings
 from stk.core.errors import DataNotPublished, ProviderError
 from stk.core.time import today_ist
-from stk.ingest.health import Problem, run_all_checks
+from stk.ingest.health import Problem, check_backup_age, run_all_checks
 from stk.providers.registry import get_price_provider
+from stk.store.backup import latest_backup_age_days
 from stk.store.db.engine import connect
 
 app = typer.Typer(help="Ingest pipeline health checks.")
@@ -42,6 +45,14 @@ def doctor(
         help="Also make REAL network requests to every documented endpoint "
         "to verify it is still reachable. Off by default.",
     ),
+    backup_dest: Annotated[
+        Path | None,
+        typer.Option(
+            "--backup-dest",
+            envvar="STK_BACKUP_DEST",
+            help="Backup directory. When given, a missing or stale backup is a problem.",
+        ),
+    ] = None,
 ) -> None:
     """Report on ingest health. Exits non-zero if anything looks wrong."""
     settings = get_settings()
@@ -59,6 +70,10 @@ def doctor(
             exchanges=list(settings.ingest.exchanges),
             today=today_ist(),
         )
+        if backup_dest is not None:
+            problems.extend(
+                check_backup_age(latest_backup_age_days(backup_dest, today=today_ist()))
+            )
 
         securities = conn.execute("SELECT COUNT(*) AS n FROM securities").fetchone()
         calendar = conn.execute(

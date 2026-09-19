@@ -1,0 +1,19 @@
+[Unit]
+Description=stk backup (app.db + parquet lake, verified and rotated)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=stk
+Group=stk
+WorkingDirectory=/srv/stockanalyser/app
+EnvironmentFile=/etc/stockanalyser/env
+ExecStart=/srv/stockanalyser/app/deploy/backup.sh
+TimeoutStartSec=2h
+Nice=10
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/srv/stockanalyser

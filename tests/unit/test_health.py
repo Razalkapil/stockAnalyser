@@ -17,9 +17,12 @@ import pytest
 
 from stk.ingest.health import (
     check_adjusted_freshness,
+    check_ai_runs,
+    check_backup_age,
     check_calendar_coverage,
     check_job_runs,
     check_partition_manifests,
+    check_poller,
     check_stale_symbols,
     check_unparsed_corporate_actions,
 )
@@ -279,3 +282,90 @@ class TestAdjustedFreshness:
             (datetime.now(UTC).isoformat(),),
         )
         assert check_adjusted_freshness(db, tmp_parquet_root) == []
+
+
+def _ai_run(db, kind, status, *, error=None):
+    db.execute(
+        "INSERT INTO ai_runs (kind, model, status, started_at, error) VALUES (?,?,?,?,?)",
+        (kind, "m", status, "2026-09-18T00:00:00+00:00", error))
+
+
+class TestAiRuns:
+    def test_a_single_failure_is_not_a_problem(self, db):
+        _ai_run(db, "evening_review", "success")
+        _ai_run(db, "evening_review", "failed", error="529")
+        assert check_ai_runs(db) == []
+
+    def test_a_streak_of_failures_is_a_problem_naming_the_latest_error(self, db):
+        for err in ("a", "b", "lapsed key"):
+            _ai_run(db, "evening_review", "failed", error=err)
+        (p,) = check_ai_runs(db)
+        assert p.code == "ai_failing" and "lapsed key" in p.message and p.is_problem
+
+    def test_invalid_output_counts_as_failing(self, db):
+        for _ in range(3):
+            _ai_run(db, "strategy_lab", "invalid_output")
+        assert [p.code for p in check_ai_runs(db)] == ["ai_failing"]
+
+    def test_a_success_in_the_streak_clears_it(self, db):
+        for st in ("failed", "success", "failed"):
+            _ai_run(db, "evening_review", st)
+        assert check_ai_runs(db) == []
+
+    def test_skipped_runs_neither_count_nor_break_a_streak(self, db):
+        for st in ("failed", "skipped", "failed", "failed"):
+            _ai_run(db, "evening_review", st)
+        assert [p.code for p in check_ai_runs(db)] == ["ai_failing"]
+
+    def test_kinds_are_judged_separately(self, db):
+        _ai_run(db, "evening_review", "failed")
+        _ai_run(db, "strategy_lab", "failed")
+        _ai_run(db, "evening_review", "failed")
+        assert check_ai_runs(db) == []
+
+    def test_no_runs_no_problem(self, db):
+        assert check_ai_runs(db) == []
+
+
+class TestPoller:
+    NOW = datetime(2026, 9, 18, 12, 0, tzinfo=UTC)
+
+    def _poll(self, db, status, when):
+        db.execute("INSERT INTO poller_runs (started_at, status) VALUES (?,?)",
+                   (when.isoformat(), status))
+
+    def test_quiet_when_nothing_happened(self, db):
+        assert check_poller(db, now=self.NOW) == []
+
+    def test_recent_stale_polls_are_reported_as_info_not_problems(self, db):
+        self._poll(db, "stale", self.NOW - timedelta(hours=2))
+        (p,) = check_poller(db, now=self.NOW)
+        assert p.code == "poller_feed_stale" and not p.is_problem
+
+    def test_last_months_outage_is_history(self, db):
+        self._poll(db, "failed", self.NOW - timedelta(days=30))
+        assert check_poller(db, now=self.NOW) == []
+
+    def test_orders_parked_for_eod_are_surfaced(self, db):
+        db.execute("INSERT INTO portfolios (name, start_capital, created_at) "
+                   "VALUES ('p','100000','2026-01-01')")
+        db.execute(
+            "INSERT INTO orders (portfolio_id, exchange, symbol, side, order_type, qty, status, "
+            "created_at, updated_at) VALUES (1,'NSE','X','buy','MARKET',1,'pending_eod','t','t')")
+        (p,) = check_poller(db, now=self.NOW)
+        assert p.code == "orders_pending_eod" and "1 order" in p.message
+
+
+class TestBackupAge:
+    def test_missing_backup_is_a_problem(self):
+        (p,) = check_backup_age(None)
+        assert p.code == "backup_missing" and p.is_problem
+
+    def test_stale_backup_is_a_problem(self):
+        assert [p.code for p in check_backup_age(5)] == ["backup_stale"]
+
+    def test_fresh_backup_is_fine(self):
+        assert check_backup_age(0) == [] and check_backup_age(2) == []
+
+    def test_not_expected_means_not_checked(self):
+        assert check_backup_age(None, expected=False) == []

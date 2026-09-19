@@ -1,0 +1,22 @@
+[Unit]
+Description=stk dashboard API (FastAPI, localhost only -- Caddy fronts it)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=stk
+Group=stk
+WorkingDirectory=/srv/stockanalyser/app
+EnvironmentFile=/etc/stockanalyser/env
+# 127.0.0.1 on purpose: the only way in from outside is Caddy (HTTPS).
+ExecStart=/srv/stockanalyser/app/.venv/bin/stk api serve --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/srv/stockanalyser
+
+[Install]
+WantedBy=multi-user.target

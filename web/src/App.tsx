@@ -33,7 +33,7 @@ function Shell() {
       }}
     >
       <TopBar />
-      <StaleBanner warning={status?.staleWarning ?? null} />
+      <StaleBanner warning={status?.staleWarning ?? null} alerts={status?.jobAlerts ?? []} />
       <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
         <Routes>
           <Route path="/" element={<Today />} />

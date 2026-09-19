@@ -1,0 +1,12 @@
+[Unit]
+Description=stk nightly, weekdays after the close (+ a late retry)
+
+[Timer]
+OnCalendar=Mon..Fri 20:30 Asia/Kolkata
+OnCalendar=Mon..Fri 23:00 Asia/Kolkata
+# Fire on next boot if the box was off at the scheduled time.
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target
