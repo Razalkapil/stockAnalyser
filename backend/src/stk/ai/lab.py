@@ -27,7 +27,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from stk.ai.client import LlmClient, call_structured
+from stk.ai.client import LlmClient, call_structured, prompt_json
 from stk.ai.lab_inputs import build_lab_input
 from stk.ai.lab_schemas import LabReply
 from stk.ai.prompts import LAB_SYSTEM
@@ -119,7 +119,7 @@ def run_strategy_lab(
     except Exception as exc:  # never block, whatever went wrong
         return LabResult("failed", detail=f"could not assemble input: {exc}")
 
-    user = json.dumps(payload, indent=1, sort_keys=True, default=str)
+    user = prompt_json(payload)
     sha = hashlib.sha256((LAB_SYSTEM + user).encode()).hexdigest()
     res = call_structured(client, system=LAB_SYSTEM, user=user, schema=LabReply,
                           max_tokens=ai.max_tokens, max_input_chars=ai.max_input_chars,

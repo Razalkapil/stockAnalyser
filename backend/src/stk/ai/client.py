@@ -46,6 +46,12 @@ class LlmClient(Protocol):
                  ) -> LlmReply: ...
 
 
+def prompt_json(payload: object) -> str:
+    """The prompt payload as COMPACT, deterministic JSON. Indentation is whitespace the model
+    does not need and a token-limited provider does count (about a third of a typical prompt)."""
+    return json.dumps(payload, separators=(",", ":"), sort_keys=True, default=str)
+
+
 def strip_fences(text: str) -> str:
     """Remove a Markdown code fence around a JSON reply, if the model added one."""
     m = _FENCE.match(text)

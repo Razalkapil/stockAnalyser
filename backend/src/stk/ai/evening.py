@@ -17,12 +17,11 @@ nothing) unless ``force``. A failed one is retried on the next run.
 from __future__ import annotations
 
 import hashlib
-import json
 import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 
-from stk.ai.client import LlmClient, StructuredResult, call_structured
+from stk.ai.client import LlmClient, StructuredResult, call_structured, prompt_json
 from stk.ai.inputs import ReviewInput, build_input
 from stk.ai.prompts import EVENING_SYSTEM
 from stk.ai.runs import record_run
@@ -116,7 +115,7 @@ def run_evening_review(conn: sqlite3.Connection, ctx: PlayCtx, ai: AiConfig, cli
                              error="no picks today")
         return ReviewResult("skipped", rid, "no picks to review")
 
-    user = json.dumps(inp.payload, indent=1, sort_keys=True, default=str)
+    user = prompt_json(inp.payload)
     prompt_sha = hashlib.sha256((EVENING_SYSTEM + user).encode()).hexdigest()
     res = call_structured(client, system=EVENING_SYSTEM, user=user, schema=EveningReview,
                           max_tokens=ai.max_tokens, max_input_chars=ai.max_input_chars,

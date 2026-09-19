@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import json
 from datetime import datetime
 from typing import Annotated
 
 import typer
 
-from stk.ai.client import GroqClient, LlmError, make_client
+from stk.ai.client import GroqClient, LlmError, make_client, prompt_json
 from stk.ai.evening import run_evening_review
 from stk.ai.inputs import build_input
 from stk.ai.lab import run_strategy_lab
@@ -61,7 +60,7 @@ def evening(
     try:
         if dry_run:
             inp = build_input(conn, ctx, ai, day)
-            user = json.dumps(inp.payload, indent=1, sort_keys=True, default=str)
+            user = prompt_json(inp.payload)
             typer.echo(EVENING_SYSTEM)
             typer.echo("--- user message " + "-" * 40)
             typer.echo(user)
@@ -102,7 +101,7 @@ def lab(
     try:
         if dry_run:
             payload = build_lab_input(conn)
-            user = json.dumps(payload, indent=1, sort_keys=True, default=str)
+            user = prompt_json(payload)
             typer.echo(LAB_SYSTEM)
             typer.echo("--- user message " + "-" * 40)
             typer.echo(user)

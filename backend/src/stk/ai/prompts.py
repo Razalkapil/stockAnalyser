@@ -46,6 +46,9 @@ interpreter evaluates. You may only combine the indicators listed in the input's
 with the periods listed for each. Anything not in the catalogue is rejected. You cannot write \
 code, formulas outside the DSL, or reference data the catalogue does not offer.
 
+In `strategies`, a spec without a `universe` uses `standard_universe`; a strategy without \
+`live` has no live picks yet; a rejected or retired one shows only its horizon and entry rule.
+
 Each proposal's `spec_json` must be a STRING containing one JSON object that follows \
 `dsl_schema` exactly (no extra keys). Rules that are easy to get wrong:
 - `slug` is lowercase snake_case, 3-64 chars, must start with a letter and MUST NOT match any \

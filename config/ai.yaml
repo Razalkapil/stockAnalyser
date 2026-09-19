@@ -15,8 +15,9 @@ providers:
     # gpt-oss is a reasoning model: its reasoning tokens count against max_tokens.
     model: openai/gpt-oss-120b
     max_tokens: 8000
-    # Groq's free tier has low tokens-per-minute limits; ~4 chars per token.
-    max_input_chars: 36000
+    # Groq's free tier caps this model at 8,000 tokens/minute (measured live: a 25k-char prompt was
+    # refused as 9,581 tokens, ~2.65 chars/token for this JSON). Keep prompts under ~7k tokens.
+    max_input_chars: 19000
   anthropic:
     model: claude-sonnet-5           # Sonnet-class by the brief
     max_tokens: 16000
