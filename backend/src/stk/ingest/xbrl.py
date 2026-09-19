@@ -122,15 +122,26 @@ def _index_facts(root: ET.Element, wanted_contexts: set[str]) -> dict[tuple[str,
     return found
 
 
+#: EPS x shares vs PAT is a SCALE detector (rupees vs thousands vs crore, or a stray multiplier),
+#: not an accounting identity. Real filings legitimately miss it by tens of percent -- paid-up
+#: capital is not the weighted-average share count, PAT includes minority interest and preference
+#: dividends -- so a tight band (the first version used 0.75-1.25) rejected ~8% of real filings.
+#: Seen live: honest filings at 1.3-1.5x (and 5.7x); true slips at 1e5x and 1e7x.
+SCALE_SLIP_FACTOR = 10.0
+
+
 def _sanity(facts: XbrlFacts) -> list[str]:
-    """EPS x share count should land near PAT; a large miss means a unit/scale slip."""
+    """EPS x share count should be the same ORDER OF MAGNITUDE as PAT; a miss of more than
+    ``SCALE_SLIP_FACTOR`` either way means a unit/scale slip. A sign disagreement is not a scale
+    problem (discontinued operations, a loss attributed against a profit) and passes."""
     problems: list[str] = []
     eps = facts.get("quarter", "eps")
     paid, face = facts.get("quarter", "paid_up_capital"), facts.get("quarter", "face_value")
     pat = facts.get("quarter", "pat_owners") or facts.get("quarter", "pat")
     if eps is not None and paid and face and pat:
         implied = eps * (paid / face)
-        if pat != 0 and not 0.75 <= implied / pat <= 1.25:
+        ratio = implied / pat if pat != 0 else 1.0
+        if implied != 0 and ratio > 0 and not 1 / SCALE_SLIP_FACTOR <= ratio <= SCALE_SLIP_FACTOR:
             problems.append(
                 f"eps x shares = {implied:,.0f} vs pat = {pat:,.0f} (ratio {implied / pat:.2f})"
             )
@@ -196,6 +207,14 @@ def parse_xbrl(
         )
     problems += _sanity(out)
 
+    if len(missing) == len(REQUIRED_FLOW):
+        # Not one of revenue / pbt / pat exists: this is not a damaged Ind-AS filing but a
+        # different profit-and-loss template (banks and insurers report InterestEarned, premiums,
+        # ...). Say so, and store nothing -- never guess a mapping for them.
+        out.status = "unsupported_format"
+        out.facts.clear()
+        out.detail["reason"] = "no revenue, pbt or pat: a different P&L template (bank / insurer)"
+        return out
     out.status = "partial" if problems else "parsed"
     out.detail["problems"] = problems
     out.detail["contexts_present"] = sorted(present)

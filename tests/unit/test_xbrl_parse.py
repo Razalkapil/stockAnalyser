@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import date
 from pathlib import Path
 
@@ -121,3 +122,46 @@ class TestFailingLoudly:
     def test_oversized_documents_are_refused(self):
         with pytest.raises(XbrlError, match="over the"):
             parse_xbrl(b"<x>" + b"a" * MAX_BYTES + b"</x>", TAGS)
+
+
+class TestScaleSanityCheck:
+    """EPS x shares vs PAT catches unit slips, not honest accounting differences."""
+
+    def _with_eps(self, factor: float) -> bytes:
+        text = Q3.decode()
+        m = re.search(r'(<in-bse-fin:BasicEarningsLossPerShareFromContinuingAndDiscontinued'
+                      r'Operations[^>]*contextRef="OneD"[^>]*>)([^<]+)(<)', text)
+        assert m, "fixture has no OneD EPS"
+        return text.replace(m.group(0), f"{m.group(1)}{float(m.group(2)) * factor}{m.group(3)}"
+                            ).encode()
+
+    def test_the_real_filing_is_clean(self):
+        assert parse_xbrl(Q3, TAGS).status == "parsed"
+
+    @pytest.mark.parametrize("factor", [1.4, 0.6, 3.0, 8.0, 0.15])
+    def test_honest_differences_within_an_order_of_magnitude_pass(self, factor):
+        assert parse_xbrl(self._with_eps(factor), TAGS).status == "parsed"
+
+    @pytest.mark.parametrize("factor", [100.0, 1e5, 1e7, 0.001])
+    def test_a_unit_slip_is_partial_and_says_so(self, factor):
+        r = parse_xbrl(self._with_eps(factor), TAGS)
+        assert r.status == "partial" and "eps x shares" in str(r.detail["problems"])
+
+    def test_a_sign_disagreement_is_not_a_scale_problem(self):
+        assert parse_xbrl(self._with_eps(-1.0), TAGS).status == "parsed"
+
+
+class TestOtherPnlTemplates:
+    def test_a_filing_with_none_of_revenue_pbt_pat_is_unsupported_not_partial(self):
+        text = Q3.decode()
+        for tag in ("RevenueFromOperations", "ProfitBeforeTax", "ProfitLossForPeriod",
+                    "Revenue", "ProfitLossFromOrdinaryActivitiesBeforeTax"):
+            # both the opening and the closing tag, or the document is no longer well-formed
+            text = re.sub(rf"in-bse-fin:{tag}(?=[ >])", f"in-bse-fin:Renamed{tag}", text)
+        r = parse_xbrl(text.encode(), TAGS)
+        assert r.status == "unsupported_format" and r.facts == {}
+        assert "different P&L template" in str(r.detail["reason"])
+
+    def test_one_missing_item_is_still_a_damaged_filing_not_a_different_template(self):
+        r = parse_xbrl(Q3.replace(b"RevenueFromOperations", b"SomethingElseEntirely"), TAGS)
+        assert r.status == "partial"

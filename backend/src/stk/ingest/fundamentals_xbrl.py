@@ -38,7 +38,7 @@ from stk.ingest.jobs import job_run
 from stk.ingest.raw_store import persist_document
 from stk.ingest.xbrl import PARSER_VERSION, XbrlError, XbrlFacts, parse_xbrl
 from stk.providers.registry import get_fundamentals_provider
-from stk.store.db.engine import connect
+from stk.store.db.engine import connect, transaction
 
 log = structlog.get_logger(__name__)
 
@@ -166,6 +166,49 @@ def ingest_xbrl_documents(
         conn.close()
 
 
+def reparse_from_raw(
+    *,
+    sqlite_path: Path,
+    raw_root: Path,
+    tag_map: dict[str, dict[str, list[str]]],
+    statuses: tuple[str, ...] = ("partial", "malformed", "unsupported_format"),
+) -> XbrlIngestResult:
+    """Re-run the parser over documents ALREADY on disk (no network) for filings whose earlier
+    parse was not clean -- what makes a parser fix take effect. ``attempted`` counts filings
+    re-parsed; a filing whose raw file is missing is counted in ``transient_failures``."""
+    conn = connect(sqlite_path)
+    result = XbrlIngestResult()
+    try:
+        with job_run(conn, "reparse_xbrl", business_date=None) as handle:
+            marks = ",".join("?" * len(statuses))
+            rows = conn.execute(
+                f"""SELECT s.snapshot_id, s.security_id, s.period_end, p.raw_sha256
+                    FROM fundamentals_parse_status p
+                    JOIN fundamentals_snapshots s ON s.snapshot_id = p.snapshot_id
+                    WHERE p.status IN ({marks}) AND p.raw_sha256 IS NOT NULL""",
+                statuses).fetchall()
+            handle.rows_in = len(rows)
+            with transaction(conn):
+                for row in rows:
+                    sha = row["raw_sha256"]
+                    path = raw_root / "nse_xbrl" / "by-sha" / sha[:2] / f"{sha}.xml"
+                    if not path.exists():
+                        result.transient_failures += 1
+                        continue
+                    result.attempted += 1
+                    _process(conn, row, path.read_bytes(), sha=sha, tag_map=tag_map,
+                             result=result)
+            handle.rows_written = result.line_items
+            handle.metrics = {"parsed": result.parsed, "partial": result.partial,
+                              "unsupported": result.unsupported, "malformed": result.malformed,
+                              "raw_missing": result.transient_failures}
+            if result.transient_failures:
+                handle.degraded = True
+        return result
+    finally:
+        conn.close()
+
+
 def _process(
     conn: sqlite3.Connection,
     row: Any,
@@ -184,6 +227,10 @@ def _process(
         return
     if facts.status in ("parsed", "partial"):
         result.line_items += store_facts(conn, row["snapshot_id"], row["security_id"], facts)
+    else:
+        # A re-parse can demote a filing (partial -> unsupported): its earlier line items go too.
+        conn.execute("DELETE FROM fundamentals_line_items WHERE snapshot_id=?",
+                     (row["snapshot_id"],))
     _record(conn, row["snapshot_id"], facts.status, facts.detail, sha)
     if facts.status == "parsed":
         result.parsed += 1

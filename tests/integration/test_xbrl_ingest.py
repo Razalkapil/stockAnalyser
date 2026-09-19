@@ -202,3 +202,69 @@ class TestMetricsEndToEnd:
         assert row["de_ratio"] == pytest.approx(3_246_220_000_000 / 9_257_880_000_000)
         # one filing = one quarter known: no TTM, so ROCE and EPS TTM are None (not zero)
         assert pd.isna(row["roce"]) and pd.isna(row["eps_ttm"])
+
+
+class TestReparseFromRaw:
+    """A parser fix takes effect on documents already on disk -- no network."""
+
+    @respx.mock
+    def test_a_partial_filing_is_reparsed_offline_and_its_status_updates(self, db, tmp_path):
+        # a filing whose EPS is off by 1e5: partial under any version of the sanity check
+        import re  # noqa: PLC0415
+
+        from stk.ingest.fundamentals_xbrl import reparse_from_raw  # noqa: PLC0415
+
+        m = re.search(rb'(BasicEarningsLossPerShareFromContinuingAndDiscontinuedOperations'
+                      rb'[^>]*contextRef="OneD"[^>]*>)([^<]+)', Q3)
+        bad = Q3.replace(m.group(0), m.group(1) + str(float(m.group(2)) * 1e5).encode())
+        add_snapshot(db, meta_row(Q3_URL, period="Quarterly", to_date="31-Dec-2024",
+                                  broadcast="18-Jan-2025 20:00:00"),
+                     period_type="Q", period_end="2024-12-31",
+                     broadcast_at="2025-01-18T20:00:00", snap_id=1)
+        respx.get(Q3_URL).mock(return_value=httpx.Response(
+            200, content=bad, headers={"content-type": "application/xml"}))
+        run(db, tmp_path)
+        assert rows(db, "SELECT status FROM fundamentals_parse_status")[0]["status"] == "partial"
+
+        respx.reset()  # from here on any network call would fail the test
+        again = reparse_from_raw(sqlite_path=db, raw_root=tmp_path / "raw", tag_map=TAGS)
+        assert again.attempted == 1 and again.partial == 1 and again.transient_failures == 0
+
+    def test_a_missing_raw_file_is_counted_and_degrades_the_job(self, db, tmp_path):
+        from stk.ingest.fundamentals_xbrl import reparse_from_raw  # noqa: PLC0415
+
+        add_snapshot(db, meta_row(Q3_URL, period="Quarterly", to_date="31-Dec-2024",
+                                  broadcast="18-Jan-2025 20:00:00"),
+                     period_type="Q", period_end="2024-12-31",
+                     broadcast_at="2025-01-18T20:00:00", snap_id=1)
+        conn = connect(db)
+        conn.execute("INSERT INTO fundamentals_parse_status (snapshot_id, status, detail_json, "
+                     "raw_sha256, parser_version, parsed_at) "
+                     "VALUES (1,'partial','{}','ab12',1,'x')")
+        conn.close()
+        r = reparse_from_raw(sqlite_path=db, raw_root=tmp_path / "raw", tag_map=TAGS)
+        assert r.attempted == 0 and r.transient_failures == 1
+        assert rows(db, "SELECT status FROM job_runs WHERE job_name='reparse_xbrl'")[0][
+            "status"] == "degraded"
+
+    def test_demoting_a_filing_removes_its_stale_line_items(self, db, tmp_path):
+        import re  # noqa: PLC0415
+
+        from stk.ingest.fundamentals_xbrl import XbrlIngestResult, _process  # noqa: PLC0415
+
+        add_snapshot(db, meta_row(Q3_URL, period="Quarterly", to_date="31-Dec-2024",
+                                  broadcast="18-Jan-2025 20:00:00"),
+                     period_type="Q", period_end="2024-12-31",
+                     broadcast_at="2025-01-18T20:00:00", snap_id=1)
+        conn = connect(db)
+        row = {"snapshot_id": 1, "security_id": 1, "period_end": "2024-12-31"}
+        _process(conn, row, Q3, sha="s", tag_map=TAGS, result=XbrlIngestResult())
+        assert conn.execute("SELECT COUNT(*) FROM fundamentals_line_items").fetchone()[0] > 0
+        wrong_template = Q3
+        for name in (b"RevenueFromOperations", b"ProfitBeforeTax", b"ProfitLossForPeriod"):
+            wrong_template = re.sub(rb"in-bse-fin:" + name + rb"(?=[ >])",
+                                    b"in-bse-fin:Zz" + name, wrong_template)
+        _process(conn, row, wrong_template, sha="s2", tag_map=TAGS, result=XbrlIngestResult())
+        status = conn.execute("SELECT status FROM fundamentals_parse_status").fetchone()[0]
+        assert status == "unsupported_format"
+        assert conn.execute("SELECT COUNT(*) FROM fundamentals_line_items").fetchone()[0] == 0

@@ -29,7 +29,11 @@ from stk.ingest.daily import (
 )
 from stk.ingest.fundamentals import ingest_fundamentals_for_security
 from stk.ingest.fundamentals_sweep import sweep_liquid_universe
-from stk.ingest.fundamentals_xbrl import DEFAULT_MIN_PERIOD_END, ingest_xbrl_documents
+from stk.ingest.fundamentals_xbrl import (
+    DEFAULT_MIN_PERIOD_END,
+    ingest_xbrl_documents,
+    reparse_from_raw,
+)
 from stk.ingest.indices import ingest_indices_for_date
 from stk.ingest.instruments import ingest_instrument_classes
 from stk.ingest.liquidity import compute_liquidity_for_date
@@ -471,6 +475,10 @@ def xbrl(
         list[str] | None, typer.Option("--symbol", help="Only these symbols (repeatable)")
     ] = None,
     throttle_s: float = typer.Option(1.0, "--throttle-s", help="Delay between downloads"),
+    reparse: bool = typer.Option(
+        False, "--reparse",
+        help="Re-run the parser over documents already on disk (no network) for filings that "
+        "were partial / malformed / unsupported -- after a parser fix"),
     since_period: str = typer.Option(
         DEFAULT_MIN_PERIOD_END, "--since-period",
         help="Only filings whose period ends on/after this date (older ones feed no metric)"),
@@ -484,6 +492,14 @@ def xbrl(
     retried on the next run and mark the job degraded.
     """
     settings = get_settings()
+    if reparse:
+        rr = reparse_from_raw(sqlite_path=settings.paths.sqlite, raw_root=settings.paths.raw,
+                              tag_map=load_named_yaml("xbrl_tags"))
+        typer.echo(f"re-parsed {rr.attempted}: {rr.parsed} parsed, {rr.partial} partial, "
+                   f"{rr.unsupported} unsupported, {rr.malformed} malformed"
+                   + (f"; {rr.transient_failures} raw file(s) missing" if rr.transient_failures
+                      else ""))
+        return
     result = ingest_xbrl_documents(
         sqlite_path=settings.paths.sqlite,
         raw_root=settings.paths.raw,
