@@ -134,7 +134,10 @@ def upsert_partition(
     partition_path.parent.mkdir(parents=True, exist_ok=True)
 
     if partition_path.exists():
-        existing = pq.read_table(partition_path, schema=schema)
+        # Read with the FILE's own schema and cast to the current one, rather than asking the
+        # reader to apply ``schema`` directly: a partition written before a schema widening
+        # (e.g. series' dictionary index int8 -> int16) must still be extendable.
+        existing = pq.read_table(partition_path).select(schema.names).cast(schema)
         mask = pa.compute.is_in(existing[date_column], value_set=pa.array(sorted(replace_dates)))
         keep_mask = pa.compute.invert(mask)
         existing = existing.filter(keep_mask)
@@ -176,4 +179,5 @@ def read_partition(partition_path: Path, *, schema: pa.Schema) -> pa.Table:
     """Read a partition file, or return an empty table matching ``schema`` if absent."""
     if not partition_path.exists():
         return schema.empty_table()
-    return pq.read_table(partition_path, schema=schema)
+    # File schema first, then cast: tolerant of partitions written before a schema widening.
+    return pq.read_table(partition_path).select(schema.names).cast(schema)

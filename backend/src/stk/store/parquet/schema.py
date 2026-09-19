@@ -31,7 +31,11 @@ BARS_DAILY_SCHEMA = pa.schema(
         pa.field("symbol", pa.string(), nullable=False),
         pa.field("security_id", pa.int32(), nullable=True),
         pa.field("isin", pa.string(), nullable=True),
-        pa.field("series", pa.dictionary(pa.int8(), pa.string()), nullable=True),
+        # int16, NOT int8: an int8 index holds only 127 distinct values, and NSE's historical
+        # bhavcopy carries well over 100 series codes (bond/SME/T+0 series...). The 2023
+        # partition reached 126; the next new code made every further write fail with
+        # "dictionaries cannot be combined", halting a backfill mid-2023.
+        pa.field("series", pa.dictionary(pa.int16(), pa.string()), nullable=True),
         pa.field("instrument_type", pa.dictionary(pa.int8(), pa.string()), nullable=False),
         pa.field("open", pa.float64(), nullable=False),
         pa.field("high", pa.float64(), nullable=False),

@@ -274,3 +274,48 @@ class TestManifestPath:
         is absent rather than filled with a placeholder."""
         path = manifest_path(tmp_parquet_root, "indices_daily", None, 2026)
         assert path == tmp_parquet_root / "_manifests" / "indices_daily" / "year=2026.json"
+
+
+class TestManyDistinctSeries:
+    """Regression for a bug found by a real 5-year backfill.
+
+    `series` was dictionary-encoded with an int8 INDEX, which can hold 127 distinct values. NSE's
+    historical bhavcopy carries well over 100 series codes (bond and SME series, T+0, ...), and
+    the 2023 partition reached 126. The next new code made every further write raise
+    `ArrowInvalid: These dictionaries cannot be combined`, halting the backfill mid-2023.
+    """
+
+    def with_series(self, d: date, codes: list[str]) -> pa.Table:
+        t = _make_bars(d, [f"SYM{i}" for i in range(len(codes))])
+        idx = t.schema.get_field_index("series")
+        return t.set_column(idx, t.schema.field("series"),
+                            pa.array(codes).dictionary_encode().cast(t.schema.field("series").type))
+
+    def test_a_partition_can_hold_far_more_than_127_distinct_series(self, tmp_path):
+        path = bars_daily_partition(tmp_path, "NSE", 2023)
+        _upsert(path, self.with_series(date(2023, 1, 2), [f"A{i}" for i in range(200)]),
+                date(2023, 1, 2))
+        # a second day introduces 200 MORE distinct codes -- 400 in total, past any int8 index
+        _upsert(path, self.with_series(date(2023, 1, 3), [f"B{i}" for i in range(200)]),
+                date(2023, 1, 3))
+        got = read_partition(path, schema=BARS_DAILY_SCHEMA)
+        assert got.num_rows == 400
+        assert len(set(got.column("series").to_pylist())) == 400
+
+    def test_a_partition_written_with_the_old_int8_index_can_still_be_extended(self, tmp_path):
+        """Every partition already on disk was written before the fix."""
+        path = bars_daily_partition(tmp_path, "NSE", 2023)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        old_schema = pa.schema(
+            [pa.field(f.name, pa.dictionary(pa.int8(), pa.string())) if f.name == "series" else f
+             for f in BARS_DAILY_SCHEMA])
+        old = _make_bars(date(2023, 1, 2), ["AAA", "BBB"]).cast(old_schema)
+        pq.write_table(old, path)
+        _upsert(path, self.with_series(date(2023, 1, 3), [f"N{i}" for i in range(300)]),
+                date(2023, 1, 3))
+        got = read_partition(path, schema=BARS_DAILY_SCHEMA)
+        assert got.num_rows == 302 and got.schema.equals(BARS_DAILY_SCHEMA)
+
+    def test_the_schema_index_can_actually_hold_them(self):
+        idx = BARS_DAILY_SCHEMA.field("series").type.index_type
+        assert idx.bit_width >= 16, "int8 holds only 127 distinct series; NSE has more"
