@@ -115,6 +115,5 @@ remove those yourself once satisfied.
 
 Stated so nobody assumes otherwise: the AI jobs against Anthropic's API (they ran once live on Groq;
 switching `provider:` to `anthropic` in `config/ai.yaml` is untested against the real API — `stk ai evening --dry-run` first, then one real run), yfinance intraday during market
-hours, a full `fundamentals-sweep` + `xbrl` run across the universe, the TradingView embed for
-BSE-only symbols, some cost rates in `config/costs.yaml` (the BSE cash charge, DP charge and
+hours, a full `fundamentals-sweep` + `xbrl` run across the universe, some cost rates in `config/costs.yaml` (the BSE cash charge, DP charge and
 brokerage are unverified — see the ledger in `data-sources.md`), and the deploy artifacts on an actual VM.

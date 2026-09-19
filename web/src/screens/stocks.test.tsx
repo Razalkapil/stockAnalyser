@@ -100,13 +100,15 @@ describe("Stock page", () => {
     expect(marks).toEqual([]);
   });
 
-  it("offers TradingView as an explicit, labelled opt-in", async () => {
+  it("links out to TradingView instead of embedding it (the free widget has no NSE/BSE data)", async () => {
     mockApi(routes());
     renderAt("/stocks/RELIANCE");
     await screen.findByTestId("price-chart");
-    await userEvent.click(screen.getByRole("button", { name: "TradingView" }));
-    expect(await screen.findByTestId("tv-widget")).toBeInTheDocument();
-    expect(screen.getByText(/Third-party chart and data/)).toBeInTheDocument();
+    const link = screen.getByRole("link", { name: /Open on TradingView/ });
+    expect(link).toHaveAttribute("href", expect.stringMatching(/^https:\/\/www\.tradingview\.com\/chart\/\?symbol=NSE%3ARELIANCE$/));
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", expect.stringContaining("noopener"));
+    expect(document.querySelector("[data-testid=tv-widget]")).toBeNull();
   });
 
   it("says fundamentals are unavailable rather than showing zeros", async () => {

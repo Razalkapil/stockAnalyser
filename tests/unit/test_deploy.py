@@ -144,16 +144,25 @@ class TestCaddyfile:
         assert "try_files {path} /index.html" in self.text
         assert "web/dist" in self.text
 
-    def test_csp_allows_tradingview_and_nothing_broad(self):
+    def test_csp_allows_no_third_party_origin(self):
         csp = re.search(r'Content-Security-Policy "([^"]+)"', self.text).group(1)  # type: ignore[union-attr]
-        assert "https://s3.tradingview.com" in csp and "frame-src https://*.tradingview.com" in csp
-        assert "'unsafe-eval'" not in csp and "script-src 'self' https" in csp
+        assert "https:" not in csp and "*" not in csp and "'unsafe-eval'" not in csp
         assert "default-src 'self'" in csp and "frame-ancestors 'none'" in csp
+        assert "script-src 'self';" in csp and "frame-src 'none'" in csp
 
-    def test_the_csp_matches_what_the_web_app_actually_loads(self):
-        widget = (DEPLOY.parent / "web/src/components/TradingViewWidget.tsx").read_text()
-        origin = re.search(r'"(https://[^/"]+)/', widget).group(1)  # type: ignore[union-attr]
-        assert origin in self.text
+    def test_the_web_app_loads_no_third_party_script_or_frame(self):
+        """The CSP above is only honest if the app really loads nothing external."""
+        src = DEPLOY.parent / "web" / "src"
+        offenders = []
+        for f in list(src.rglob("*.ts")) + list(src.rglob("*.tsx")):
+            if ".test." in f.name or f.name == "schema.d.ts":
+                continue
+            text = f.read_text()
+            # a script/iframe/stylesheet/import pulling from another origin
+            offenders += [f"{f.name}: {m}" for m in re.findall(
+                r"(?:src|href)\s*[=:]\s*[\"'`](https?://[^\"'`]+)", text)
+                if "tradingview.com/chart" not in m]  # the one deliberate outbound LINK
+        assert offenders == []
 
 
 class TestScripts:

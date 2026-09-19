@@ -3,12 +3,10 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { EmptyState } from "../components/EmptyState";
 import { Num } from "../components/Num";
 import { PriceChart } from "../components/PriceChart";
-import { Segmented } from "../components/Segmented";
 import { StatusPill } from "../components/StatusPill";
-import { TradingViewWidget } from "../components/TradingViewWidget";
 import { ApiError } from "../lib/api/client";
 import { useBars, useStock, useStockSearch } from "../lib/api/hooks";
-import { fmtDate, fmtINR, fmtNum, fmtPct, fmtPlainPct } from "../lib/format";
+import { fmtDate, fmtINR, fmtNum, fmtPct, fmtPlainPct, tradingViewUrl } from "../lib/format";
 import { color, font, horizonLabel, pnlColor } from "../lib/theme";
 
 const panel = {
@@ -91,7 +89,6 @@ function Fact({ label, value }: { label: string; value: string }) {
 function StockPage({ symbol }: { symbol: string }) {
   const { data: stock, error, isLoading } = useStock(symbol);
   const { data: bars } = useBars(stock ? symbol : null);
-  const [source, setSource] = useState<"own" | "tv">("own");
   const markers = useMemo(
     () => (stock?.flaggedBy ?? []).map((f) => ({ date: f.signalDate, label: f.strategy })),
     [stock],
@@ -143,21 +140,17 @@ function StockPage({ symbol }: { symbol: string }) {
         <div style={panel}>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
             <div style={section}>Price</div>
-            <Segmented
-              options={[
-                { id: "own", label: "Adjusted (ours)" },
-                { id: "tv", label: "TradingView" },
-              ]}
-              value={source}
-              onChange={setSource}
-            />
+            <a
+              href={tradingViewUrl(stock.tvSymbol)}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ font: `500 11px ${font.sans}`, color: color.accent }}
+            >
+              Open on TradingView ↗
+            </a>
           </div>
-          {source === "own" ? (
-            <PriceChart bars={bars ?? []} markers={markers} />
-          ) : (
-            <TradingViewWidget symbol={stock.tvSymbol} />
-          )}
-          {source === "own" && markers.length > 0 && (
+          <PriceChart bars={bars ?? []} markers={markers} />
+          {markers.length > 0 && (
             <div style={{ font: `400 10.5px ${font.sans}`, color: color.textFaint, marginTop: 6 }}>
               ▲ marks a day a strategy flagged this stock.
             </div>

@@ -54,3 +54,13 @@ export function fmtDate(iso: string | null | undefined): string {
 export function fmtScore(score: number): string {
   return `${Math.round(score)}/100`;
 }
+
+/**
+ * A link to the symbol on tradingview.com. NOT an embed: TradingView's free widget does not serve
+ * NSE/BSE data (checked live 2026-09-19: NSE:RELIANCE shows "This symbol is only available on
+ * TradingView", BSE:RELIANCE renders no data, and BSE scrip codes are "This symbol doesn't
+ * exist"), so the stock view draws OUR adjusted series and only links out.
+ */
+export function tradingViewUrl(tvSymbol: string): string {
+  return `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(tvSymbol)}`;
+}
