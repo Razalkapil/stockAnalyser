@@ -29,7 +29,7 @@ from stk.ingest.daily import (
 )
 from stk.ingest.fundamentals import ingest_fundamentals_for_security
 from stk.ingest.fundamentals_sweep import sweep_liquid_universe
-from stk.ingest.fundamentals_xbrl import ingest_xbrl_documents
+from stk.ingest.fundamentals_xbrl import DEFAULT_MIN_PERIOD_END, ingest_xbrl_documents
 from stk.ingest.indices import ingest_indices_for_date
 from stk.ingest.instruments import ingest_instrument_classes
 from stk.ingest.liquidity import compute_liquidity_for_date
@@ -471,8 +471,12 @@ def xbrl(
         list[str] | None, typer.Option("--symbol", help="Only these symbols (repeatable)")
     ] = None,
     throttle_s: float = typer.Option(1.0, "--throttle-s", help="Delay between downloads"),
+    since_period: str = typer.Option(
+        DEFAULT_MIN_PERIOD_END, "--since-period",
+        help="Only filings whose period ends on/after this date (older ones feed no metric)"),
 ) -> None:
-    """Download and parse the XBRL behind every filing not yet parsed.
+    """Download and parse the XBRL behind every filing not yet parsed (newest first; standalone
+    filings of companies that also file consolidated ones are skipped -- they are never read).
 
     Raw documents are stored content-addressed before parsing, so fixing the
     parser never needs the network again. Definitive outcomes (unsupported,
@@ -487,6 +491,7 @@ def xbrl(
         limit=limit,
         symbols=set(symbol or []) or None,
         throttle_s=throttle_s,
+        min_period_end=since_period,
     )
     typer.echo(
         f"{result.attempted} attempted: {result.parsed} parsed, {result.partial} partial, "

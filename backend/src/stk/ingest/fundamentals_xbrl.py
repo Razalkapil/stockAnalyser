@@ -54,13 +54,32 @@ class XbrlIngestResult:
         self.line_items = 0
 
 
-def _pending(conn: sqlite3.Connection, limit: int | None, symbols: set[str] | None) -> list[Any]:
+#: Nothing the metrics derive needs a period older than this: TTM wants the last 4 quarters and the
+#: 3-year CAGR's base is the annual filing three years before the latest, so ~FY2023 onward.
+DEFAULT_MIN_PERIOD_END = "2023-01-01"
+
+
+def _pending(
+    conn: sqlite3.Connection, limit: int | None, symbols: set[str] | None,
+    min_period_end: str = DEFAULT_MIN_PERIOD_END,
+) -> list[Any]:
+    """Unparsed filings, newest first.
+
+    A STANDALONE filing is skipped when the company has consolidated ones: the metrics loader
+    measures such a company on consolidated results only (mixing bases inside one series would
+    make a CAGR compare unlike things), so it would never read the standalone rows -- skipping them
+    loses nothing and halves the downloads."""
     rows = conn.execute(
         """SELECT s.snapshot_id, s.security_id, s.period_end, s.source_url, s.data_json
            FROM fundamentals_snapshots s
            LEFT JOIN fundamentals_parse_status p ON p.snapshot_id = s.snapshot_id
            WHERE s.statement_type = 'meta' AND s.source_url IS NOT NULL AND p.snapshot_id IS NULL
-           ORDER BY s.broadcast_at DESC"""
+             AND s.period_end >= ?
+             AND NOT (COALESCE(s.consolidated, 0) = 0 AND EXISTS (
+                   SELECT 1 FROM fundamentals_snapshots c
+                   WHERE c.security_id = s.security_id AND c.statement_type = 'meta'
+                     AND c.consolidated = 1))
+           ORDER BY s.broadcast_at DESC""", (min_period_end,)
     ).fetchall()
     if symbols:
         rows = [r for r in rows if json.loads(r["data_json"]).get("symbol") in symbols]
@@ -108,13 +127,14 @@ def ingest_xbrl_documents(
     symbols: set[str] | None = None,
     provider_name: str = "nse_filings",
     throttle_s: float = 1.0,
+    min_period_end: str = DEFAULT_MIN_PERIOD_END,
 ) -> XbrlIngestResult:
     conn = connect(sqlite_path)
     result = XbrlIngestResult()
     try:
         with job_run(conn, "ingest_xbrl", business_date=None) as handle:
             provider = get_fundamentals_provider(provider_name)
-            pending = _pending(conn, limit, symbols)
+            pending = _pending(conn, limit, symbols, min_period_end)
             handle.rows_in = len(pending)
             for row in pending:
                 result.attempted += 1
