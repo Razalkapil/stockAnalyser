@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 import numpy as np
 import pandas as pd
 import pytest
 
 from integration.lake import write_panel_by_year
-from stk.config.backtest import load_backtest_config
+from stk.config.backtest import load_backtest_config as _load_cfg
 from stk.config.promotion import DecayConfig, PromotionConfig
 from stk.domain.dsl.model import StrategySpec
 from stk.store.db.engine import connect, migrate
@@ -18,6 +20,13 @@ from stk.strategies.stats import backtest_stats, flag_decay, live_stats
 from stk.strategies.tracking import round_trip_cost_pct, track_picks
 
 # fires on every symbol with enough history, so the scan/track mechanics are what is tested
+
+def load_backtest_config():
+    """Synthetic stocks trade ~Rs 1 lakh/day, far below the real liquidity floor; these tests are
+    about mechanics, not liquidity (that has its own tests in test_backtest_data), so it is off."""
+    return _load_cfg().model_copy(update={"panel_min_peak_turnover_inr": Decimal(0)})
+
+
 SPEC = StrategySpec.model_validate({
     "slug": "always_on", "name": "Always on", "horizon": "swing",
     "entry": {"left": {"ind": "bar_count"}, "op": ">", "right": 30},

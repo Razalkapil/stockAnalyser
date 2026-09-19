@@ -56,13 +56,15 @@ def load_market_data(
     adv_lookback_days: int,
     warmup_days: int = 0,
     tradeable_series: tuple[str, ...] = ("EQ", "BE", "BZ"),
+    min_peak_turnover: float = 0.0,
 ) -> MarketData:
     """Adjusted bars for [start - warmup, end], prepared for the engine."""
     load_from = start - pd.Timedelta(days=warmup_days) if warmup_days else start
     with duck.connect(parquet_root) as session:
         raw = session.sql(
             "backtest_panel",
-            [list(tradeable_series), exchange, load_from.isoformat(), end.isoformat()],
+            [list(tradeable_series), exchange, load_from.isoformat(), end.isoformat(),
+             min_peak_turnover, exchange, load_from.isoformat(), end.isoformat()],
         ).df()
     if raw.empty:
         raise ValueError(

@@ -119,6 +119,48 @@ class TestOneBarPerSymbolPerDay:
             prepare_bars(dup, 20)
 
 
+class TestLiquidityFloor:
+    """The load-time floor drops permanently illiquid names but can never drop a stock that
+    could have passed a median-turnover filter (a median never exceeds a maximum)."""
+
+    def lake(self, root, days):
+        from integration.lake import adjusted_table  # noqa: PLC0415
+        # turnover = close * volume. LIQ: Rs 100 * 500,000 = Rs 5 crore every day.
+        # SPIKY: quiet (Rs 10 * 1,000 = Rs 10k) except ONE day at Rs 100 * 500,000.
+        # DEAD: Rs 10 * 1,000 = Rs 10k every day.
+        liq = adjusted_table("LIQ", days, [100.0] * len(days), volume=500_000)
+        dead = adjusted_table("DEAD", days, [10.0] * len(days), volume=1_000)
+        quiet = adjusted_table("SPIKY", days[1:], [10.0] * (len(days) - 1), volume=1_000)
+        spike = adjusted_table("SPIKY", days[:1], [100.0], volume=500_000)
+        upsert_partition(
+            bars_daily_adjusted_partition(root, "NSE", days[0].year),
+            pa.concat_tables([liq, dead, quiet, spike]),
+            schema=BARS_DAILY_ADJUSTED_SCHEMA, replace_dates=set(days),
+        )
+
+    def symbols(self, root, days, floor):
+        data = load_market_data(root, exchange="NSE", start=days[0], end=days[-1],
+                                adv_lookback_days=20, min_peak_turnover=floor)
+        return set(data.bars["symbol"])
+
+    def test_permanently_illiquid_names_are_dropped(self, tmp_parquet_root):
+        days = days_from(date(2025, 7, 7), 5)
+        self.lake(tmp_parquet_root, days)
+        assert "DEAD" not in self.symbols(tmp_parquet_root, days, 20_000_000)
+
+    def test_a_stock_with_one_liquid_day_is_kept_because_its_median_could_still_qualify(
+        self, tmp_parquet_root
+    ):
+        days = days_from(date(2025, 7, 7), 5)
+        self.lake(tmp_parquet_root, days)
+        assert {"LIQ", "SPIKY"} <= self.symbols(tmp_parquet_root, days, 20_000_000)
+
+    def test_zero_disables_the_floor(self, tmp_parquet_root):
+        days = days_from(date(2025, 7, 7), 5)
+        self.lake(tmp_parquet_root, days)
+        assert self.symbols(tmp_parquet_root, days, 0.0) == {"LIQ", "DEAD", "SPIKY"}
+
+
 class TestRawCloseIsRecoverable:
     """Regression: the panel query once omitted cumulative_price_factor, so close_raw silently
     equalled the ADJUSTED close and every minimum-rupee-price filter used the wrong number."""

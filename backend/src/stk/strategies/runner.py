@@ -113,11 +113,14 @@ def lake_span(parquet_root: Path, exchange: str) -> LakeSpan | None:
 
 
 def _load_bars(
-    parquet_root: Path, exchange: str, start: date, end: date, tradeable_series: list[str]
+    parquet_root: Path, exchange: str, start: date, end: date, cfg: BacktestConfig
 ) -> pd.DataFrame:
+    s, e = start.isoformat(), end.isoformat()
     with duck.connect(parquet_root) as session:
         return session.sql(
-            "backtest_panel", [tradeable_series, exchange, start.isoformat(), end.isoformat()]
+            "backtest_panel",
+            [cfg.tradeable_series, exchange, s, e, float(cfg.panel_min_peak_turnover_inr),
+             exchange, s, e],
         ).df()
 
 
@@ -132,8 +135,7 @@ def build_market_data(
     end: date,
 ) -> tuple[MarketData, pd.DataFrame]:
     """Feature-bearing market data for [start, end] plus the benchmark frame."""
-    bars = _load_bars(parquet_root, exchange, start - timedelta(days=WARMUP_DAYS), end,
-                      cfg.tradeable_series)
+    bars = _load_bars(parquet_root, exchange, start - timedelta(days=WARMUP_DAYS), end, cfg)
     if bars.empty:
         raise ValueError(
             f"no adjusted bars for {exchange} in [{start}, {end}] -- run `stk backfill prices` "

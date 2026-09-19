@@ -15,6 +15,13 @@ benchmark_index_code: NIFTY_500
 # government securities, ...) is not a backtest instrument.
 tradeable_series: [EQ, BE, BZ]
 
+# Liquidity floor applied when the panel is LOADED (the brief: liquidity filter before any
+# screen): a symbol is included only if its best single day in the span reached this many
+# rupees of turnover. A median can never exceed a maximum, so this cannot drop any stock that
+# could pass a median-turnover filter of the same size -- it only removes permanently
+# illiquid names. 0 disables it.
+panel_min_peak_turnover_inr: 20000000     # Rs 2 crore, same as config/universe.yaml
+
 # Which product the engine assumes for its trades. Delivery: multi-day holds.
 product: delivery
 

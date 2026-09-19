@@ -6,8 +6,16 @@ from datetime import UTC, date, datetime, timedelta
 
 import pyarrow as pa
 
-from stk.store.parquet.layout import bars_daily_adjusted_partition, indices_daily_partition
-from stk.store.parquet.schema import BARS_DAILY_ADJUSTED_SCHEMA, INDICES_DAILY_SCHEMA
+from stk.store.parquet.layout import (
+    bars_daily_adjusted_partition,
+    bars_daily_partition,
+    indices_daily_partition,
+)
+from stk.store.parquet.schema import (
+    BARS_DAILY_ADJUSTED_SCHEMA,
+    BARS_DAILY_SCHEMA,
+    INDICES_DAILY_SCHEMA,
+)
 from stk.store.parquet.writer import upsert_partition
 
 NOW = datetime.now(UTC)
@@ -114,7 +122,11 @@ def write_index_by_year(root, code: str, name: str, days: list[date], closes: li
 
 
 def write_panel_by_year(root, days: list[date], closes_by_symbol: dict[str, list[float]]) -> None:
-    """Write MANY symbols across the year partitions in one go.
+    """Write MANY symbols across the year partitions in one go (both bars datasets).
+
+    A real lake has ``bars_daily`` (what ingest wrote, the freshness truth) AND
+    ``bars_daily_adjusted`` (derived from it); the API reads the former for "latest data" and
+    the backtest reads the latter, so a fixture needs both.
 
     upsert_partition REPLACES the given dates for the whole partition, so writing symbols one
     call at a time silently leaves only the last one. (write_bars_by_year is fine for a
@@ -125,9 +137,13 @@ def write_panel_by_year(root, days: list[date], closes_by_symbol: dict[str, list
         yd = [days[i] for i in idx]
         tables = [adjusted_table(sym, yd, [closes[i] for i in idx])
                   for sym, closes in closes_by_symbol.items()]
+        adjusted = pa.concat_tables(tables)
         upsert_partition(
-            bars_daily_adjusted_partition(root, "NSE", year),
-            pa.concat_tables(tables),
-            schema=BARS_DAILY_ADJUSTED_SCHEMA,
-            replace_dates=set(yd),
+            bars_daily_adjusted_partition(root, "NSE", year), adjusted,
+            schema=BARS_DAILY_ADJUSTED_SCHEMA, replace_dates=set(yd),
+        )
+        upsert_partition(
+            bars_daily_partition(root, "NSE", year),
+            adjusted.select(BARS_DAILY_SCHEMA.names).cast(BARS_DAILY_SCHEMA),
+            schema=BARS_DAILY_SCHEMA, replace_dates=set(yd),
         )

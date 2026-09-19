@@ -1,0 +1,1725 @@
+{
+  "components": {
+    "schemas": {
+      "Bar": {
+        "properties": {
+          "close": {
+            "title": "Close",
+            "type": "number"
+          },
+          "high": {
+            "title": "High",
+            "type": "number"
+          },
+          "low": {
+            "title": "Low",
+            "type": "number"
+          },
+          "open": {
+            "title": "Open",
+            "type": "number"
+          },
+          "time": {
+            "title": "Time",
+            "type": "string"
+          },
+          "volume": {
+            "title": "Volume",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "time",
+          "open",
+          "high",
+          "low",
+          "close",
+          "volume"
+        ],
+        "title": "Bar",
+        "type": "object"
+      },
+      "Brief": {
+        "properties": {
+          "conflicts": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Conflicts",
+            "type": "array"
+          },
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "generatedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generatedat"
+          },
+          "notablePicks": {
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Notablepicks",
+            "type": "array"
+          },
+          "overview": {
+            "title": "Overview",
+            "type": "string"
+          },
+          "pending": {
+            "title": "Pending",
+            "type": "boolean"
+          },
+          "positionNotes": {
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Positionnotes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "date",
+          "pending",
+          "generatedAt",
+          "overview",
+          "notablePicks",
+          "conflicts",
+          "positionNotes"
+        ],
+        "title": "Brief",
+        "type": "object"
+      },
+      "BriefListItem": {
+        "properties": {
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "pending": {
+            "title": "Pending",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "date",
+          "pending"
+        ],
+        "title": "BriefListItem",
+        "type": "object"
+      },
+      "DelayedFeed": {
+        "properties": {
+          "lagMinutes": {
+            "title": "Lagminutes",
+            "type": "integer"
+          },
+          "stale": {
+            "title": "Stale",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "lagMinutes",
+          "stale"
+        ],
+        "title": "DelayedFeed",
+        "type": "object"
+      },
+      "DemoteRequest": {
+        "properties": {
+          "confirm": {
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "confirm",
+          "reason"
+        ],
+        "title": "DemoteRequest",
+        "type": "object"
+      },
+      "FlaggedBy": {
+        "properties": {
+          "horizon": {
+            "title": "Horizon",
+            "type": "string"
+          },
+          "signalDate": {
+            "title": "Signaldate",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "strategy": {
+            "title": "Strategy",
+            "type": "string"
+          },
+          "strategyId": {
+            "title": "Strategyid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "strategy",
+          "strategyId",
+          "horizon",
+          "signalDate",
+          "status"
+        ],
+        "title": "FlaggedBy",
+        "type": "object"
+      },
+      "Fundamentals": {
+        "properties": {
+          "approx": {
+            "title": "Approx",
+            "type": "boolean"
+          },
+          "asOf": {
+            "title": "Asof",
+            "type": "string"
+          },
+          "deRatio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deratio"
+          },
+          "epsTtm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Epsttm"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "profitCagr3": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profitcagr3"
+          },
+          "roce": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Roce"
+          },
+          "salesCagr3": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Salescagr3"
+          }
+        },
+        "required": [
+          "asOf",
+          "roce",
+          "deRatio",
+          "salesCagr3",
+          "profitCagr3",
+          "epsTtm",
+          "approx",
+          "note"
+        ],
+        "title": "Fundamentals",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "Pick": {
+        "properties": {
+          "approx": {
+            "title": "Approx",
+            "type": "boolean"
+          },
+          "btCagr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Btcagr"
+          },
+          "btWinRate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Btwinrate"
+          },
+          "company": {
+            "title": "Company",
+            "type": "string"
+          },
+          "conflict": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conflict"
+          },
+          "exch": {
+            "title": "Exch",
+            "type": "string"
+          },
+          "hitRate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hitrate"
+          },
+          "holdDays": {
+            "title": "Holddays",
+            "type": "integer"
+          },
+          "horizon": {
+            "title": "Horizon",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "liveReturn": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Livereturn"
+          },
+          "pickReturn": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pickreturn"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "ref": {
+            "title": "Ref",
+            "type": "number"
+          },
+          "score": {
+            "title": "Score",
+            "type": "number"
+          },
+          "sector": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sector"
+          },
+          "signalDate": {
+            "title": "Signaldate",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "stop": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop"
+          },
+          "strategy": {
+            "title": "Strategy",
+            "type": "string"
+          },
+          "strategyId": {
+            "title": "Strategyid",
+            "type": "string"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target"
+          },
+          "window": {
+            "title": "Window",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "symbol",
+          "company",
+          "exch",
+          "sector",
+          "horizon",
+          "strategy",
+          "strategyId",
+          "score",
+          "ref",
+          "stop",
+          "target",
+          "window",
+          "holdDays",
+          "signalDate",
+          "status",
+          "pickReturn",
+          "btCagr",
+          "btWinRate",
+          "liveReturn",
+          "hitRate",
+          "approx",
+          "reason",
+          "conflict"
+        ],
+        "title": "Pick",
+        "type": "object"
+      },
+      "StaleWarning": {
+        "properties": {
+          "job": {
+            "title": "Job",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "since": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Since"
+          }
+        },
+        "required": [
+          "job",
+          "since",
+          "message"
+        ],
+        "title": "StaleWarning",
+        "type": "object"
+      },
+      "Status": {
+        "properties": {
+          "dataAsOf": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dataasof"
+          },
+          "delayedFeed": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DelayedFeed"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "marketLabel": {
+            "title": "Marketlabel",
+            "type": "string"
+          },
+          "marketOpen": {
+            "title": "Marketopen",
+            "type": "boolean"
+          },
+          "nowIst": {
+            "title": "Nowist",
+            "type": "string"
+          },
+          "staleWarning": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StaleWarning"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "nowIst",
+          "marketOpen",
+          "marketLabel",
+          "dataAsOf",
+          "delayedFeed",
+          "staleWarning"
+        ],
+        "title": "Status",
+        "type": "object"
+      },
+      "StockDetail": {
+        "properties": {
+          "changePct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Changepct"
+          },
+          "company": {
+            "title": "Company",
+            "type": "string"
+          },
+          "exch": {
+            "title": "Exch",
+            "type": "string"
+          },
+          "flaggedBy": {
+            "items": {
+              "$ref": "#/components/schemas/FlaggedBy"
+            },
+            "title": "Flaggedby",
+            "type": "array"
+          },
+          "fundamentals": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Fundamentals"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "isin": {
+            "title": "Isin",
+            "type": "string"
+          },
+          "lastClose": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lastclose"
+          },
+          "lastDate": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lastdate"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "tvSymbol": {
+            "title": "Tvsymbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol",
+          "company",
+          "exch",
+          "isin",
+          "tvSymbol",
+          "lastClose",
+          "changePct",
+          "lastDate",
+          "fundamentals",
+          "flaggedBy"
+        ],
+        "title": "StockDetail",
+        "type": "object"
+      },
+      "StockHit": {
+        "properties": {
+          "company": {
+            "title": "Company",
+            "type": "string"
+          },
+          "exch": {
+            "title": "Exch",
+            "type": "string"
+          },
+          "isin": {
+            "title": "Isin",
+            "type": "string"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol",
+          "company",
+          "exch",
+          "isin"
+        ],
+        "title": "StockHit",
+        "type": "object"
+      },
+      "StrategyDetail": {
+        "properties": {
+          "approx": {
+            "title": "Approx",
+            "type": "boolean"
+          },
+          "approxReasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Approxreasons",
+            "type": "array"
+          },
+          "avgHold": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avghold"
+          },
+          "btCagr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Btcagr"
+          },
+          "curveDates": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Curvedates",
+            "type": "array"
+          },
+          "equityCurve": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Equitycurve",
+            "type": "array"
+          },
+          "gateVerdict": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gateverdict"
+          },
+          "hitRate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hitrate"
+          },
+          "horizon": {
+            "title": "Horizon",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "liveClosed": {
+            "title": "Liveclosed",
+            "type": "integer"
+          },
+          "liveReturn": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Livereturn"
+          },
+          "maxDd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maxdd"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "niftyCurve": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Niftycurve",
+            "type": "array"
+          },
+          "notes": {
+            "title": "Notes",
+            "type": "string"
+          },
+          "origin": {
+            "title": "Origin",
+            "type": "string"
+          },
+          "rules": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Rules",
+            "type": "array"
+          },
+          "sharpe": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sharpe"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "statusReason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Statusreason"
+          },
+          "tradeList": {
+            "items": {
+              "$ref": "#/components/schemas/TradeRow"
+            },
+            "title": "Tradelist",
+            "type": "array"
+          },
+          "tradeListSource": {
+            "title": "Tradelistsource",
+            "type": "string"
+          },
+          "trades": {
+            "title": "Trades",
+            "type": "integer"
+          },
+          "walkForward": {
+            "items": {
+              "$ref": "#/components/schemas/WalkForwardWindow"
+            },
+            "title": "Walkforward",
+            "type": "array"
+          },
+          "winRate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Winrate"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "horizon",
+          "status",
+          "statusReason",
+          "origin",
+          "btCagr",
+          "winRate",
+          "maxDd",
+          "sharpe",
+          "trades",
+          "liveReturn",
+          "hitRate",
+          "liveClosed",
+          "avgHold",
+          "approx",
+          "gateVerdict",
+          "notes",
+          "rules",
+          "approxReasons",
+          "curveDates",
+          "equityCurve",
+          "niftyCurve",
+          "walkForward",
+          "tradeList",
+          "tradeListSource"
+        ],
+        "title": "StrategyDetail",
+        "type": "object"
+      },
+      "StrategySummary": {
+        "properties": {
+          "approx": {
+            "title": "Approx",
+            "type": "boolean"
+          },
+          "avgHold": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avghold"
+          },
+          "btCagr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Btcagr"
+          },
+          "gateVerdict": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gateverdict"
+          },
+          "hitRate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hitrate"
+          },
+          "horizon": {
+            "title": "Horizon",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "liveClosed": {
+            "title": "Liveclosed",
+            "type": "integer"
+          },
+          "liveReturn": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Livereturn"
+          },
+          "maxDd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maxdd"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "origin": {
+            "title": "Origin",
+            "type": "string"
+          },
+          "sharpe": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sharpe"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "statusReason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Statusreason"
+          },
+          "trades": {
+            "title": "Trades",
+            "type": "integer"
+          },
+          "winRate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Winrate"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "horizon",
+          "status",
+          "statusReason",
+          "origin",
+          "btCagr",
+          "winRate",
+          "maxDd",
+          "sharpe",
+          "trades",
+          "liveReturn",
+          "hitRate",
+          "liveClosed",
+          "avgHold",
+          "approx",
+          "gateVerdict"
+        ],
+        "title": "StrategySummary",
+        "type": "object"
+      },
+      "TradeRow": {
+        "properties": {
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "ret": {
+            "title": "Ret",
+            "type": "number"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol",
+          "date",
+          "ret"
+        ],
+        "title": "TradeRow",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "WalkForwardWindow": {
+        "properties": {
+          "benchReturn": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Benchreturn"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "result": {
+            "title": "Result",
+            "type": "string"
+          },
+          "stratReturn": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stratreturn"
+          },
+          "testEnd": {
+            "title": "Testend",
+            "type": "string"
+          },
+          "testStart": {
+            "title": "Teststart",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "result",
+          "testStart",
+          "testEnd",
+          "stratReturn",
+          "benchReturn"
+        ],
+        "title": "WalkForwardWindow",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "title": "stk",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/briefs": {
+      "get": {
+        "operationId": "briefs_api_briefs_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/BriefListItem"
+                  },
+                  "title": "Response Briefs Api Briefs Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Briefs"
+      }
+    },
+    "/api/briefs/{day}": {
+      "get": {
+        "operationId": "brief_api_briefs__day__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "day",
+            "required": true,
+            "schema": {
+              "title": "Day",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Brief"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Brief"
+      }
+    },
+    "/api/health": {
+      "get": {
+        "operationId": "health_api_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Health Api Health Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health"
+      }
+    },
+    "/api/picks": {
+      "get": {
+        "operationId": "picks_api_picks_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "date",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date"
+            }
+          },
+          {
+            "in": "query",
+            "name": "horizon",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Horizon"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Pick"
+                  },
+                  "title": "Response Picks Api Picks Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Picks"
+      }
+    },
+    "/api/status": {
+      "get": {
+        "operationId": "status_api_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Status"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Status"
+      }
+    },
+    "/api/stocks/search": {
+      "get": {
+        "operationId": "stock_search_api_stocks_search_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Q",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/StockHit"
+                  },
+                  "title": "Response Stock Search Api Stocks Search Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Stock Search"
+      }
+    },
+    "/api/stocks/{symbol}": {
+      "get": {
+        "operationId": "stock_api_stocks__symbol__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "symbol",
+            "required": true,
+            "schema": {
+              "title": "Symbol",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StockDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Stock"
+      }
+    },
+    "/api/stocks/{symbol}/bars": {
+      "get": {
+        "operationId": "bars_api_stocks__symbol__bars_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "symbol",
+            "required": true,
+            "schema": {
+              "title": "Symbol",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Bar"
+                  },
+                  "title": "Response Bars Api Stocks  Symbol  Bars Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Bars"
+      }
+    },
+    "/api/strategies": {
+      "get": {
+        "operationId": "strategies_api_strategies_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/StrategySummary"
+                  },
+                  "title": "Response Strategies Api Strategies Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Strategies"
+      }
+    },
+    "/api/strategies/{slug}": {
+      "get": {
+        "operationId": "strategy_api_strategies__slug__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StrategyDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Strategy"
+      }
+    },
+    "/api/strategies/{slug}/approve": {
+      "post": {
+        "description": "Take a gated candidate live. Refuses anything that has not passed the gate.",
+        "operationId": "approve_api_strategies__slug__approve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StrategySummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Approve"
+      }
+    },
+    "/api/strategies/{slug}/retire": {
+      "post": {
+        "description": "Take a strategy out of service. Requires explicit confirmation.",
+        "operationId": "retire_api_strategies__slug__retire_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DemoteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StrategySummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Retire"
+      }
+    }
+  }
+}

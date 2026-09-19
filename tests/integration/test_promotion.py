@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from decimal import Decimal
 from pathlib import Path
 
 import numpy as np
@@ -52,6 +53,8 @@ def cfg():
     return load_backtest_config().model_copy(update={
         "walk_forward": WalkForwardConfig(train_months=6, test_months=3, step_months=3),
         "adv_lookback_days": 20,
+        # synthetic stocks trade ~Rs 1 lakh/day; liquidity has its own tests
+        "panel_min_peak_turnover_inr": Decimal(0),
     })
 
 

@@ -70,8 +70,8 @@ ORDER BY date
 
 -- name: backtest_panel
 -- Adjusted daily bars for one exchange over a date range: the raw material of a
--- backtest. Params: tradeable_series (a list, in PRECEDENCE order), exchange,
--- start, end.
+-- backtest. Params, in order: tradeable_series (a list, in PRECEDENCE order); then for the
+-- liquidity floor: exchange, start, end, min_peak_turnover; then exchange, start, end.
 --
 -- ONE ROW PER (symbol, date), by construction. bars_daily_adjusted is keyed by
 -- (exchange, symbol, SERIES, date), and NSE really does publish several series for
@@ -80,10 +80,22 @@ ORDER BY date
 -- Only the tradeable series are kept, and where a symbol has several the earliest in
 -- the precedence list wins (EQ over BE over BZ).
 --
+-- LIQUIDITY FLOOR (the brief: "liquidity filter before any screen"). A symbol is loaded only
+-- if its BEST single day in the range reached min_peak_turnover rupees. That cannot drop a
+-- stock that could ever have passed a median-turnover threshold of the same size (a median
+-- never exceeds the maximum), so it removes the thousands of permanently illiquid names
+-- without changing any result -- it just keeps a 6-year panel small enough to compute.
+-- Pass 0 to disable.
+--
 -- cumulative_price_factor rides along so the unadjusted close (close_raw, used for
 -- absolute-rupee filters) can be recovered; without it close_raw is silently just
 -- the adjusted close.
 WITH p AS (SELECT ?::VARCHAR[] AS series_list),
+liquid AS (
+    SELECT symbol FROM bars_daily_adjusted
+    WHERE exchange = ? AND date BETWEEN ? AND ?
+    GROUP BY symbol HAVING max(turnover) >= ?
+),
 ranked AS (
     SELECT b.date, b.symbol, b.series, b.open, b.high, b.low, b.close, b.volume, b.turnover,
            b.delivery_pct, b.trades, b.cumulative_price_factor,
@@ -94,13 +106,13 @@ ranked AS (
     WHERE b.exchange = ?
       AND b.date BETWEEN ? AND ?
       AND list_contains(p.series_list, b.series)
+      AND b.symbol IN (SELECT symbol FROM liquid)
 )
 SELECT date, symbol, series, open, high, low, close, volume, turnover,
        delivery_pct, trades, cumulative_price_factor
 FROM ranked
 WHERE rn = 1
 ORDER BY date, symbol
-
 
 -- name: panel_for_symbols
 -- The same one-row-per-(symbol, date) adjusted panel as backtest_panel, restricted to a set

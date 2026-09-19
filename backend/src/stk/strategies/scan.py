@@ -66,6 +66,7 @@ def scan(
         raise ValueError(f"{day} is outside the lake's range {span.first}..{span.last}")
 
     result = ScanResult(scan_date=day)
+
     for strategy in list_strategies(conn):
         if strategy.status not in SCANNED_STATUSES:
             continue
@@ -77,6 +78,9 @@ def scan(
             # say so rather than emitting picks off stale data.
             raise ValueError(f"no bars for {exchange} on {day}; ingest that date first")
         signals = DslStrategy(spec).signals(PointInTimeView(data, day), frozenset())
+        # The raw score is a weighted sum of percentile ranks, so its ceiling is the sum of the
+        # weights. Stored on a 0-100 scale so a score means the same thing across strategies.
+        ceiling = sum(k.weight for k in spec.rank.by) if spec.rank else 0.0
         result.strategies += 1
         today = data.bars[data.bars["date"] == pd.Timestamp(day)].set_index("symbol")
 
@@ -100,7 +104,8 @@ def scan(
                         ref * (1 - stop_pct) if stop_pct is not None else None,
                         ref * (1 + target_pct) if target_pct is not None else None,
                         stop_pct, target_pct, sig.max_hold_days,
-                        _window_end(day, sig.max_hold_days).isoformat(), sig.score, rank,
+                        _window_end(day, sig.max_hold_days).isoformat(),
+                        round(sig.score / ceiling * 100.0, 1) if ceiling else 0.0, rank,
                         _reason(spec), datetime.now(UTC).isoformat(),
                     ),
                 )

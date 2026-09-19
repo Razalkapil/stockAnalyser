@@ -41,6 +41,30 @@ jobs:
       - name: Test
         run: uv run pytest -m "not live"
 
+  web:
+    # The dashboard. Types are GENERATED from the API's OpenAPI document, so this job also
+    # regenerates them and fails if the committed copy differs -- a UI built against a stale
+    # contract is the failure this exists to prevent. Network-free apart from `npm ci`.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - name: Generated API types are up to date
+        run: |
+          npm run gen:api
+          git diff --exit-code -- src/lib/api/schema.d.ts
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
   live-endpoints:
     # Manual only: verifies the documented NSE/BSE endpoints are still
     # reachable in their documented shape. See docs/data-sources.md.
