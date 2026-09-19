@@ -90,25 +90,33 @@ def _fetch_integrated_rows(symbol: str, *, timeout_s: float = 30.0) -> list[dict
     """Every integrated-filing row for one symbol (a handful: ~2 per quarter, standalone +
     consolidated, plus revisions). Verified live 2026-09-19: needs only a browser UA, and answers
     ``{"data": [...], "size", "page", "totalCount"}`` -- ``size`` is the page length, so ask for
-    enough to cover ``totalCount`` and fail loudly rather than silently truncate."""
+    enough to cover ``totalCount`` and fail loudly rather than silently truncate.
+
+    A count that disagrees with the rows is retried ONCE: seen live (SHILPAMED: "16 exist, 15
+    returned", then 15 and 15 a minute later), a filing landing between NSE's count and its page.
+    A second disagreement is a real problem and raises."""
     params = {"index": "equities", "period_ended": "all",
               "type": "Integrated Filing- Financials", "symbol": symbol, "size": "200"}
-    try:
-        response = httpx.get(
-            _INTEGRATED_URL, params=params, headers={"User-Agent": BROWSER_UA},
-            timeout=timeout_s, follow_redirects=True)
-    except httpx.HTTPError as exc:
-        raise ProviderUnavailable(f"transport error fetching {_INTEGRATED_URL}: {exc}") from exc
-    payload = validate_json_response(response, url=_INTEGRATED_URL)
-    if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
-        raise ProviderUnavailable(f"{_INTEGRATED_URL} did not return {{'data': [...]}}")
-    rows: list[dict] = payload["data"]
-    total = payload.get("totalCount")
-    if isinstance(total, int) and total > len(rows):
-        raise ProviderUnavailable(
-            f"{_INTEGRATED_URL} for {symbol}: {total} rows exist but only {len(rows)} were "
-            "returned -- refusing to store a truncated history")
-    return rows
+    for attempt in (1, 2):
+        try:
+            response = httpx.get(
+                _INTEGRATED_URL, params=params, headers={"User-Agent": BROWSER_UA},
+                timeout=timeout_s, follow_redirects=True)
+        except httpx.HTTPError as exc:
+            raise ProviderUnavailable(
+                f"transport error fetching {_INTEGRATED_URL}: {exc}") from exc
+        payload = validate_json_response(response, url=_INTEGRATED_URL)
+        if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
+            raise ProviderUnavailable(f"{_INTEGRATED_URL} did not return {{'data': [...]}}")
+        rows: list[dict] = payload["data"]
+        total = payload.get("totalCount")
+        if not (isinstance(total, int) and total > len(rows)):
+            return rows
+        if attempt == 2:
+            raise ProviderUnavailable(
+                f"{_INTEGRATED_URL} for {symbol}: {total} rows exist but only {len(rows)} were "
+                "returned -- refusing to store a truncated history")
+    raise AssertionError("unreachable")  # pragma: no cover
 
 
 def _integrated_row_to_snapshot(row: dict, *, isin: str) -> FundamentalsSnapshotIn | None:

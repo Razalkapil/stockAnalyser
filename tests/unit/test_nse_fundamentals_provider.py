@@ -180,6 +180,25 @@ class TestIntegratedFilings:
             NseFundamentalsProvider().fetch_integrated_statements(REL)
 
     @respx.mock
+    def test_a_count_that_disagrees_once_is_retried_and_then_succeeds(self):
+        """Seen live: a filing landing between NSE's count and its page (16 vs 15, then 15/15)."""
+        racy = integrated_payload()
+        racy["totalCount"] = len(racy["data"]) + 1
+        route = respx.get(INTEGRATED_URL).mock(side_effect=[
+            httpx.Response(200, json=racy), httpx.Response(200, json=integrated_payload())])
+        assert len(NseFundamentalsProvider().fetch_integrated_statements(REL)) == 6
+        assert route.call_count == 2
+
+    @respx.mock
+    def test_a_count_that_disagrees_twice_gives_up_after_exactly_two_calls(self):
+        payload = integrated_payload()
+        payload["totalCount"] = 99
+        route = respx.get(INTEGRATED_URL).mock(return_value=httpx.Response(200, json=payload))
+        with pytest.raises(ProviderUnavailable, match="truncated"):
+            NseFundamentalsProvider().fetch_integrated_statements(REL)
+        assert route.call_count == 2
+
+    @respx.mock
     @pytest.mark.parametrize("body", [[], {"data": "x"}, {"nodata": []}])
     def test_an_unexpected_shape_is_an_error_not_an_empty_history(self, body):
         respx.get(INTEGRATED_URL).mock(return_value=httpx.Response(200, json=body))
