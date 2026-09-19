@@ -73,6 +73,10 @@ class ProvidersConfig(BaseModel):
     #: cannot drift onto the critical path by being named in a config
     #: list somewhere.
     enable_yfinance_fallback: bool = False
+    #: Delayed intraday candles for the paper-trading poller (see providers/yfinance/intraday.py).
+    #: Its own switch, deliberately independent of the one above.
+    intraday: str = "yfinance_intraday"
+    enable_yfinance_intraday: bool = False
 
 
 class HttpEndpointConfig(BaseModel):

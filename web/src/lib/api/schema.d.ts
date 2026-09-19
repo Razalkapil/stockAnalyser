@@ -55,6 +55,61 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/orders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** New Order */
+        post: operations["new_order_api_orders_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/orders/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview
+         * @description What an order would cost, using the SAME model the fills use -- so the ticket's
+         *     estimate is not a different number from what actually gets booked.
+         */
+        post: operations["preview_api_orders_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/orders/{oid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Order */
+        delete: operations["delete_order_api_orders__oid__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/picks": {
         parameters: {
             query?: never;
@@ -64,6 +119,41 @@ export interface paths {
         };
         /** Picks */
         get: operations["picks_api_picks_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/portfolios": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Portfolios */
+        get: operations["portfolios_api_portfolios_get"];
+        put?: never;
+        /** New Portfolio */
+        post: operations["new_portfolio_api_portfolios_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/portfolios/{pid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Portfolio */
+        get: operations["portfolio_api_portfolios__pid__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -214,6 +304,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/trades/{tid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Journal */
+        patch: operations["journal_api_trades__tid__patch"];
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -260,6 +367,29 @@ export interface components {
             date: string;
             /** Pending */
             pending: boolean;
+        };
+        /** CostPreview */
+        CostPreview: {
+            /** Chargebreakdown */
+            chargeBreakdown: {
+                [key: string]: number;
+            };
+            /** Charges */
+            charges: number;
+            /** Dpcharge */
+            dpCharge: number;
+            /** Estprice */
+            estPrice: number;
+            /** Note */
+            note: string;
+            /** Price */
+            price: number;
+            /** Slippagebps */
+            slippageBps: number;
+            /** Total */
+            total: number;
+            /** Value */
+            value: number;
         };
         /** DelayedFeed */
         DelayedFeed: {
@@ -312,6 +442,72 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /** JournalUpdate */
+        JournalUpdate: {
+            /** Note */
+            note: string;
+        };
+        /** NewOrder */
+        NewOrder: {
+            /** Bracketstop */
+            bracketStop?: number | string | null;
+            /** Brackettarget */
+            bracketTarget?: number | string | null;
+            /** Journalnote */
+            journalNote?: string | null;
+            /** Limitprice */
+            limitPrice?: number | string | null;
+            /** Pickid */
+            pickId?: number | null;
+            /** Portfolioid */
+            portfolioId: number;
+            /** Qty */
+            qty: number;
+            /** Side */
+            side: string;
+            /** Symbol */
+            symbol: string;
+            /** Triggerprice */
+            triggerPrice?: number | string | null;
+            /** Type */
+            type: string;
+        };
+        /** NewPortfolio */
+        NewPortfolio: {
+            /** Name */
+            name: string;
+            /** Startcapital */
+            startCapital: number | string;
+        };
+        /** OrderOut */
+        OrderOut: {
+            /** Bracketstop */
+            bracketStop: number | null;
+            /** Brackettarget */
+            bracketTarget: number | null;
+            /** Created */
+            created: string;
+            /** Id */
+            id: number;
+            /** Journalnote */
+            journalNote: string | null;
+            /** Parentorderid */
+            parentOrderId: number | null;
+            /** Price */
+            price: number | null;
+            /** Qty */
+            qty: number;
+            /** Side */
+            side: string;
+            /** Status */
+            status: string;
+            /** Statusnote */
+            statusNote: string | null;
+            /** Symbol */
+            symbol: string;
+            /** Type */
+            type: string;
+        };
         /** Pick */
         Pick: {
             /** Approx */
@@ -362,6 +558,112 @@ export interface components {
             target: number | null;
             /** Window */
             window: string;
+        };
+        /** PortfolioDetail */
+        PortfolioDetail: {
+            /** Asof */
+            asOf: string | null;
+            /** Cash */
+            cash: number;
+            /** Charges */
+            charges: number;
+            /** Currentvalue */
+            currentValue: number;
+            /** Curve */
+            curve: number[];
+            /** Curvedates */
+            curveDates: string[];
+            /** Id */
+            id: number;
+            /** Invested */
+            invested: number;
+            /** Maxdd */
+            maxDd: number | null;
+            /** Name */
+            name: string;
+            /** Niftycurve */
+            niftyCurve: number[];
+            /** Niftyreturnpct */
+            niftyReturnPct: number | null;
+            /** Orders */
+            orders: components["schemas"]["OrderOut"][];
+            /** Positions */
+            positions: components["schemas"]["PositionOut"][];
+            /** Realisedpnl */
+            realisedPnl: number;
+            /** Returnpct */
+            returnPct: number;
+            /** Startcapital */
+            startCapital: number;
+            /** Trades */
+            trades: components["schemas"]["TradeOut"][];
+            /** Unrealisedpnl */
+            unrealisedPnl: number;
+            /** Winrate */
+            winRate: number | null;
+            /** Xirr */
+            xirr: number | null;
+        };
+        /** PortfolioSummary */
+        PortfolioSummary: {
+            /** Asof */
+            asOf: string | null;
+            /** Cash */
+            cash: number;
+            /** Charges */
+            charges: number;
+            /** Currentvalue */
+            currentValue: number;
+            /** Id */
+            id: number;
+            /** Invested */
+            invested: number;
+            /** Maxdd */
+            maxDd: number | null;
+            /** Name */
+            name: string;
+            /** Niftyreturnpct */
+            niftyReturnPct: number | null;
+            /** Realisedpnl */
+            realisedPnl: number;
+            /** Returnpct */
+            returnPct: number;
+            /** Startcapital */
+            startCapital: number;
+            /** Unrealisedpnl */
+            unrealisedPnl: number;
+            /** Winrate */
+            winRate: number | null;
+            /** Xirr */
+            xirr: number | null;
+        };
+        /** PositionOut */
+        PositionOut: {
+            /** Avg */
+            avg: number;
+            /** Days */
+            days: number;
+            /** Ltp */
+            ltp: number | null;
+            /** Pnl */
+            pnl: number | null;
+            /** Pnlpct */
+            pnlPct: number | null;
+            /** Qty */
+            qty: number;
+            /** Symbol */
+            symbol: string;
+        };
+        /** PreviewRequest */
+        PreviewRequest: {
+            /** Price */
+            price: number | string;
+            /** Qty */
+            qty: number;
+            /** Side */
+            side: string;
+            /** Symbol */
+            symbol: string;
         };
         /** StaleWarning */
         StaleWarning: {
@@ -510,6 +812,37 @@ export interface components {
             /** Winrate */
             winRate: number | null;
         };
+        /** TradeOut */
+        TradeOut: {
+            /** Charges */
+            charges: number;
+            /** Delayed */
+            delayed: boolean;
+            /** Feedlags */
+            feedLagS: number | null;
+            /** Fill */
+            fill: number;
+            /** Fillbasis */
+            fillBasis: string;
+            /** Fillreason */
+            fillReason: string;
+            /** Id */
+            id: number;
+            /** Journalnote */
+            journalNote: string | null;
+            /** Orderid */
+            orderId: number;
+            /** Qty */
+            qty: number;
+            /** Realisedpnl */
+            realisedPnl: number | null;
+            /** Side */
+            side: string;
+            /** Symbol */
+            symbol: string;
+            /** Time */
+            time: string;
+        };
         /** TradeRow */
         TradeRow: {
             /** Date */
@@ -629,6 +962,107 @@ export interface operations {
             };
         };
     };
+    new_order_api_orders_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewOrder"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: number;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_api_orders_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CostPreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_order_api_orders__oid__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                oid: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     picks_api_picks_get: {
         parameters: {
             query?: {
@@ -648,6 +1082,90 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Pick"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    portfolios_api_portfolios_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortfolioSummary"][];
+                };
+            };
+        };
+    };
+    new_portfolio_api_portfolios_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewPortfolio"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortfolioSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    portfolio_api_portfolios__pid__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortfolioDetail"];
                 };
             };
             /** @description Validation Error */
@@ -881,6 +1399,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StrategySummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    journal_api_trades__tid__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tid: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JournalUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
                 };
             };
             /** @description Validation Error */

@@ -89,17 +89,22 @@ def persist_artifact(raw_root: Path, conn: sqlite3.Connection, artifact: RawArti
     return "ok"
 
 
-def persist_document(raw_root: Path, conn: sqlite3.Connection, artifact: RawArtifact) -> Path:
+def persist_document(
+    raw_root: Path, conn: sqlite3.Connection, artifact: RawArtifact, *, suffix: str | None = None
+) -> Path:
     """Persist one of MANY documents that share a business date, content-addressed.
 
     ``persist_artifact`` names files by (source, business_date) -- right for a
     daily bhavcopy, wrong for filings, where dozens arrive on the same date
     and would overwrite one another. Here the path is derived from the bytes
-    (``raw/<source>/by-sha/ab/ab12....xml``), so identical bytes are one file
-    (re-ingest is a no-op) and different bytes can never clobber each other.
+    (``raw/<source>/by-sha/ab/ab12....<ext>``), so identical bytes are one file
+    (re-ingest is a no-op) and different bytes can never clobber each other. The extension is
+    ``suffix`` if given, else ``.json`` for JSON content and ``.xml`` otherwise.
     """
     sha256 = hashlib.sha256(artifact.content).hexdigest()
-    path = raw_root / artifact.source / "by-sha" / sha256[:2] / f"{sha256}.xml"
+    if suffix is None:
+        suffix = ".json" if artifact.content_type and "json" in artifact.content_type else ".xml"
+    path = raw_root / artifact.source / "by-sha" / sha256[:2] / f"{sha256}{suffix}"
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(artifact.content)

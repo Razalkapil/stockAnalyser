@@ -1,0 +1,8 @@
+# Paper-trading poller. Everything a person would tune.
+poller:
+  interval: 5m              # candle size asked of the delayed feed (1m | 5m | 15m)
+  poll_every_s: 180         # while the market is open
+  # If the newest candle's END is older than this, the feed is treated as DOWN: nothing fills on
+  # stale data, orders are parked as pending_eod, and the end-of-day bar decides them instead.
+  # Yahoo runs ~15 min behind, so 25 min leaves headroom without hiding a real outage.
+  stale_after_s: 1500

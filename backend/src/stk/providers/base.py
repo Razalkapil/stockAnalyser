@@ -22,7 +22,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from stk.core.errors import NotSupportedError
 
@@ -202,6 +202,46 @@ class FundamentalsSnapshotIn(BaseModel):
     data: dict
     source_url: str | None = None
     source_hash: str
+
+
+class IntradayCandle(BaseModel):
+    """One intraday OHLCV candle. ``start`` is timezone-AWARE (IST) -- naive datetimes are
+    refused, because comparing an aware order timestamp with a naive candle time is a bug
+    waiting to happen."""
+
+    start: datetime
+    open: Decimal
+    high: Decimal
+    low: Decimal
+    close: Decimal
+    volume: int = 0
+
+    @field_validator("start")
+    @classmethod
+    def _aware(cls, v: datetime) -> datetime:
+        if v.tzinfo is None:
+            raise ValueError("candle start must be timezone-aware")
+        return v
+
+
+class IntradayProvider(ABC):
+    """Source of DELAYED intraday candles for the paper-trading poller.
+
+    Deliberately separate from PriceProvider: intraday data is approximate, delayed and
+    unofficial, and must never be reachable from the end-of-day price pipeline.
+    """
+
+    @property
+    @abstractmethod
+    def capabilities(self) -> ProviderCapabilities: ...
+
+    @abstractmethod
+    def fetch_candles_raw(self, symbol: str, exchange: str, interval: str = "5m") -> RawArtifact:
+        """Fetch today's candles for one symbol as verbatim bytes, before any parsing."""
+
+    @abstractmethod
+    def parse_candles(self, artifact: RawArtifact) -> list[IntradayCandle]:
+        """Parse a previously fetched artifact (offline; no network)."""
 
 
 class PriceProvider(ABC):

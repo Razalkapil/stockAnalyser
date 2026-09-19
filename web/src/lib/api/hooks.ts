@@ -1,10 +1,14 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiGet, apiPost } from "./client";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { apiDelete, apiGet, apiPatch, apiPost } from "./client";
 import type {
   Bar,
   Brief,
   BriefListItem,
+  CostPreview,
+  NewOrder,
   Pick,
+  PortfolioDetail,
+  PortfolioSummary,
   Status,
   StockDetail,
   StockHit,
@@ -89,3 +93,74 @@ export function useStrategyAction(slug: string) {
     }),
   };
 }
+
+// --- playground ----------------------------------------------------------------------------
+
+export const usePortfolios = () =>
+  useQuery({ queryKey: ["portfolios"], queryFn: () => apiGet<PortfolioSummary[]>("/api/portfolios") });
+
+/** Polled while the tab is open: fills happen server-side, between page loads. */
+export const usePortfolio = (id: number | null) =>
+  useQuery({
+    queryKey: ["portfolio", id],
+    queryFn: () => apiGet<PortfolioDetail>(`/api/portfolios/${id}`),
+    enabled: id != null,
+    refetchInterval: 30_000,
+  });
+
+function usePortfolioInvalidation() {
+  const qc = useQueryClient();
+  return () => {
+    void qc.invalidateQueries({ queryKey: ["portfolios"] });
+    void qc.invalidateQueries({ queryKey: ["portfolio"] });
+  };
+}
+
+export function useCreatePortfolio() {
+  const done = usePortfolioInvalidation();
+  return useMutation({
+    mutationFn: (b: { name: string; startCapital: string }) =>
+      apiPost<PortfolioSummary>("/api/portfolios", b),
+    onSuccess: done,
+  });
+}
+
+export function usePlaceOrder() {
+  const done = usePortfolioInvalidation();
+  return useMutation({
+    mutationFn: (b: NewOrder) => apiPost<{ id: number }>("/api/orders", b),
+    onSuccess: done,
+  });
+}
+
+export function useCancelOrder() {
+  const done = usePortfolioInvalidation();
+  return useMutation({
+    mutationFn: (id: number) => apiDelete(`/api/orders/${id}`),
+    onSuccess: done,
+  });
+}
+
+export function useJournal() {
+  const done = usePortfolioInvalidation();
+  return useMutation({
+    mutationFn: (v: { id: number; note: string }) => apiPatch(`/api/trades/${v.id}`, { note: v.note }),
+    onSuccess: done,
+  });
+}
+
+export const useCostPreview = (req: { symbol: string; side: string; qty: number; price: number } | null) =>
+  useQuery({
+    queryKey: ["preview", req],
+    queryFn: () =>
+      apiPost<CostPreview>("/api/orders/preview", {
+        symbol: req!.symbol,
+        side: req!.side,
+        qty: req!.qty,
+        price: String(req!.price),
+      }),
+    enabled: req != null,
+    placeholderData: keepPreviousData,
+    staleTime: 10_000,
+    retry: false,
+  });

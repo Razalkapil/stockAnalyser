@@ -1,7 +1,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { OrderDrawer } from "./components/OrderDrawer";
 import { StaleBanner } from "./components/StaleBanner";
+import { TicketProvider } from "./components/TicketContext";
 import { TopBar } from "./components/TopBar";
 import { getToken } from "./lib/api/client";
 import { useStatus } from "./lib/api/hooks";
@@ -60,7 +62,10 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        <Shell />
+        <TicketProvider>
+          <Shell />
+          <OrderDrawer />
+        </TicketProvider>
       </BrowserRouter>
     </QueryClientProvider>
   );

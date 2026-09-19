@@ -1,14 +1,25 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { pick } from "../test/fixtures";
 import { EquityChart } from "./EquityChart";
 import { PickCard } from "./PickCard";
+import { TicketProvider, useTicket } from "./TicketContext";
 import { StaleBanner } from "./StaleBanner";
 import { StatusPill } from "./StatusPill";
 
+function withTicket(ui: React.ReactElement) {
+  return render(<TicketProvider>{ui}</TicketProvider>);
+}
+
+/** Shows what the ticket was opened with, so tests can assert the prefill. */
+function TicketProbe() {
+  const { open, prefill } = useTicket();
+  return <div data-testid="probe">{open ? JSON.stringify(prefill) : "closed"}</div>;
+}
+
 describe("PickCard", () => {
   it("shows the design's fields with lakh formatting", () => {
-    render(<PickCard pick={pick({ ref: 123456.5 })} />);
+    withTicket(<PickCard pick={pick({ ref: 123456.5 })} />);
     expect(screen.getByText("RELIANCE")).toBeInTheDocument();
     expect(screen.getByText("NSE")).toBeInTheDocument();
     expect(screen.getByText("78/100")).toBeInTheDocument();
@@ -19,32 +30,46 @@ describe("PickCard", () => {
   });
 
   it("shows a dash, not a zero, when there is no backtest or live record", () => {
-    render(<PickCard pick={pick({ btCagr: null, liveReturn: null, hitRate: null, target: null })} />);
+    withTicket(<PickCard pick={pick({ btCagr: null, liveReturn: null, hitRate: null, target: null })} />);
     expect(screen.getByText(/BT — \/ Live —/)).toBeInTheDocument();
     expect(screen.getByText("— hit")).toBeInTheDocument();
     expect(screen.queryByText("₹0.00")).not.toBeInTheDocument();
   });
 
   it("flags an approximate backtest", () => {
-    render(<PickCard pick={pick({ approx: true })} />);
+    withTicket(<PickCard pick={pick({ approx: true })} />);
     expect(screen.getByText("approx")).toBeInTheDocument();
   });
 
   it("renders a conflict note only when there is one", () => {
-    const { rerender } = render(<PickCard pick={pick()} />);
+    const { rerender } = withTicket(<PickCard pick={pick()} />);
     expect(screen.queryByText("⚑")).not.toBeInTheDocument();
-    rerender(<PickCard pick={pick({ conflict: "Fundamentals deteriorating" })} />);
+    rerender(
+      <TicketProvider>
+        <PickCard pick={pick({ conflict: "Fundamentals deteriorating" })} />
+      </TicketProvider>,
+    );
     expect(screen.getByText("Fundamentals deteriorating")).toBeInTheDocument();
   });
 
-  it("does not offer paper trading before the playground exists", () => {
-    render(<PickCard pick={pick()} />);
-    expect(screen.getByRole("button", { name: /paper trade/i })).toBeDisabled();
+  it("'Paper trade this' opens the ticket pre-filled from the pick", () => {
+    render(
+      <TicketProvider>
+        <PickCard pick={pick({ id: 42, ref: 2945, stop: 2870.5, target: 3120 })} />
+        <TicketProbe />
+      </TicketProvider>,
+    );
+    expect(screen.getByTestId("probe")).toHaveTextContent("closed");
+    screen.getByRole("button", { name: /paper trade/i }).click();
+    return waitFor(() => {
+      const opened = JSON.parse(screen.getByTestId("probe").textContent ?? "{}");
+      expect(opened).toMatchObject({ symbol: "RELIANCE", side: "buy", ref: 2945, stop: 2870.5, target: 3120, pickId: 42 });
+    });
   });
 
   it("opens the stock when the symbol is clicked", () => {
     let opened = "";
-    render(<PickCard pick={pick()} onOpen={(s) => (opened = s)} />);
+    withTicket(<PickCard pick={pick()} onOpen={(s) => (opened = s)} />);
     screen.getByText("RELIANCE").click();
     expect(opened).toBe("RELIANCE");
   });

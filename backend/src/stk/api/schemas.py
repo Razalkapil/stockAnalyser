@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_camel
 
@@ -170,3 +172,118 @@ class Brief(Wire):
 class DemoteRequest(Wire):
     confirm: bool
     reason: str
+
+
+# --- playground ------------------------------------------------------------------------------
+
+
+class PositionOut(Wire):
+    symbol: str
+    qty: int
+    avg: float
+    ltp: float | None
+    pnl: float | None
+    pnl_pct: float | None
+    days: int
+
+
+class OrderOut(Wire):
+    id: int
+    symbol: str
+    side: str
+    type: str
+    qty: int
+    price: float | None  # the limit or trigger price
+    status: str
+    status_note: str | None
+    created: str
+    journal_note: str | None
+    bracket_stop: float | None
+    bracket_target: float | None
+    parent_order_id: int | None
+
+
+class TradeOut(Wire):
+    id: int
+    order_id: int
+    symbol: str
+    side: str
+    qty: int
+    fill: float
+    time: str
+    charges: float
+    realised_pnl: float | None
+    fill_basis: str  # 'delayed_intraday' | 'eod_fallback'
+    delayed: bool
+    fill_reason: str
+    feed_lag_s: int | None
+    journal_note: str | None
+
+
+class PortfolioSummary(Wire):
+    id: int
+    name: str
+    start_capital: float
+    cash: float
+    invested: float
+    current_value: float
+    realised_pnl: float
+    unrealised_pnl: float
+    charges: float
+    return_pct: float
+    nifty_return_pct: float | None
+    xirr: float | None
+    max_dd: float | None
+    win_rate: float | None
+    as_of: str | None
+
+
+class PortfolioDetail(PortfolioSummary):
+    positions: list[PositionOut]
+    orders: list[OrderOut]
+    trades: list[TradeOut]
+    curve_dates: list[str]
+    curve: list[float]
+    nifty_curve: list[float]
+
+
+class NewPortfolio(Wire):
+    name: str
+    start_capital: Decimal
+
+
+class NewOrder(Wire):
+    portfolio_id: int
+    symbol: str
+    side: str
+    type: str
+    qty: int
+    limit_price: Decimal | None = None
+    trigger_price: Decimal | None = None
+    bracket_stop: Decimal | None = None
+    bracket_target: Decimal | None = None
+    journal_note: str | None = None
+    pick_id: int | None = None
+
+
+class CostPreview(Wire):
+    price: float  # the reference price used
+    est_price: float  # after estimated slippage
+    slippage_bps: float
+    value: float
+    charges: float
+    dp_charge: float
+    total: float  # buy: value + charges. sell: value - charges.
+    charge_breakdown: dict[str, float]
+    note: str
+
+
+class PreviewRequest(Wire):
+    symbol: str
+    side: str
+    qty: int
+    price: Decimal
+
+
+class JournalUpdate(Wire):
+    note: str

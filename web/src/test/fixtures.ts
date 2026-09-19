@@ -72,7 +72,7 @@ export const detail = (over: Partial<StrategyDetail> = {}): StrategyDetail => ({
  * loudly: a prefix match once let `/api/strategies/a` silently fall through to the list route.
  */
 export function mockApi(routes: Record<string, unknown>) {
-  const fn = vi.fn(async (input: RequestInfo | URL) => {
+  const fn = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
     const path = String(input).split("?")[0] ?? "";
     if (!(path in routes)) throw new Error(`unmocked request: ${String(input)}`);
     const body = routes[path];
@@ -103,3 +103,49 @@ export const bars = [
   { time: "2026-09-15", open: 100, high: 105, low: 99, close: 104, volume: 1000 },
   { time: "2026-09-16", open: 104, high: 106, low: 103, close: 105, volume: 1100 },
 ];
+
+export const portfolioSummary = (over: Record<string, unknown> = {}) => ({
+  id: 1,
+  name: "Main",
+  startCapital: 1_000_000,
+  cash: 900_000,
+  invested: 100_000,
+  currentValue: 1_012_345.5,
+  realisedPnl: 2500,
+  unrealisedPnl: 9845.5,
+  charges: 310.25,
+  returnPct: 0.0123,
+  niftyReturnPct: 0.008,
+  xirr: 0.14,
+  maxDd: -0.031,
+  winRate: 0.6,
+  asOf: "2026-09-18",
+  ...over,
+});
+
+export const portfolioDetail = (over: Record<string, unknown> = {}) => ({
+  ...portfolioSummary(),
+  positions: [
+    { symbol: "RELIANCE", qty: 10, avg: 2900, ltp: 2945.5, pnl: 455, pnlPct: 0.0157, days: 4 },
+  ],
+  orders: [
+    { id: 11, symbol: "TITAN", side: "buy", type: "LIMIT", qty: 5, price: 3400, status: "open",
+      statusNote: null, created: "2026-09-18T10:02:00+05:30", journalNote: null,
+      bracketStop: null, bracketTarget: null, parentOrderId: null },
+    { id: 12, symbol: "LT", side: "sell", type: "SL", qty: 3, price: 3300, status: "pending_eod",
+      statusNote: "Delayed feed down — will fall back to EOD fill", created: "2026-09-18T10:05:00+05:30",
+      journalNote: null, bracketStop: null, bracketTarget: null, parentOrderId: null },
+  ],
+  trades: [
+    { id: 1, orderId: 3, symbol: "RELIANCE", side: "buy", qty: 10, fill: 2900.05,
+      time: "2026-09-15T10:35:00+05:30", charges: 42.6, realisedPnl: null, fillBasis: "delayed_intraday",
+      delayed: true, fillReason: "limit_touch", feedLagS: 840, journalNote: "breakout entry" },
+    { id: 2, orderId: 4, symbol: "TCS", side: "sell", qty: 4, fill: 4100,
+      time: "2026-09-16T15:30:00+05:30", charges: 55, realisedPnl: 800, fillBasis: "eod_fallback",
+      delayed: false, fillReason: "target_touch", feedLagS: null, journalNote: null },
+  ],
+  curveDates: ["2026-09-01", "2026-09-18"],
+  curve: [1_000_000, 1_012_345],
+  niftyCurve: [1_000_000, 1_008_000],
+  ...over,
+});

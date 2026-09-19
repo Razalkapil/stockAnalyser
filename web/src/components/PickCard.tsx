@@ -2,6 +2,7 @@ import type { Pick } from "../lib/api/types";
 import { fmtINR, fmtPct, fmtPlainPct, fmtScore } from "../lib/format";
 import { color, font, tint } from "../lib/theme";
 import { Num } from "./Num";
+import { useTicket } from "./TicketContext";
 
 const label = {
   font: `500 9px ${font.sans}`,
@@ -20,6 +21,7 @@ function Cell({ name, children }: { name: string; children: string }) {
 }
 
 export function PickCard({ pick: p, onOpen }: { pick: Pick; onOpen?: (symbol: string) => void }) {
+  const { openTicket } = useTicket();
   return (
     <div
       data-testid="pick-card"
@@ -135,8 +137,17 @@ export function PickCard({ pick: p, onOpen }: { pick: Pick; onOpen?: (symbol: st
       >
         <span style={{ font: `500 10.5px ${font.sans}`, color: color.textFaint }}>{p.window}</span>
         <button
-          disabled
-          title="Paper trading arrives with the playground"
+          onClick={() =>
+            openTicket({
+              symbol: p.symbol,
+              side: "buy",
+              ref: p.ref,
+              stop: p.stop,
+              target: p.target,
+              pickId: p.id,
+              note: `${p.strategy}: ${p.reason}`,
+            })
+          }
           style={{
             padding: "6px 12px",
             borderRadius: 5,
@@ -144,8 +155,7 @@ export function PickCard({ pick: p, onOpen }: { pick: Pick; onOpen?: (symbol: st
             color: color.accent,
             font: `600 11px ${font.sans}`,
             border: "none",
-            opacity: 0.5,
-            cursor: "not-allowed",
+            cursor: "pointer",
           }}
         >
           Paper trade this

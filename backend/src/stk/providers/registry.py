@@ -18,6 +18,7 @@ from stk.providers.base import (
     CalendarProvider,
     CorporateActionsProvider,
     FundamentalsProvider,
+    IntradayProvider,
     PriceProvider,
     SecurityMasterProvider,
 )
@@ -84,6 +85,29 @@ def get_price_provider(name: str) -> PriceProvider:
 
     # A future kite/broker adapter registers here as it lands.
     raise ConfigError(f"unknown price provider: {name!r}")
+
+
+def get_intraday_provider(name: str | None = None) -> IntradayProvider:
+    """The DELAYED intraday candle source for the paper-trading poller.
+
+    Gated by its OWN switch, ``providers.enable_yfinance_intraday``, and independent of
+    ``enable_yfinance_fallback``: turning intraday candles on for the playground must not put
+    Yahoo anywhere near the end-of-day price pipeline.
+    """
+    from stk.config.settings import get_settings  # noqa: PLC0415
+
+    settings = get_settings().providers
+    chosen = name or settings.intraday
+    if chosen == "yfinance_intraday":
+        if not settings.enable_yfinance_intraday:
+            raise ConfigError(
+                "the intraday provider is disabled. Set providers.enable_yfinance_intraday: "
+                "true to let the paper-trading poller use delayed Yahoo candles."
+            )
+        from stk.providers.yfinance.intraday import YFinanceIntradayProvider  # noqa: PLC0415
+
+        return YFinanceIntradayProvider()
+    raise ConfigError(f"unknown intraday provider: {chosen!r}")
 
 
 def get_nse_price_provider_for_date(business_date: date) -> PriceProvider:

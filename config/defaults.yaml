@@ -34,6 +34,11 @@ providers:
   # reach it: providers.registry raises ConfigError unless this is true.
   # See providers/yfinance/prices.py for what it cannot do.
   enable_yfinance_fallback: false
+  # Delayed intraday candles for the paper-trading poller ONLY. A separate switch so enabling
+  # it cannot put Yahoo on the end-of-day price path. Fills made from it are always stamped
+  # `delayed_intraday`; when the feed is stale nothing fills and orders wait for the EOD bar.
+  intraday: yfinance_intraday
+  enable_yfinance_intraday: true
 
 http:
   nse_archives:

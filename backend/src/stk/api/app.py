@@ -8,56 +8,19 @@ token. Reads only; the two writes (approve / retire a strategy) go through the a
 
 from __future__ import annotations
 
-import sqlite3
-from collections.abc import Iterator
-from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
 
-from stk.api import auth, services
+from stk.api import playground_routes, services
 from stk.api import schemas as s
+from stk.api.deps import ApiContext, Conn, Ctx, require_token
+from stk.backtest.setup import make_rates_fn
 from stk.config.backtest import BacktestConfig, load_backtest_config
-from stk.store.db.engine import connect
+from stk.playground.context import PlayCtx
 from stk.strategies.repo import get_strategy, set_status
-
-_bearer = HTTPBearer(auto_error=False)
-
-
-@dataclass(frozen=True)
-class ApiContext:
-    sqlite_path: Path
-    parquet_root: Path
-    cfg: BacktestConfig
-
-
-def get_ctx(request: Request) -> ApiContext:
-    ctx: ApiContext = request.app.state.ctx
-    return ctx
-
-
-def get_conn(ctx: Annotated[ApiContext, Depends(get_ctx)]) -> Iterator[sqlite3.Connection]:
-    conn = connect(ctx.sqlite_path)
-    try:
-        yield conn
-    finally:
-        conn.close()
-
-
-def require_token(
-    creds: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
-    conn: Annotated[sqlite3.Connection, Depends(get_conn)],
-) -> None:
-    if creds is None or not auth.verify_token(conn, creds.credentials):
-        raise HTTPException(status_code=401, detail="missing or invalid token",
-                            headers={"WWW-Authenticate": "Bearer"})
-
-
-Conn = Annotated[sqlite3.Connection, Depends(get_conn)]
-Ctx = Annotated[ApiContext, Depends(get_ctx)]
 
 open_router = APIRouter()
 router = APIRouter(dependencies=[Depends(require_token)])
@@ -164,9 +127,12 @@ def brief(day: str) -> s.Brief:
 def create_app(*, sqlite_path: Path, parquet_root: Path, cfg: BacktestConfig | None = None
                ) -> FastAPI:
     app = FastAPI(title="stk", docs_url="/api/docs", openapi_url="/api/openapi.json")
-    app.state.ctx = ApiContext(sqlite_path, parquet_root, cfg or load_backtest_config())
+    resolved = cfg or load_backtest_config()
+    app.state.ctx = ApiContext(sqlite_path, parquet_root, resolved)
+    app.state.play_ctx = PlayCtx(parquet_root, resolved, make_rates_fn())
     app.include_router(open_router)
     app.include_router(router)
+    app.include_router(playground_routes.router)
     return app
 
 

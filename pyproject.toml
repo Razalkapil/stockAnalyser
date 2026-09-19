@@ -52,7 +52,7 @@ disallow_untyped_defs = true
 disallow_incomplete_defs = true
 
 [[tool.mypy.overrides]]
-module = ["stk.backtest.*", "stk.strategies.*"]
+module = ["stk.backtest.*", "stk.strategies.*", "stk.playground.*"]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
 
@@ -99,7 +99,7 @@ type = "forbidden"
 allow_indirect_imports = "true"
 source_modules = [
     "stk.ingest", "stk.domain", "stk.cli", "stk.store", "stk.backtest", "stk.strategies",
-    "stk.api",
+    "stk.api", "stk.playground",
 ]
 forbidden_modules = [
     "stk.providers.nse",
@@ -131,11 +131,12 @@ forbidden_modules = [
 # ingest/ imports stk.providers.base + registry, so the two are
 # mutually dependent by design and cannot be strictly layered.
 [[tool.importlinter.contracts]]
-name = "Layering: cli > api > strategies > backtest > ingest > store > config > domain > core"
+name = "Layering: cli > api > playground > strategies > backtest > ingest > store > config > domain > core"
 type = "layers"
 layers = [
     "stk.cli",
     "stk.api",
+    "stk.playground",
     "stk.strategies",
     "stk.backtest",
     "stk.ingest",

@@ -122,6 +122,62 @@
         "title": "BriefListItem",
         "type": "object"
       },
+      "CostPreview": {
+        "properties": {
+          "chargeBreakdown": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Chargebreakdown",
+            "type": "object"
+          },
+          "charges": {
+            "title": "Charges",
+            "type": "number"
+          },
+          "dpCharge": {
+            "title": "Dpcharge",
+            "type": "number"
+          },
+          "estPrice": {
+            "title": "Estprice",
+            "type": "number"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "price": {
+            "title": "Price",
+            "type": "number"
+          },
+          "slippageBps": {
+            "title": "Slippagebps",
+            "type": "number"
+          },
+          "total": {
+            "title": "Total",
+            "type": "number"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "price",
+          "estPrice",
+          "slippageBps",
+          "value",
+          "charges",
+          "dpCharge",
+          "total",
+          "chargeBreakdown",
+          "note"
+        ],
+        "title": "CostPreview",
+        "type": "object"
+      },
       "DelayedFeed": {
         "properties": {
           "lagMinutes": {
@@ -285,6 +341,275 @@
           }
         },
         "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "JournalUpdate": {
+        "properties": {
+          "note": {
+            "title": "Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "note"
+        ],
+        "title": "JournalUpdate",
+        "type": "object"
+      },
+      "NewOrder": {
+        "properties": {
+          "bracketStop": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bracketstop"
+          },
+          "bracketTarget": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Brackettarget"
+          },
+          "journalNote": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Journalnote"
+          },
+          "limitPrice": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limitprice"
+          },
+          "pickId": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pickid"
+          },
+          "portfolioId": {
+            "title": "Portfolioid",
+            "type": "integer"
+          },
+          "qty": {
+            "title": "Qty",
+            "type": "integer"
+          },
+          "side": {
+            "title": "Side",
+            "type": "string"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "triggerPrice": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Triggerprice"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "portfolioId",
+          "symbol",
+          "side",
+          "type",
+          "qty"
+        ],
+        "title": "NewOrder",
+        "type": "object"
+      },
+      "NewPortfolio": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "startCapital": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              }
+            ],
+            "title": "Startcapital"
+          }
+        },
+        "required": [
+          "name",
+          "startCapital"
+        ],
+        "title": "NewPortfolio",
+        "type": "object"
+      },
+      "OrderOut": {
+        "properties": {
+          "bracketStop": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bracketstop"
+          },
+          "bracketTarget": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Brackettarget"
+          },
+          "created": {
+            "title": "Created",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "journalNote": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Journalnote"
+          },
+          "parentOrderId": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parentorderid"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price"
+          },
+          "qty": {
+            "title": "Qty",
+            "type": "integer"
+          },
+          "side": {
+            "title": "Side",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "statusNote": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Statusnote"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "symbol",
+          "side",
+          "type",
+          "qty",
+          "price",
+          "status",
+          "statusNote",
+          "created",
+          "journalNote",
+          "bracketStop",
+          "bracketTarget",
+          "parentOrderId"
+        ],
+        "title": "OrderOut",
         "type": "object"
       },
       "Pick": {
@@ -476,6 +801,390 @@
           "conflict"
         ],
         "title": "Pick",
+        "type": "object"
+      },
+      "PortfolioDetail": {
+        "properties": {
+          "asOf": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asof"
+          },
+          "cash": {
+            "title": "Cash",
+            "type": "number"
+          },
+          "charges": {
+            "title": "Charges",
+            "type": "number"
+          },
+          "currentValue": {
+            "title": "Currentvalue",
+            "type": "number"
+          },
+          "curve": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Curve",
+            "type": "array"
+          },
+          "curveDates": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Curvedates",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "invested": {
+            "title": "Invested",
+            "type": "number"
+          },
+          "maxDd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maxdd"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "niftyCurve": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Niftycurve",
+            "type": "array"
+          },
+          "niftyReturnPct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Niftyreturnpct"
+          },
+          "orders": {
+            "items": {
+              "$ref": "#/components/schemas/OrderOut"
+            },
+            "title": "Orders",
+            "type": "array"
+          },
+          "positions": {
+            "items": {
+              "$ref": "#/components/schemas/PositionOut"
+            },
+            "title": "Positions",
+            "type": "array"
+          },
+          "realisedPnl": {
+            "title": "Realisedpnl",
+            "type": "number"
+          },
+          "returnPct": {
+            "title": "Returnpct",
+            "type": "number"
+          },
+          "startCapital": {
+            "title": "Startcapital",
+            "type": "number"
+          },
+          "trades": {
+            "items": {
+              "$ref": "#/components/schemas/TradeOut"
+            },
+            "title": "Trades",
+            "type": "array"
+          },
+          "unrealisedPnl": {
+            "title": "Unrealisedpnl",
+            "type": "number"
+          },
+          "winRate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Winrate"
+          },
+          "xirr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Xirr"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "startCapital",
+          "cash",
+          "invested",
+          "currentValue",
+          "realisedPnl",
+          "unrealisedPnl",
+          "charges",
+          "returnPct",
+          "niftyReturnPct",
+          "xirr",
+          "maxDd",
+          "winRate",
+          "asOf",
+          "positions",
+          "orders",
+          "trades",
+          "curveDates",
+          "curve",
+          "niftyCurve"
+        ],
+        "title": "PortfolioDetail",
+        "type": "object"
+      },
+      "PortfolioSummary": {
+        "properties": {
+          "asOf": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asof"
+          },
+          "cash": {
+            "title": "Cash",
+            "type": "number"
+          },
+          "charges": {
+            "title": "Charges",
+            "type": "number"
+          },
+          "currentValue": {
+            "title": "Currentvalue",
+            "type": "number"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "invested": {
+            "title": "Invested",
+            "type": "number"
+          },
+          "maxDd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maxdd"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "niftyReturnPct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Niftyreturnpct"
+          },
+          "realisedPnl": {
+            "title": "Realisedpnl",
+            "type": "number"
+          },
+          "returnPct": {
+            "title": "Returnpct",
+            "type": "number"
+          },
+          "startCapital": {
+            "title": "Startcapital",
+            "type": "number"
+          },
+          "unrealisedPnl": {
+            "title": "Unrealisedpnl",
+            "type": "number"
+          },
+          "winRate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Winrate"
+          },
+          "xirr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Xirr"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "startCapital",
+          "cash",
+          "invested",
+          "currentValue",
+          "realisedPnl",
+          "unrealisedPnl",
+          "charges",
+          "returnPct",
+          "niftyReturnPct",
+          "xirr",
+          "maxDd",
+          "winRate",
+          "asOf"
+        ],
+        "title": "PortfolioSummary",
+        "type": "object"
+      },
+      "PositionOut": {
+        "properties": {
+          "avg": {
+            "title": "Avg",
+            "type": "number"
+          },
+          "days": {
+            "title": "Days",
+            "type": "integer"
+          },
+          "ltp": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ltp"
+          },
+          "pnl": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pnl"
+          },
+          "pnlPct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pnlpct"
+          },
+          "qty": {
+            "title": "Qty",
+            "type": "integer"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol",
+          "qty",
+          "avg",
+          "ltp",
+          "pnl",
+          "pnlPct",
+          "days"
+        ],
+        "title": "PositionOut",
+        "type": "object"
+      },
+      "PreviewRequest": {
+        "properties": {
+          "price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              }
+            ],
+            "title": "Price"
+          },
+          "qty": {
+            "title": "Qty",
+            "type": "integer"
+          },
+          "side": {
+            "title": "Side",
+            "type": "string"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol",
+          "side",
+          "qty",
+          "price"
+        ],
+        "title": "PreviewRequest",
         "type": "object"
       },
       "StaleWarning": {
@@ -1059,6 +1768,105 @@
         "title": "StrategySummary",
         "type": "object"
       },
+      "TradeOut": {
+        "properties": {
+          "charges": {
+            "title": "Charges",
+            "type": "number"
+          },
+          "delayed": {
+            "title": "Delayed",
+            "type": "boolean"
+          },
+          "feedLagS": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feedlags"
+          },
+          "fill": {
+            "title": "Fill",
+            "type": "number"
+          },
+          "fillBasis": {
+            "title": "Fillbasis",
+            "type": "string"
+          },
+          "fillReason": {
+            "title": "Fillreason",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "journalNote": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Journalnote"
+          },
+          "orderId": {
+            "title": "Orderid",
+            "type": "integer"
+          },
+          "qty": {
+            "title": "Qty",
+            "type": "integer"
+          },
+          "realisedPnl": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Realisedpnl"
+          },
+          "side": {
+            "title": "Side",
+            "type": "string"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "time": {
+            "title": "Time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "orderId",
+          "symbol",
+          "side",
+          "qty",
+          "fill",
+          "time",
+          "charges",
+          "realisedPnl",
+          "fillBasis",
+          "delayed",
+          "fillReason",
+          "feedLagS",
+          "journalNote"
+        ],
+        "title": "TradeOut",
+        "type": "object"
+      },
       "TradeRow": {
         "properties": {
           "date": {
@@ -1281,6 +2089,145 @@
         "summary": "Health"
       }
     },
+    "/api/orders": {
+      "post": {
+        "operationId": "new_order_api_orders_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewOrder"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "integer"
+                  },
+                  "title": "Response New Order Api Orders Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "New Order"
+      }
+    },
+    "/api/orders/preview": {
+      "post": {
+        "description": "What an order would cost, using the SAME model the fills use -- so the ticket's\nestimate is not a different number from what actually gets booked.",
+        "operationId": "preview_api_orders_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CostPreview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Preview"
+      }
+    },
+    "/api/orders/{oid}": {
+      "delete": {
+        "operationId": "delete_order_api_orders__oid__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "oid",
+            "required": true,
+            "schema": {
+              "title": "Oid",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Delete Order Api Orders  Oid  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Order"
+      }
+    },
     "/api/picks": {
       "get": {
         "operationId": "picks_api_picks_get",
@@ -1350,6 +2297,118 @@
           }
         ],
         "summary": "Picks"
+      }
+    },
+    "/api/portfolios": {
+      "get": {
+        "operationId": "portfolios_api_portfolios_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PortfolioSummary"
+                  },
+                  "title": "Response Portfolios Api Portfolios Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Portfolios"
+      },
+      "post": {
+        "operationId": "new_portfolio_api_portfolios_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewPortfolio"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortfolioSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "New Portfolio"
+      }
+    },
+    "/api/portfolios/{pid}": {
+      "get": {
+        "operationId": "portfolio_api_portfolios__pid__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortfolioDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Portfolio"
       }
     },
     "/api/status": {
@@ -1719,6 +2778,64 @@
           }
         ],
         "summary": "Retire"
+      }
+    },
+    "/api/trades/{tid}": {
+      "patch": {
+        "operationId": "journal_api_trades__tid__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tid",
+            "required": true,
+            "schema": {
+              "title": "Tid",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JournalUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Journal Api Trades  Tid  Patch",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Journal"
       }
     }
   }
