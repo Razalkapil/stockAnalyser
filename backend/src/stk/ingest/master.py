@@ -25,24 +25,28 @@ job_run() scope:
      valid_to, opening a new row for the new symbol) -- so historical
      bars keyed by the old symbol still resolve.
 
-KNOWN, DEFERRED LIMITATION: suspension/delisting detection ("absent
-from N consecutive snapshots -> SUSPENDED after 1, DELISTED after 20",
-per the build plan) is NOT implemented here -- it requires tracking
-absence across many runs over time, which this single-pass merge
-cannot safely infer from one snapshot alone without additional
-tracking infrastructure this phase does not yet have. A security
-missing from today's snapshot is simply left at its previous status,
-never silently flipped. This is a documented gap, not an oversight.
+SUSPENSION / DELISTING (added after the first version deferred it): every SUCCESSFUL snapshot
+of an exchange increments ``listings.missed_snapshots`` for each active listing of that exchange
+that is absent, and resets it for those present. A security's status follows the smallest miss
+count across its active listings (present on either exchange = not gone):
+``domain.universe.lifecycle_status`` -> ACTIVE / SUSPENDED / DELISTED, thresholds in
+config/universe.yaml. Two safeguards, both because absence is only a heuristic: an exchange whose
+fetch FAILED is not counted at all (an outage is not a delisting), and a snapshot missing more than
+``max_absent_fraction`` of that exchange's listings is treated as broken -- nothing is counted and
+the run is marked degraded. Reappearing resets everything (the upsert reactivates the security).
 """
 
 from __future__ import annotations
 
 import sqlite3
 from collections import defaultdict
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
+from stk.config.universe import LifecycleConfig, load_universe_config
 from stk.core.errors import ProviderError
+from stk.core.time import today_ist
+from stk.domain.universe import lifecycle_status
 from stk.ingest.jobs import job_run
 from stk.providers.base import MasterRecord
 from stk.providers.registry import get_security_master_provider
@@ -50,19 +54,72 @@ from stk.store.db.engine import connect, transaction
 
 
 class MasterIngestResult:
-    def __init__(self, securities_upserted: int, listings_upserted: int, renames: int) -> None:
+    def __init__(self, securities_upserted: int, listings_upserted: int, renames: int, *,
+                 suspended: int = 0, delisted: int = 0, degraded: bool = False) -> None:
         self.securities_upserted = securities_upserted
         self.listings_upserted = listings_upserted
         self.renames = renames
+        self.suspended = suspended  # securities that ENTERED suspended this run
+        self.delisted = delisted  # securities that ENTERED delisted this run
+        self.degraded = degraded  # a snapshot looked broken and absences were not counted
 
 
-def _fetch_all_records(exchanges: list[str]) -> list[MasterRecord]:
+def _update_lifecycle(
+    conn: sqlite3.Connection, records: list[MasterRecord], fetched: set[str],
+    *, cfg: LifecycleConfig, now: str, today: date,
+) -> tuple[int, int, list[str]]:
+    """Count absences for successfully fetched exchanges and move securities between statuses.
+
+    Returns (newly_suspended, newly_delisted, exchanges_skipped_as_broken)."""
+    broken: list[str] = []
+    for exchange in sorted(fetched):
+        present = {(r.symbol, r.series) for r in records if r.exchange == exchange}
+        active = conn.execute(
+            "SELECT listing_id, symbol, series, missed_snapshots, missed_counted_on FROM listings "
+            "WHERE exchange=? AND status='ACTIVE'", (exchange,)).fetchall()
+        if not active:
+            continue
+        absent = [r["listing_id"] for r in active if (r["symbol"], r["series"]) not in present]
+        if len(absent) / len(active) > cfg.max_absent_fraction:
+            broken.append(f"{exchange}: {len(absent)}/{len(active)} listings absent")
+            continue  # a broken snapshot is not evidence of anything
+        back = [(r["listing_id"],) for r in active
+                if (r["symbol"], r["series"]) in present and r["missed_snapshots"]]
+        conn.executemany("UPDATE listings SET missed_snapshots=0 WHERE listing_id=?", back)
+        # At most one increment per listing per calendar day: re-running the ingest (always safe)
+        # must not count one absence twice.
+        stamp = today.isoformat()
+        fresh = [(stamp, r["listing_id"]) for r in active
+                 if r["listing_id"] in set(absent) and r["missed_counted_on"] != stamp]
+        conn.executemany(
+            "UPDATE listings SET missed_snapshots = missed_snapshots + 1, missed_counted_on=? "
+            "WHERE listing_id=?", fresh)
+
+    suspended = delisted = 0
+    for row in conn.execute(
+        """SELECT s.security_id, s.status, MIN(l.missed_snapshots) AS missed
+           FROM securities s JOIN listings l ON l.security_id = s.security_id
+           WHERE l.status='ACTIVE' GROUP BY s.security_id"""
+    ).fetchall():
+        new = lifecycle_status(row["missed"], suspend_after=cfg.suspend_after_missed,
+                               delist_after=cfg.delist_after_missed)
+        if new == row["status"]:
+            continue
+        conn.execute("UPDATE securities SET status=?, updated_at=? WHERE security_id=?",
+                     (new, now, row["security_id"]))
+        suspended += new == "SUSPENDED"
+        delisted += new == "DELISTED"
+    return suspended, delisted, broken
+
+
+def _fetch_all_records(exchanges: list[str]) -> tuple[list[MasterRecord], set[str]]:
     """Fetch every exchange's master snapshot, tolerating one exchange's
     fetch failing without losing the other -- mirrors ingest.daily's
     per-exchange isolation, since a BSE API outage must not block an
     NSE-only refresh."""
     provider_by_exchange = {"NSE": "nse_equity_l", "BSE": "bse_scrip_api"}
     records: list[MasterRecord] = []
+    fetched: set[str] = set()
     errors: list[str] = []
     for exchange in exchanges:
         provider_name = provider_by_exchange.get(exchange)
@@ -71,11 +128,12 @@ def _fetch_all_records(exchanges: list[str]) -> list[MasterRecord]:
         try:
             provider = get_security_master_provider(provider_name)
             records.extend(provider.fetch_master())
+            fetched.add(exchange)
         except ProviderError as exc:
             errors.append(f"{exchange} ({provider_name}): {exc}")
     if errors and not records:
         raise ProviderError(f"all security-master fetches failed: {'; '.join(errors)}")
-    return records
+    return records, fetched
 
 
 def _upsert_security(
@@ -171,7 +229,8 @@ def _upsert_listing_and_detect_rename(
 
 
 def ingest_security_master(
-    *, sqlite_path: Path, exchanges: list[str] | None = None
+    *, sqlite_path: Path, exchanges: list[str] | None = None,
+    lifecycle: LifecycleConfig | None = None, today: date | None = None,
 ) -> MasterIngestResult:
     """Fetch and merge the NSE + BSE security masters into securities/
     listings/symbol_history, keyed on ISIN. Safe to re-run -- every
@@ -182,7 +241,8 @@ def ingest_security_master(
     conn = connect(sqlite_path)
     try:
         with job_run(conn, "ingest_security_master") as handle:
-            records = _fetch_all_records(exchanges)
+            records, fetched = _fetch_all_records(exchanges)
+            lifecycle_cfg = lifecycle or load_universe_config().lifecycle
 
             by_isin: dict[str, list[MasterRecord]] = defaultdict(list)
             for record in records:
@@ -201,12 +261,20 @@ def ingest_security_master(
                         if _upsert_listing_and_detect_rename(conn, security_id, record, now):
                             renames += 1
                         listings_upserted += 1
+                suspended, delisted, broken = _update_lifecycle(
+                    conn, records, fetched, cfg=lifecycle_cfg, now=now, today=today or today_ist())
 
+            if broken:
+                handle.degraded = True  # absences were NOT counted for these; see doctor/logs
+                handle.metrics["snapshot_looked_broken"] = broken
+            handle.metrics["newly_suspended"] = suspended
+            handle.metrics["newly_delisted"] = delisted
             handle.rows_in = len(records)
             handle.rows_written = securities_upserted
             handle.metrics["listings_upserted"] = listings_upserted
             handle.metrics["renames"] = renames
 
-        return MasterIngestResult(securities_upserted, listings_upserted, renames)
+        return MasterIngestResult(securities_upserted, listings_upserted, renames,
+                                  suspended=suspended, delisted=delisted, degraded=bool(broken))
     finally:
         conn.close()

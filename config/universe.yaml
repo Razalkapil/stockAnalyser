@@ -15,3 +15,12 @@ excluded_bse_groups: [Z, ZP, ZY]
 # Present in the universe but flagged: is_tradeable_intraday=false.
 flag_only_nse_series: [BE, BZ]
 flag_only_bse_groups: [T, TS, XT, MT]
+
+# Suspension / delisting detection from absence across security-master snapshots (weekly). A
+# heuristic on a listing file, not an exchange announcement: every transition is counted and
+# surfaced by `stk ingest master` and `stk doctor`. The absence fraction guard stops a truncated
+# snapshot from "delisting" half the market.
+lifecycle:
+  suspend_after_missed: 1
+  delist_after_missed: 20
+  max_absent_fraction: 0.10

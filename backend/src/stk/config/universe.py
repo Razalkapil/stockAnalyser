@@ -33,8 +33,20 @@ class LiquidityConfig(BaseModel):
         )
 
 
+class LifecycleConfig(BaseModel):
+    """Suspension/delisting detection from absence across security-master snapshots."""
+
+    suspend_after_missed: int = 1
+    delist_after_missed: int = 20
+    #: If MORE than this fraction of an exchange's active listings is absent from one snapshot,
+    #: the snapshot is treated as broken (truncated file, changed format), not as mass delisting:
+    #: absences are NOT counted and the run is marked degraded.
+    max_absent_fraction: float = 0.10
+
+
 class UniverseConfig(BaseModel):
     liquidity: LiquidityConfig
+    lifecycle: LifecycleConfig = Field(default_factory=LifecycleConfig)
     excluded_nse_series: list[str] = Field(default_factory=list)
     excluded_bse_groups: list[str] = Field(default_factory=list)
     flag_only_nse_series: list[str] = Field(default_factory=list)

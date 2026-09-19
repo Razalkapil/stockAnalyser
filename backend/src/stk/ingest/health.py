@@ -321,6 +321,34 @@ def check_instrument_classes(
     return []
 
 
+#: The suspension/delisting heuristic is only as fresh as the last master snapshot.
+MASTER_MAX_AGE_DAYS = 21
+
+
+def check_security_lifecycle(conn: sqlite3.Connection, *, today: date) -> list[Problem]:
+    """Suspended/delisted counts (info), and a stale master (problem): with no recent snapshot the
+    lifecycle status is frozen at whatever it last was."""
+    out: list[Problem] = []
+    counts = {r["status"]: r["n"] for r in conn.execute(
+        "SELECT status, COUNT(*) AS n FROM securities WHERE status != 'ACTIVE' GROUP BY status")}
+    if counts:
+        out.append(Problem(
+            "securities_inactive",
+            "security master lifecycle: " + ", ".join(f"{n} {s.lower()}" for s, n in
+                                                      sorted(counts.items())),
+            severity="info"))
+    row = conn.execute(
+        "SELECT MAX(started_at) AS t FROM job_runs WHERE job_name='ingest_security_master' "
+        "AND status IN ('success','degraded')").fetchone()
+    if row["t"] is not None and (today - datetime.fromisoformat(row["t"]).date()
+                                 ).days > MASTER_MAX_AGE_DAYS:
+        out.append(Problem("master_stale",
+                           f"the security master was last refreshed {row['t'][:10]} "
+                           f"(> {MASTER_MAX_AGE_DAYS} days): suspension/delisting status is "
+                           "frozen"))
+    return out
+
+
 def check_backup_age(latest_age_days: int | None, *, expected: bool = True) -> list[Problem]:
     if not expected:
         return []
@@ -352,5 +380,6 @@ def run_all_checks(
     problems.extend(check_adjusted_freshness(conn, parquet_root))
     problems.extend(check_ai_runs(conn))
     problems.extend(check_instrument_classes(conn, parquet_root))
+    problems.extend(check_security_lifecycle(conn, today=today))
     problems.extend(check_poller(conn, now=datetime.now(UTC)))
     return problems

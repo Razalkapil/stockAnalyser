@@ -271,9 +271,13 @@ def master() -> None:
     )
     typer.secho(
         f"OK: {result.securities_upserted} securities, "
-        f"{result.listings_upserted} listings, {result.renames} rename(s)",
-        fg="green",
+        f"{result.listings_upserted} listings, {result.renames} rename(s); "
+        f"newly suspended {result.suspended}, newly delisted {result.delisted}",
+        fg="yellow" if result.degraded else "green",
     )
+    if result.degraded:
+        typer.secho("DEGRADED: a snapshot looked truncated, so absences were NOT counted -- "
+                    "see the job_runs metrics.", fg="yellow")
 
 
 @app.command("corpactions")

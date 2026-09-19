@@ -69,3 +69,19 @@ def is_tradeable_intraday(series_or_group: str, flag_only: frozenset[str]) -> bo
     no intraday, no netting. They remain in the universe for delivery-
     only strategies."""
     return series_or_group not in flag_only
+
+
+def lifecycle_status(missed_snapshots: int, *, suspend_after: int, delist_after: int) -> str:
+    """A security's status from how many consecutive master snapshots it has been absent from.
+
+    Pure. ``suspend_after`` <= ``delist_after``; 0 misses is always ACTIVE. This is a HEURISTIC
+    on an exchange listing file, not an exchange announcement -- which is why every transition is
+    counted and surfaced (ingest metrics, ``stk doctor``), never silent.
+    """
+    if delist_after < suspend_after:
+        raise ValueError("delist_after must be >= suspend_after")
+    if missed_snapshots >= delist_after:
+        return "DELISTED"
+    if missed_snapshots >= suspend_after:
+        return "SUSPENDED"
+    return "ACTIVE"

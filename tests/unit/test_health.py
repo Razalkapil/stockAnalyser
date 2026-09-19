@@ -23,6 +23,7 @@ from stk.ingest.health import (
     check_job_runs,
     check_partition_manifests,
     check_poller,
+    check_security_lifecycle,
     check_stale_symbols,
     check_unparsed_corporate_actions,
 )
@@ -369,3 +370,41 @@ class TestBackupAge:
 
     def test_not_expected_means_not_checked(self):
         assert check_backup_age(None, expected=False) == []
+
+
+class TestSecurityLifecycle:
+    def _sec(self, db, i, status):
+        db.execute(
+            "INSERT INTO securities (isin, canonical_symbol, company_name, primary_exchange, "
+            "status, first_seen_on, last_seen_on, updated_at) VALUES (?,?,?,'NSE',?,'a','a','a')",
+            (f"INE{i:03d}A01010", f"S{i}", "n", status))
+
+    def _master(self, db, when, status="success"):
+        db.execute("INSERT INTO job_runs (job_name, status, started_at, attempt, code_version) "
+                   "VALUES ('ingest_security_master', ?, ?, 1, 'v')", (status, when))
+
+    def test_quiet_on_a_fresh_install(self, db):
+        assert check_security_lifecycle(db, today=TODAY) == []
+
+    def test_reports_inactive_counts_as_info(self, db):
+        self._sec(db, 1, "SUSPENDED")
+        self._sec(db, 2, "DELISTED")
+        self._sec(db, 3, "DELISTED")
+        self._sec(db, 4, "ACTIVE")
+        (p,) = check_security_lifecycle(db, today=TODAY)
+        assert p.code == "securities_inactive" and not p.is_problem
+        assert "2 delisted" in p.message and "1 suspended" in p.message
+
+    def test_a_stale_master_is_a_problem(self, db):
+        self._master(db, "2026-08-01T00:00:00+00:00")
+        (p,) = check_security_lifecycle(db, today=TODAY)
+        assert p.code == "master_stale" and p.is_problem
+
+    def test_a_recent_master_is_fine_even_when_degraded(self, db):
+        self._master(db, "2026-09-10T00:00:00+00:00", status="degraded")
+        assert check_security_lifecycle(db, today=TODAY) == []
+
+    def test_only_successful_runs_count_as_fresh(self, db):
+        self._master(db, "2026-08-01T00:00:00+00:00")
+        self._master(db, "2026-09-17T00:00:00+00:00", status="failed")
+        assert [p.code for p in check_security_lifecycle(db, today=TODAY)] == ["master_stale"]
