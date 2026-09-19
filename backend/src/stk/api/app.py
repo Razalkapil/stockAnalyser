@@ -116,12 +116,12 @@ def briefs(conn: Conn) -> list[s.BriefListItem]:
 
 
 @router.get("/api/briefs/{day}", response_model=s.Brief)
-def brief(day: str) -> s.Brief:
+def brief(day: str, conn: Conn) -> s.Brief:
     try:
         date.fromisoformat(day)
     except ValueError as exc:
         raise HTTPException(422, "date must be YYYY-MM-DD") from exc
-    return services.get_brief(day)
+    return services.get_brief(conn, day)
 
 
 def create_app(*, sqlite_path: Path, parquet_root: Path, cfg: BacktestConfig | None = None

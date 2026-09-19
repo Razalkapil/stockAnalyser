@@ -1,0 +1,21 @@
+# AI usage. The AI runs on a schedule (evening review daily, strategy lab weekly) -- NEVER per
+# request, per stock, or in a loop. Every call is logged to ai_runs with tokens and a cost estimate.
+enabled: true
+
+# Sonnet-class by the brief. A model name is config, not code.
+model: claude-sonnet-5
+max_tokens: 16000
+timeout_s: 180
+# Sonnet 5 only supports adaptive thinking; sampling params (temperature etc.) are rejected.
+effort: medium               # low | medium | high | xhigh | max
+
+# USD per million tokens, for the COST ESTIMATE only (ai_runs.cost_usd_est). Not authoritative:
+# check Anthropic's pricing page; this is a budgeting aid, not an invoice.
+pricing_usd_per_mtok:
+  claude-sonnet-5: { input: 2.00, output: 10.00 }
+  claude-opus-5:   { input: 5.00, output: 25.00 }
+  claude-haiku-4-5: { input: 1.00, output: 5.00 }
+
+evening_review:
+  max_picks_per_horizon: 10
+  max_positions: 25

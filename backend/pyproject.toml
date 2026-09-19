@@ -19,6 +19,7 @@ dependencies = [
     "curl_cffi>=0.7",
     "tenacity>=9.0",
     "python-dateutil>=2.9",
+    "anthropic>=1.7.0",
 ]
 
 [project.scripts]

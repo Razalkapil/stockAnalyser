@@ -174,6 +174,30 @@ describe("Brief", () => {
   });
 });
 
+describe("Brief (written)", () => {
+  it("renders the four cards from a stored review", async () => {
+    mockApi({
+      "/api/briefs/2026-09-18": {
+        date: "2026-09-18", pending: false, generatedAt: "2026-09-18T18:47:00+00:00",
+        overview: "Indices were flat; breadth mixed.",
+        notablePicks: [{ symbol: "RELIANCE", note: "gap held on volume" }],
+        conflicts: ["Momentum names look stretched vs. their live record"],
+        positionNotes: [{ symbol: "TITAN", note: "up 3% in 4 days, stop untouched" }],
+      },
+      "/api/briefs": [{ date: "2026-09-18", pending: false }],
+    });
+    renderWith(<Brief />);
+    expect(await screen.findByText("Indices were flat; breadth mixed.")).toBeInTheDocument();
+    for (const title of ["Overview", "Notable picks", "Conflicts flagged", "Your open positions"]) {
+      expect(screen.getByText(title)).toBeInTheDocument();
+    }
+    expect(screen.getByText("gap held on volume")).toBeInTheDocument();
+    expect(screen.getByText(/Momentum names look stretched/)).toBeInTheDocument();
+    expect(screen.getByText(/stop untouched/)).toBeInTheDocument();
+    expect(screen.queryByText("pending")).not.toBeInTheDocument();
+  });
+});
+
 describe("Login", () => {
   it("stores the token it is given", async () => {
     renderWith(<Login />);

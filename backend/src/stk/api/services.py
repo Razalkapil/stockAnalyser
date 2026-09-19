@@ -7,6 +7,7 @@ network, an LLM, or writes anything (the two write paths -- approve/retire -- li
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -331,18 +332,38 @@ def stock_bars(parquet_root: Path, cfg: BacktestConfig, symbol: str, start: date
 
 
 # --- briefs --------------------------------------------------------------------------------
-# The AI evening review (phase 6) writes the briefs. Until it exists every day is honestly
-# "pending" -- the UI has a designed state for exactly that -- rather than a fabricated brief.
+# Written by the evening AI review (stk.ai) and read here. The API never calls the model: it only
+# serves what is stored, and a day with no brief is honestly "pending".
+
+
+def _brief_dates(conn: sqlite3.Connection) -> set[str]:
+    return {r["business_date"] for r in conn.execute(
+        "SELECT DISTINCT business_date FROM ai_outputs WHERE kind='brief'")}
 
 
 def list_briefs(conn: sqlite3.Connection) -> list[s.BriefListItem]:
+    have = _brief_dates(conn)
     today = now_ist().date()
-    return [s.BriefListItem(date=(today - timedelta(days=i)).isoformat(), pending=True)
-            for i in range(BRIEF_DAYS_SHOWN)
-            if (is_trading_day(conn, today - timedelta(days=i), EXCHANGE) is not False
-                and (today - timedelta(days=i)).weekday() < 5)]
+    days = [today - timedelta(days=i) for i in range(BRIEF_DAYS_SHOWN)]
+    return [
+        s.BriefListItem(date=d.isoformat(), pending=d.isoformat() not in have)
+        for d in days
+        if d.isoformat() in have
+        or (is_trading_day(conn, d, EXCHANGE) is not False and d.weekday() < 5)
+    ]
 
 
-def get_brief(day: str) -> s.Brief:
-    return s.Brief(date=day, pending=True, generated_at=None, overview="", notable_picks=[],
-                   conflicts=[], position_notes=[])
+def get_brief(conn: sqlite3.Connection, day: str) -> s.Brief:
+    row = conn.execute(
+        "SELECT payload_json, created_at FROM ai_outputs WHERE kind='brief' AND business_date=? "
+        "ORDER BY output_id DESC LIMIT 1", (day,)).fetchone()
+    if row is None:
+        return s.Brief(date=day, pending=True, generated_at=None, overview="", notable_picks=[],
+                       conflicts=[], position_notes=[])
+    p = json.loads(row["payload_json"])
+    return s.Brief(
+        date=day, pending=False, generated_at=row["created_at"], overview=p["overview"],
+        notable_picks=[{"symbol": n["symbol"], "note": n["note"]} for n in p["notable_picks"]],
+        conflicts=list(p["conflicts"]),
+        position_notes=[{"symbol": n["symbol"], "note": n["note"]} for n in p["position_notes"]],
+    )

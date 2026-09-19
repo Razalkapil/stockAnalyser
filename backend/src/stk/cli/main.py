@@ -10,6 +10,7 @@ from __future__ import annotations
 import typer
 
 from stk.cli.commands import (
+    ai,
     api,
     backfill,
     backtest,
@@ -33,6 +34,7 @@ app.add_typer(costs.app, name="costs")
 app.add_typer(strategies.app, name="strategies")
 app.add_typer(picks.app, name="picks")
 app.add_typer(api.app, name="api")
+app.add_typer(ai.app, name="ai")
 app.add_typer(playground.app, name="playground")
 app.command("scan")(picks.scan_cmd)
 app.add_typer(doctor.app)
