@@ -222,6 +222,12 @@ Rates live in `config/costs.yaml`; this table records which are checked against 
 | NSE cash-market transaction charge: Rs **306.99**/crore each side from 1 Mar 2026 (= 0.000030699) | **verified** — and *corrected*: config previously held Rs 307, double-counting the separate IPFT line by Rs 0.01/crore | same circular |
 | NSE IPFT: Rs 10/crore → Rs 0.01/crore on 1 Mar 2026 | **verified** | same circular |
 | Total NSE cash outflow (txn + IPFT) unchanged at Rs 307/crore across 1 Mar 2026 | **verified** (the circular's stated intent; pinned in `test_costs_compute.py`, which also caught a transcription slip while this table was being written) | same circular |
-| NSE txn charge uniform from 1 Oct 2024 | unverified — the circular above references NSE/FA/64323 (27 Sep 2024) and SEBI/HO/MRD/TPD-1/P/CIR/2024/92; neither read yet | — |
-| BSE transaction charge (0.00375%), STT, stamp duty, SEBI turnover fee, GST, DP charge, brokerage | unverified | broker schedules |
+| Uniform (not slab-wise) exchange charges effective 1 Oct 2024 | **verified** | SEBI/HO/MRD/TPD-1/P/CIR/2024/92 (1 Jul 2024), paras 5(b) and 7 — read via MSEI's verbatim copy, `https://www.msei.in/SX-Content/Circulars/2024/July/Circular-15693.pdf` (SEBI's own page returns only navigation to a fetcher). NSE/FA/64323's number returned 404 under the guessed URL and was not read. |
+| SEBI turnover fee: Rs 10/crore (0.0001%) both legs, non-debt securities | **verified** | NSE, "SEBI Turnover Fees, STT and Other levies" — `https://www.nseindia.com/static/invest/first-time-investor-sebi-turnover-fees-stt-other-levies` (read 2026-09-19) |
+| STT: delivery buy 0.1%, delivery sell 0.1%, non-delivery (intraday) sell 0.025%; unchanged across 1 Apr 2026 | **verified** | same NSE page (its table lists "rates w.e.f. 1 Apr 2026" and "up to 31 Mar 2026") |
+| Stamp duty: 0.015% delivery / 0.003% non-delivery, buyer only | **verified** (rates) — the 2020-07-01 start date is not | same NSE page |
+| GST 18% on brokers' services | **verified** (the page states it); that GST also applies to the exchange/SEBI/IPFT lines (`gst_applies_to`) is **unverified** | same NSE page |
+| STT before mid-2013 (delivery was 0.125%) | not modelled — irrelevant to the 2021+ lake | a search summary only |
+| BSE cash-market transaction charge (0.00375%) | unverified — the BSE notice found (Notice 20240927-36, hosted at `nsearchives.nseindia.com/corporate/BSE_27092024184037_NSEintimation.pdf`) covers currency futures and Sensex/Bankex options only. Not used by NSE-only backtests. | — |
+| DP charge (Rs 13 + GST, sell leg), brokerage | unverified — these are a *broker's* schedule, not a regulated rate; there is no primary source to verify against, only your own broker's contract note | broker schedules |
 | Pre-2020-07-01 stamp duty (varied by state) | not modelled — post-2020 rate used as an approximation | — |

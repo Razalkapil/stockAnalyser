@@ -3,10 +3,11 @@
 # that was actually in force on each trade's date -- rates below are
 # NOT hardcoded constants, they are a history.
 #
-# STATUS: PARTIALLY verified. Rates sourced from broker-published schedules
-# (Zerodha) and secondary reporting, except where marked VERIFIED below with
-# the primary document read directly. Everything not marked VERIFIED is
-# still unverified -- do not rely on it for real-money decisions. The full
+# STATUS: PARTIALLY verified. Rates marked VERIFIED below were read directly
+# from a primary document (NSE circular / NSE's own investor-charges page /
+# the SEBI circular). Everything NOT marked VERIFIED (BSE cash charge, GST on
+# the exchange lines, the DP charge, brokerage, dates before 2020) is still
+# unverified -- do not rely on it for real-money decisions. The full
 # verification ledger is in docs/data-sources.md ("Transaction charges").
 #
 # Compute order (see domain/costs.py, phase 2):
@@ -35,13 +36,19 @@ brokerage:
 
 stt:
   # Securities Transaction Tax. Delivery: both legs. Intraday: sell leg only.
+  # VERIFIED against NSE's "SEBI Turnover Fees, STT and Other levies" page (read 2026-09-19):
+  # delivery purchase 0.100%, delivery sale 0.100%, non-delivery sale 0.025% -- the same before
+  # and after 1 Apr 2026. NOT modelled: before mid-2013 the delivery rate was higher (0.125%);
+  # irrelevant to the 2021+ lake, so it is left as an approximation, not "corrected" from memory.
   - from: "2010-01-01"
     delivery: { buy: 0.001, sell: 0.001 }
     intraday: { buy: 0.0,   sell: 0.00025 }
 
 stamp_duty:
   # Buy-side only. Uniform nationwide rate since 1 Jul 2020 (Finance Act
-  # 2019 + Collection of Stamp Duty Rules 2019). Pre-2020 rates varied by
+  # 2019 + Collection of Stamp Duty Rules 2019). The RATES (0.015% delivery,
+  # 0.003% non-delivery, buyer) are VERIFIED against NSE's investor-charges page
+  # (2026-09-19); the 2020-07-01 start date is not independently verified. Pre-2020 rates varied by
   # state and are NOT modelled here -- backtests before 2020-07-01 will
   # use the post-2020 rate as an approximation until verified otherwise.
   - from: "2020-07-01"
@@ -50,7 +57,9 @@ stamp_duty:
 
 exchange_txn_charge:
   # Per-crore-of-turnover, both legs. SEBI mandated uniform slab-free
-  # rates from 1 Oct 2024 (start date NOT independently verified).
+  # rates from 1 Oct 2024: VERIFIED -- SEBI/HO/MRD/TPD-1/P/CIR/2024/92 (1 Jul 2024, "True to
+  # Label"), para 7 "effective from October 01, 2024", para 5b "uniform and equal ... instead
+  # of slab-wise" (read via MSEI's verbatim copy of the circular, 2026-09-19).
   #
   # NSE VERIFIED against NSE circular NSE/FA/73061 (27 Feb 2026), cash market,
   # each side: Rs 297/crore up to 28 Feb 2026, then Rs 306.99/crore from
@@ -65,7 +74,8 @@ exchange_txn_charge:
     - { from: "2024-10-01", rate: 0.0000375 }
 
 sebi_turnover_fee:
-  # Rs 10 per crore = 0.0001%, both legs.
+  # Rs 10 per crore = 0.0001%, both legs, non-debt securities. VERIFIED against NSE's
+  # investor-charges page (2026-09-19).
   - from: "2010-01-01"
     rate: 0.000001
 
