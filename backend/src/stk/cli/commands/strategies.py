@@ -18,6 +18,7 @@ from stk.config.settings import get_settings
 from stk.domain.dsl.evaluate import explain
 from stk.domain.dsl.model import StrategySpec
 from stk.domain.dsl.validate import validate_spec
+from stk.ingest.instruments import require_instrument_classes
 from stk.store.db.engine import connect
 from stk.strategies.promotion import promote
 from stk.strategies.repo import get_strategy, list_strategies, load_spec, register_spec
@@ -136,6 +137,11 @@ def promote_cmd(
 
     conn = connect(settings.paths.sqlite)
     try:
+        try:
+            require_instrument_classes(conn, exchange)
+        except ValueError as exc:
+            typer.secho(str(exc), fg="red")
+            raise typer.Exit(code=1) from exc
         slugs = [r.slug for r in list_strategies(conn)] if all_ else [str(slug)]
         for s in slugs:
             typer.echo(f"\n{s}: walk-forward {start} .. {end}")

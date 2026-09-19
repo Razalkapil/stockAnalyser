@@ -47,6 +47,7 @@ and `indices` still run. Re-running is always safe — every step is idempotent,
    sudo -u stk env STK_APP__ENV=prod bash -c '
      set -e
      .venv/bin/stk ingest calendar && .venv/bin/stk ingest master
+     .venv/bin/stk ingest instruments           # ETFs are excluded from scans; required before scan/promote
      .venv/bin/stk backfill prices --exchange NSE --from 2021-01-01 --to $(date +%F)
      .venv/bin/stk ingest corpactions
      .venv/bin/stk ingest adjustments

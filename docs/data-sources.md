@@ -54,6 +54,10 @@ Implemented by `stk.providers.nse.udiff.NseUdiffProvider` (registered as `nse_ud
 
 **On resolving `security_id`/`isin` for bars generally:** `bars_daily` stores whatever the *source* reported, which is null for every `sec_bhavdata_full` row. Identity is resolved at QUERY time by `store/queries/prices.sql`'s `bars_with_resolved_identity`, which joins `symbol_history`/`listings`/`securities` keyed by the symbol as of each bar's own date. That is self-healing as the master improves and gets renames right; a `security_id` backfilled into 32 historical partitions would instead be frozen at whatever the master knew on rewrite day. As a cheap complement, `ingest.daily` fills identity on *freshly parsed* bars only, from a single in-memory map — never overwriting a value the source itself reported.
 
+#### Funds (ETFs) share the EQ series with stocks — classify by ISIN (verified live 2026-09-19)
+
+`sec_bhavdata_full` and the legacy archive list ETFs (GOLDBEES, NIFTYBEES, NEXT50IETF, ...) in the ordinary **EQ** series, indistinguishable from company shares, and `EQUITY_L.csv` (the security master) does not list them. The ISIN separates them cleanly: in the UDiFF file for 2026-09-18, **348 of 3,660** instruments have an `INF…` ISIN (funds / fund units — every one EQ-series) and 3,190 have `INE…` (companies); a few `IN0…`/`IN1…` etc. are government/other instruments. Only UDiFF carries ISINs (from 2024-07), so `stk ingest instruments` reads it into `instrument_class`, and scans/backtests exclude `fund`. Consequence found the hard way: the first real scan recommended gold ETFs. **Limit:** an ETF that delisted before the first classified UDiFF day is not known, so older history can contain a few defunct funds. `NSE eq_etfs.csv` (a guessed URL) is a 404 — not a source.
+
 ### Security master
 
 ```

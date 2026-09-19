@@ -9,6 +9,7 @@ import typer
 from stk.config.backtest import load_backtest_config
 from stk.config.promotion import load_promotion_config
 from stk.config.settings import get_settings
+from stk.ingest.instruments import require_instrument_classes
 from stk.store.db.engine import connect
 from stk.strategies.scan import scan as run_scan
 from stk.strategies.stats import flag_decay
@@ -27,6 +28,7 @@ def scan_cmd(
     day = datetime.strptime(date_str, "%Y-%m-%d").date() if date_str else None
     conn = connect(settings.paths.sqlite)
     try:
+        require_instrument_classes(conn, exchange)
         result = run_scan(conn, parquet_root=settings.paths.parquet, cfg=load_backtest_config(),
                           exchange=exchange, scan_date=day)
     except ValueError as exc:

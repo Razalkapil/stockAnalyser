@@ -26,6 +26,7 @@ from stk.domain.dsl.model import Cond, Ind, StrategySpec
 from stk.domain.dsl.validate import param_combinations
 from stk.domain.walkforward import generate_windows
 from stk.ingest.fundamentals_metrics import load_metric_frame
+from stk.ingest.instruments import fund_symbols
 from stk.store import duck
 from stk.strategies.dsl_strategy import DslStrategy, prepare_frame
 
@@ -113,15 +114,19 @@ def lake_span(parquet_root: Path, exchange: str) -> LakeSpan | None:
 
 
 def _load_bars(
-    parquet_root: Path, exchange: str, start: date, end: date, cfg: BacktestConfig
+    parquet_root: Path, exchange: str, start: date, end: date, cfg: BacktestConfig,
+    *, exclude_symbols: set[str] | None = None,
 ) -> pd.DataFrame:
     s, e = start.isoformat(), end.isoformat()
     with duck.connect(parquet_root) as session:
-        return session.sql(
+        bars = session.sql(
             "backtest_panel",
             [cfg.tradeable_series, exchange, s, e, float(cfg.panel_min_peak_turnover_inr),
              exchange, s, e],
         ).df()
+    if exclude_symbols:
+        bars = bars[~bars["symbol"].isin(exclude_symbols)]
+    return bars
 
 
 def build_market_data(
@@ -135,7 +140,9 @@ def build_market_data(
     end: date,
 ) -> tuple[MarketData, pd.DataFrame]:
     """Feature-bearing market data for [start, end] plus the benchmark frame."""
-    bars = _load_bars(parquet_root, exchange, start - timedelta(days=WARMUP_DAYS), end, cfg)
+    # Funds (ETFs, fund units) trade in the EQ series beside stocks; this is a STOCK tool.
+    bars = _load_bars(parquet_root, exchange, start - timedelta(days=WARMUP_DAYS), end, cfg,
+                      exclude_symbols=fund_symbols(conn, exchange))
     if bars.empty:
         raise ValueError(
             f"no adjusted bars for {exchange} in [{start}, {end}] -- run `stk backfill prices` "

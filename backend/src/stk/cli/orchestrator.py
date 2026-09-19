@@ -86,6 +86,7 @@ def nightly_steps(day: date) -> list[Step]:
 def weekly_steps() -> list[Step]:
     return [
         Step("master", ("ingest", "master")),
+        Step("instruments", ("ingest", "instruments")),
         Step("calendar", ("ingest", "calendar")),
         Step("fundamentals_sweep", ("ingest", "fundamentals-sweep")),
         Step("xbrl", ("ingest", "xbrl"), needs=("fundamentals_sweep",),

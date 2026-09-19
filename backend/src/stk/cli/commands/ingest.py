@@ -8,7 +8,7 @@ wired into `daily`.
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Annotated
 
 import typer
@@ -31,6 +31,7 @@ from stk.ingest.fundamentals import ingest_fundamentals_for_security
 from stk.ingest.fundamentals_sweep import sweep_liquid_universe
 from stk.ingest.fundamentals_xbrl import ingest_xbrl_documents
 from stk.ingest.indices import ingest_indices_for_date
+from stk.ingest.instruments import ingest_instrument_classes
 from stk.ingest.liquidity import compute_liquidity_for_date
 from stk.ingest.master import ingest_security_master
 from stk.providers.base import Period, SecurityRef
@@ -222,6 +223,38 @@ def indices(
         typer.echo(f"{business_date.isoformat()}: no index file published. Skipped.")
     else:
         typer.secho(f"OK: {result.rows_written} index rows written", fg="green")
+
+
+@app.command("instruments")
+def instruments(
+    date_str: str | None = typer.Option(
+        None, "--date", help="YYYY-MM-DD, defaults to today (IST)"
+    ),
+    days: int = typer.Option(3, "--days", help="Also read this many earlier weekdays"),
+) -> None:
+    """Classify traded symbols as company shares or funds (ETFs), from NSE UDiFF's ISINs.
+
+    Scans and backtests exclude funds; they refuse to run until this has been run once.
+    """
+    start = resolve_business_date(
+        datetime.strptime(date_str, "%Y-%m-%d").date() if date_str else None)
+    settings = get_settings()
+    settings.paths.raw.mkdir(parents=True, exist_ok=True)
+    day, done, failed = start, 0, 0
+    for _ in range(max(days, 1)):
+        while day.weekday() >= 5:
+            day -= timedelta(days=1)
+        try:
+            n = ingest_instrument_classes(day, sqlite_path=settings.paths.sqlite,
+                                          raw_root=settings.paths.raw)
+            typer.echo(f"{day}: {n} instruments classified")
+            done += 1 if n else 0
+        except (ProviderError, ParseError) as exc:
+            typer.secho(f"{day}: FAILED: {exc}", fg="red")
+            failed += 1
+        day -= timedelta(days=1)
+    if failed and not done:
+        raise typer.Exit(code=1)
 
 
 @app.command("master")

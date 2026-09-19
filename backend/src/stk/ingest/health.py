@@ -307,6 +307,20 @@ def check_poller(conn: sqlite3.Connection, *, now: datetime) -> list[Problem]:
     return out
 
 
+def check_instrument_classes(
+    conn: sqlite3.Connection, parquet_root: Path, *, exchange: str = "NSE"
+) -> list[Problem]:
+    """Bars exist but nothing says which symbols are funds: ETFs would be scanned as stocks."""
+    has_bars = bool(list((parquet_root / "bars_daily").glob(f"exchange={exchange}/**/*.parquet")))
+    known = conn.execute("SELECT 1 FROM instrument_class WHERE exchange=? LIMIT 1",
+                         (exchange,)).fetchone()
+    if has_bars and not known:
+        return [Problem("instrument_classes_missing",
+                        f"no instrument classes for {exchange}: ETFs/funds would be treated as "
+                        "stocks in scans and backtests. Run `stk ingest instruments`.")]
+    return []
+
+
 def check_backup_age(latest_age_days: int | None, *, expected: bool = True) -> list[Problem]:
     if not expected:
         return []
@@ -337,5 +351,6 @@ def run_all_checks(
     problems.extend(check_partition_manifests(parquet_root))
     problems.extend(check_adjusted_freshness(conn, parquet_root))
     problems.extend(check_ai_runs(conn))
+    problems.extend(check_instrument_classes(conn, parquet_root))
     problems.extend(check_poller(conn, now=datetime.now(UTC)))
     return problems
