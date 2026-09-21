@@ -64,8 +64,8 @@ def test_a_price_failure_blocks_what_reads_prices_but_not_the_rest(conn):
     script = Script({"ingest daily": 1})
     report = run_steps(conn, nightly_steps(DAY), prefix="nightly", business_date=DAY,
                        runner=script)
-    assert set(report.failed) == {"prices", "liquidity", "scan", "track", "playground_eod",
-                                  "ai_evening"}
+    assert set(report.failed) == {"prices", "liquidity", "scan", "preview", "track",
+                                  "playground_eod", "ai_evening"}
     # independent steps still ran
     assert "ingest corpactions" in script.ran and "ingest indices" in script.ran
     # blocked steps were NOT executed, and say why -- they are recorded, never omitted

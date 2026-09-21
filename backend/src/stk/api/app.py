@@ -29,6 +29,15 @@ open_router = APIRouter()
 router = APIRouter(dependencies=[Depends(require_token)])
 
 
+def _day(day: str) -> str:
+    """A path date, validated. A bad one is the caller's error, not a 500 three layers down."""
+    try:
+        date.fromisoformat(day)
+    except ValueError as exc:
+        raise HTTPException(422, "date must be YYYY-MM-DD") from exc
+    return day
+
+
 @open_router.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -43,6 +52,13 @@ def status(conn: Conn, ctx: Ctx) -> s.Status:
 def picks(conn: Conn, on: Annotated[str | None, Query(alias="date")] = None,
           horizon: str | None = None) -> list[s.Pick]:
     return services.list_picks(conn, on, horizon)
+
+
+@router.get("/api/previews", response_model=list[s.PreviewPick])
+def previews(conn: Conn, on: Annotated[str | None, Query(alias="date")] = None,
+             slug: str | None = None) -> list[s.PreviewPick]:
+    """What NOT-promoted strategies would pick. Informational: these are not recommendations."""
+    return services.list_previews(conn, on, slug)
 
 
 @router.get("/api/strategies", response_model=list[s.StrategySummary])
@@ -145,11 +161,19 @@ def briefs(conn: Conn) -> list[s.BriefListItem]:
 
 @router.get("/api/briefs/{day}", response_model=s.Brief)
 def brief(day: str, conn: Conn) -> s.Brief:
-    try:
-        date.fromisoformat(day)
-    except ValueError as exc:
-        raise HTTPException(422, "date must be YYYY-MM-DD") from exc
-    return services.get_brief(conn, day)
+    return services.get_brief(conn, _day(day))
+
+
+@router.post("/api/briefs/{day}/generate", response_model=s.Brief)
+def generate_brief(day: str, conn: Conn, force: bool = False) -> s.Brief:
+    """Queue an evening review for a day.
+
+    The only thing this writes is a row in ``ai_requests``; ``stk ai worker`` does the work.
+    The API cannot call a model -- an import-linter contract keeps ``stk.ai`` out of
+    ``stk.api`` -- and this route is what makes that restriction bearable rather than a dead
+    end. Idempotent: a day already queued or running is returned as-is, not queued twice.
+    """
+    return services.request_brief(conn, _day(day), force=force)
 
 
 def create_app(*, sqlite_path: Path, parquet_root: Path, cfg: BacktestConfig | None = None

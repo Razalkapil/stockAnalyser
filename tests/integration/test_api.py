@@ -15,6 +15,7 @@ from stk.api.app import create_app
 from stk.config.backtest import load_backtest_config as _load_cfg
 from stk.domain.dsl.model import StrategySpec
 from stk.store.db.engine import connect, migrate
+from stk.strategies.preview import preview
 from stk.strategies.repo import get_strategy, register_spec, set_status
 from stk.strategies.scan import scan
 from stk.strategies.tracking import track_picks
@@ -302,6 +303,100 @@ class TestStatusAndBriefs:
 
     def test_a_malformed_brief_date_is_422(self, world):
         assert world[0].get("/api/briefs/not-a-date").status_code == 422
+
+    def test_every_pending_day_says_which_kind_of_pending(self, world):
+        """A bare `pending` told the user nothing and offered them nothing. Never attempted,
+        nothing to review and the model refused are different problems with different fixes."""
+        client, db_path, _t, _ = world
+        listing = client.get("/api/briefs").json()
+        day = listing[0]["date"]
+        assert client.get(f"/api/briefs/{day}").json()["state"] == "pending"
+
+        conn = connect(db_path)
+        conn.execute(
+            "INSERT INTO ai_runs (kind, business_date, model, status, started_at, error) "
+            "VALUES ('evening_review', ?, 'm', 'skipped', '2026-01-01T00:00:00+00:00', "
+            "'no picks today')", (day,))
+        conn.close()
+        b = client.get(f"/api/briefs/{day}").json()
+        assert b["state"] == "skipped" and b["stateReason"] == "no picks today"
+        assert b["pending"] is True  # still not a brief, and old clients still see that
+
+    def test_generate_queues_a_request_and_calls_no_model(self, world):
+        client, db_path, _t, _ = world
+        day = client.get("/api/briefs").json()[0]["date"]
+        r = client.post(f"/api/briefs/{day}/generate")
+        assert r.status_code == 200 and r.json()["state"] == "queued"
+        conn = connect(db_path)
+        rows = conn.execute("SELECT kind, status, requested_by FROM ai_requests").fetchall()
+        runs = conn.execute("SELECT count(*) AS n FROM ai_runs").fetchone()["n"]
+        conn.close()
+        # The route's ONLY effect: a queued row. No ai_runs row, because no call was made --
+        # the API cannot make one (an import-linter contract keeps stk.ai out of stk.api).
+        assert [tuple(r) for r in rows] == [("evening_review", "queued", "dashboard")]
+        assert runs == 0
+
+    def test_pressing_generate_twice_queues_one_request(self, world):
+        client, db_path, _t, _ = world
+        day = client.get("/api/briefs").json()[0]["date"]
+        assert client.post(f"/api/briefs/{day}/generate").status_code == 200
+        assert client.post(f"/api/briefs/{day}/generate").status_code == 200
+        conn = connect(db_path)
+        n = conn.execute("SELECT count(*) AS n FROM ai_requests").fetchone()["n"]
+        conn.close()
+        assert n == 1
+
+    def test_generate_rejects_a_malformed_date_before_queueing_anything(self, world):
+        client, db_path, _t, _ = world
+        assert client.post("/api/briefs/nope/generate").status_code == 422
+        conn = connect(db_path)
+        n = conn.execute("SELECT count(*) AS n FROM ai_requests").fetchone()["n"]
+        conn.close()
+        assert n == 0
+
+
+class TestPreviews:
+    def test_no_previews_is_an_empty_list_not_an_error(self, world):
+        r = world[0].get("/api/previews")
+        assert r.status_code == 200 and r.json() == []
+
+    def test_a_rejected_strategys_preview_is_served_with_its_status(self, world):
+        client, db_path, _t, _ = world
+        conn = connect(db_path)
+        sid = get_strategy(conn, "always_on").strategy_id
+        set_status(conn, sid, "rejected", actor="gate", reason="failed the promotion gate")
+        preview(conn, parquet_root=client.app.state.ctx.parquet_root,
+                cfg=load_backtest_config(), scan_date=DAYS[61])
+        conn.close()
+        rows = client.get("/api/previews").json()
+        assert rows
+        assert {r["strategyStatus"] for r in rows} == {"rejected"}
+        assert {r["strategyId"] for r in rows} == {"always_on"}
+        # The company name is resolved the same way a pick's is.
+        assert all(r["company"] != r["symbol"] for r in rows)
+
+    def test_previews_can_be_filtered_to_one_strategy(self, world):
+        client, db_path, _t, _ = world
+        conn = connect(db_path)
+        sid = get_strategy(conn, "always_on").strategy_id
+        set_status(conn, sid, "rejected", actor="gate", reason="nope")
+        preview(conn, parquet_root=client.app.state.ctx.parquet_root,
+                cfg=load_backtest_config(), scan_date=DAYS[61])
+        conn.close()
+        assert client.get("/api/previews?slug=always_on").json()
+        assert client.get("/api/previews?slug=nothing_here").json() == []
+
+    def test_a_preview_never_appears_among_the_picks(self, world):
+        client, db_path, _t, _ = world
+        conn = connect(db_path)
+        sid = get_strategy(conn, "always_on").strategy_id
+        set_status(conn, sid, "rejected", actor="gate", reason="nope")
+        preview(conn, parquet_root=client.app.state.ctx.parquet_root,
+                cfg=load_backtest_config(), scan_date=DAYS[61])
+        conn.close()
+        previewed = {r["symbol"] for r in client.get("/api/previews").json()}
+        picked = {p["symbol"] for p in client.get(f"/api/picks?date={DAYS[61]}").json()}
+        assert previewed and not picked
 
 
 class TestJobAlerts:

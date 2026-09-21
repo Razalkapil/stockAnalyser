@@ -21,6 +21,7 @@ from stk.domain.dsl.evaluate import explain
 from stk.ingest.calendar import expected_data_date, is_trading_day
 from stk.ingest.fundamentals_metrics import load_metric_frame
 from stk.store import duck
+from stk.store.db.repos import ai_requests
 from stk.strategies.proposals import list_proposals
 from stk.strategies.repo import StrategyRow, get_strategy, list_strategies, load_spec
 from stk.strategies.stats import BacktestStats, LiveStats, backtest_stats, live_stats
@@ -301,6 +302,46 @@ def list_picks(conn: sqlite3.Connection, on: str | None, horizon: str | None) ->
     return picks
 
 
+# --- previews ------------------------------------------------------------------------------
+# What strategies the gate has NOT approved would have picked. A separate table and a separate
+# route on purpose: nothing here is a recommendation, and nothing downstream of picks can read
+# it. Every row carries the strategy's status so the screen can say why it is only a preview.
+
+
+def latest_preview_date(conn: sqlite3.Connection) -> str | None:
+    row = conn.execute("SELECT MAX(signal_date) AS d FROM strategy_previews").fetchone()
+    return row["d"] if row and row["d"] else None
+
+
+def list_previews(conn: sqlite3.Connection, on: str | None = None,
+                  slug: str | None = None) -> list[s.PreviewPick]:
+    day = on or latest_preview_date(conn)
+    if day is None:
+        return []
+    sql = ["""SELECT v.*, st.slug, st.name AS strategy_name
+              FROM strategy_previews v JOIN strategies st ON st.strategy_id = v.strategy_id
+              WHERE v.signal_date = ?"""]
+    args: list[object] = [day]
+    if slug:
+        sql.append("AND st.slug = ?")
+        args.append(slug)
+    sql.append("ORDER BY v.horizon, v.score DESC")
+    rows = conn.execute(" ".join(sql), args).fetchall()
+
+    names = _company_names(conn, {r["symbol"] for r in rows})
+    return [
+        s.PreviewPick(
+            symbol=r["symbol"], company=names.get(r["symbol"], r["symbol"]), exch=r["exchange"],
+            horizon=r["horizon"], strategy=r["strategy_name"], strategy_id=r["slug"],
+            strategy_status=r["status_at_preview"], score=r["score"], ref=r["ref_price"],
+            stop=r["stop_price"], target=r["target_price"],
+            window=f"up to {r['hold_days']} trading days", hold_days=r["hold_days"],
+            signal_date=r["signal_date"], reason=r["reason"],
+        )
+        for r in rows
+    ]
+
+
 # --- stocks --------------------------------------------------------------------------------
 
 
@@ -397,8 +438,23 @@ def stock_bars(parquet_root: Path, cfg: BacktestConfig, symbol: str, start: date
 
 
 # --- briefs --------------------------------------------------------------------------------
-# Written by the evening AI review (stk.ai) and read here. The API never calls the model: it only
-# serves what is stored, and a day with no brief is honestly "pending".
+# Written by the evening AI review (stk.ai) and read here. The API never calls the model: it
+# only serves what is stored, and asks for a run by queueing a request (stk.store.db.repos.
+# ai_requests) that `stk ai worker` executes out of process.
+#
+# A missing brief used to be a bare "pending", which told the user nothing and offered them
+# nothing: never attempted, nothing to review, and the model refused all looked identical. The
+# state below says WHICH, so the screen can say what to do about it.
+
+REVIEW_KIND = "evening_review"
+
+#: An ai_runs status -> the state to report, with the run's own error as the reason.
+_RUN_STATES: dict[str, s.BriefState] = {
+    "skipped": "skipped", "failed": "failed", "invalid_output": "invalid_output",
+}
+#: An ai_requests status -> the state to report. 'done'/'error' never reach here: only an OPEN
+#: request is consulted, and a closed one has left its verdict in ai_runs instead.
+_REQUEST_STATES: dict[str, s.BriefState] = {"queued": "queued", "running": "running"}
 
 
 def _brief_dates(conn: sqlite3.Connection) -> set[str]:
@@ -406,16 +462,41 @@ def _brief_dates(conn: sqlite3.Connection) -> set[str]:
         "SELECT DISTINCT business_date FROM ai_outputs WHERE kind='brief'")}
 
 
+def _unready_state(conn: sqlite3.Connection, day: str) -> tuple[s.BriefState, str | None]:
+    """Why there is no brief for ``day`` -- checked most-recent-intent first.
+
+    An open request outranks the last run: having just pressed Generate, "queued" is the true
+    answer even though yesterday's attempt failed.
+    """
+    req = ai_requests.open_request(conn, REVIEW_KIND, day)
+    if req is not None:
+        return (_REQUEST_STATES.get(req.status, "queued"),
+                "waiting for `stk ai worker`" if req.status == "queued"
+                else "the review is running")
+    run = conn.execute(
+        "SELECT status, error FROM ai_runs WHERE kind=? AND business_date=? "
+        "ORDER BY run_id DESC LIMIT 1", (REVIEW_KIND, day)).fetchone()
+    if run is None:
+        return "pending", None
+    state = _RUN_STATES.get(run["status"])
+    if state is None:  # a 'success' run with no stored output: nothing to show, but it ran
+        return "pending", None
+    return state, run["error"]
+
+
 def list_briefs(conn: sqlite3.Connection) -> list[s.BriefListItem]:
     have = _brief_dates(conn)
     today = now_ist().date()
     days = [today - timedelta(days=i) for i in range(BRIEF_DAYS_SHOWN)]
-    return [
-        s.BriefListItem(date=d.isoformat(), pending=d.isoformat() not in have)
-        for d in days
-        if d.isoformat() in have
-        or (is_trading_day(conn, d, EXCHANGE) is not False and d.weekday() < 5)
-    ]
+    out: list[s.BriefListItem] = []
+    for d in days:
+        iso = d.isoformat()
+        if iso in have:
+            out.append(s.BriefListItem(date=iso, pending=False, state="ready"))
+        elif is_trading_day(conn, d, EXCHANGE) is not False and d.weekday() < 5:
+            state, reason = _unready_state(conn, iso)
+            out.append(s.BriefListItem(date=iso, pending=True, state=state, state_reason=reason))
+    return out
 
 
 def get_brief(conn: sqlite3.Connection, day: str) -> s.Brief:
@@ -423,12 +504,26 @@ def get_brief(conn: sqlite3.Connection, day: str) -> s.Brief:
         "SELECT payload_json, created_at FROM ai_outputs WHERE kind='brief' AND business_date=? "
         "ORDER BY output_id DESC LIMIT 1", (day,)).fetchone()
     if row is None:
-        return s.Brief(date=day, pending=True, generated_at=None, overview="", notable_picks=[],
-                       conflicts=[], position_notes=[])
+        state, reason = _unready_state(conn, day)
+        return s.Brief(date=day, pending=True, state=state, state_reason=reason,
+                       generated_at=None, overview="", notable_picks=[], conflicts=[],
+                       position_notes=[])
     p = json.loads(row["payload_json"])
     return s.Brief(
-        date=day, pending=False, generated_at=row["created_at"], overview=p["overview"],
+        date=day, pending=False, state="ready", state_reason=None,
+        generated_at=row["created_at"], overview=p["overview"],
         notable_picks=[{"symbol": n["symbol"], "note": n["note"]} for n in p["notable_picks"]],
         conflicts=list(p["conflicts"]),
         position_notes=[{"symbol": n["symbol"], "note": n["note"]} for n in p["position_notes"]],
     )
+
+
+def request_brief(conn: sqlite3.Connection, day: str, *, force: bool = False) -> s.Brief:
+    """Ask for an evening review. Returns the day's brief with its new state.
+
+    This inserts a row and nothing else -- no model is called here and none can be. Pressing
+    the button twice is free: `enqueue` returns the request already in flight.
+    """
+    ai_requests.enqueue(conn, kind=REVIEW_KIND, business_date=day, force=force,
+                        requested_by="dashboard")
+    return get_brief(conn, day)

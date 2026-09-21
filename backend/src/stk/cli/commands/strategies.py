@@ -20,6 +20,7 @@ from stk.domain.dsl.model import StrategySpec
 from stk.domain.dsl.validate import validate_spec
 from stk.ingest.instruments import require_instrument_classes
 from stk.store.db.engine import connect
+from stk.strategies.preview import preview as run_preview
 from stk.strategies.promotion import promote
 from stk.strategies.repo import get_strategy, list_strategies, load_spec, register_spec
 from stk.strategies.runner import lake_span
@@ -159,3 +160,34 @@ def promote_cmd(
     finally:
         conn.close()
 
+
+
+@app.command("preview")
+def preview_cmd(
+    slug: str | None = typer.Argument(None, help="One strategy; default: every non-promoted one"),
+    date_str: str | None = typer.Option(None, "--date", help="YYYY-MM-DD; default: latest bar"),
+    exchange: str = typer.Option("NSE", "--exchange"),
+) -> None:
+    """What NOT-promoted strategies would pick on a date. Writes previews, never picks."""
+    settings = get_settings()
+    day = datetime.strptime(date_str, "%Y-%m-%d").date() if date_str else None
+    conn = connect(settings.paths.sqlite)
+    try:
+        require_instrument_classes(conn, exchange)
+        result = run_preview(conn, parquet_root=settings.paths.parquet,
+                             cfg=load_backtest_config(), exchange=exchange, scan_date=day,
+                             slug=slug)
+    except ValueError as exc:
+        typer.secho(str(exc), fg="red")
+        raise typer.Exit(code=1) from exc
+    finally:
+        conn.close()
+    noun = "strategy" if result.strategies == 1 else "strategies"
+    typer.echo(f"{result.scan_date}: {result.strategies} non-promoted {noun} previewed, "
+               f"{result.rows_created} new row(s), {result.rows_existing} already recorded")
+    if result.strategies == 0:
+        typer.secho("Nothing to preview: every registered strategy is already live or decaying.",
+                    fg="yellow")
+    else:
+        typer.secho("These are NOT picks -- no strategy here has passed the promotion gate.",
+                    fg="yellow")

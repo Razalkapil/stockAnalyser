@@ -1,7 +1,8 @@
-"""`stk ai` -- the evening review and AI spend."""
+"""`stk ai` -- the evening review, the strategy lab, the request worker and AI spend."""
 
 from __future__ import annotations
 
+import time
 from datetime import datetime
 from typing import Annotated
 
@@ -13,6 +14,7 @@ from stk.ai.inputs import build_input
 from stk.ai.lab import run_strategy_lab
 from stk.ai.lab_inputs import build_lab_input
 from stk.ai.prompts import EVENING_SYSTEM, LAB_SYSTEM
+from stk.ai.worker import drain
 from stk.backtest.setup import make_rates_fn
 from stk.config.ai import AiConfig, load_ai_config
 from stk.config.backtest import load_backtest_config
@@ -21,6 +23,7 @@ from stk.config.settings import get_settings
 from stk.core.time import today_ist
 from stk.playground.context import PlayCtx
 from stk.store.db.engine import connect
+from stk.store.db.repos import ai_requests
 
 app = typer.Typer(help="AI features: evening review, spend.")
 
@@ -125,6 +128,52 @@ def lab(
         typer.echo(f"  proposal #{pid}: {status}")
     if result.cost_usd is not None:
         typer.echo(f"  ~${result.cost_usd:.4f} for the model call")
+
+
+@app.command("worker")
+def worker(
+    once: Annotated[
+        bool, typer.Option("--once", help="Drain what is queued now and exit")
+    ] = False,
+    interval: Annotated[
+        int, typer.Option("--interval", help="Seconds to wait between polls when looping")
+    ] = 10,
+) -> None:
+    """Run AI requests queued by the dashboard.
+
+    The API may ASK for a model call but can never make one (an import-linter contract keeps
+    stk.ai out of stk.api), so the "Generate now" button only writes a row to ai_requests.
+    This is what executes those rows. Run it alongside the API, or with --once after pressing
+    the button.
+    """
+    settings = get_settings()
+    ai = load_ai_config()
+    ctx = PlayCtx(settings.paths.parquet, load_backtest_config(), make_rates_fn())
+    conn = connect(settings.paths.sqlite)
+    try:
+        try:
+            client = make_client(ai)
+        except LlmError as exc:
+            typer.secho(f"AI unavailable: {exc}", fg="red")
+            raise typer.Exit(code=1) from exc
+
+        def claimed(req: ai_requests.AiRequest) -> None:
+            typer.echo(f"request #{req.request_id}: evening review for {req.business_date}"
+                       + (" (forced)" if req.force else ""))
+
+        def done(_req: ai_requests.AiRequest, status: str) -> None:
+            colour = {"success": "green", "skipped": "yellow"}.get(status, "red")
+            typer.secho(f"  {status}", fg=colour)
+
+        while True:
+            result = drain(conn, ctx, ai, client, on_claim=claimed, on_done=done)
+            if once:
+                if not result.handled:
+                    typer.echo("Nothing queued.")
+                return
+            time.sleep(interval)
+    finally:
+        conn.close()
 
 
 @app.command("models")

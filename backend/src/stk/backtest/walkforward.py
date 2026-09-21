@@ -8,8 +8,16 @@ For each window from ``domain.walkforward.generate_windows``:
   3. the chosen set is run once over the TEST span, on fresh capital.
 
 A test window PASSES when the strategy's total return beats the
-benchmark's over the same dates, after costs. When the benchmark does not
-cover the window the result is ``no_benchmark`` -- neither pass nor fail.
+benchmark's over the same dates, after costs. Two outcomes are neither a pass
+nor a fail, for different reasons:
+
+  no_benchmark  the benchmark did not cover the window -- there was nothing to beat.
+  no_trades     the strategy never traded in it -- nothing was tested. A window a
+                strategy sat out (its fundamentals have no history that far back, say)
+                returns exactly 0%, which in a rising market looks identical to losing
+                to the benchmark. Counting that as a loss would reject a strategy for
+                having no data rather than for being bad.
+
 The promotion gate counts only pass/fail windows.
 """
 
@@ -34,10 +42,14 @@ class WindowResult:
     window: Window
     chosen_params: Params
     result: BacktestResult
-    outcome: str  # pass | fail | no_benchmark
+    outcome: str  # pass | fail | no_benchmark | no_trades
 
 
 def _outcome(result: BacktestResult) -> str:
+    # Checked before alpha: a window with no trades has no result to judge, whether or
+    # not a benchmark covered it.
+    if result.metrics.trade_count == 0:
+        return "no_trades"
     if result.metrics.alpha is None:
         return "no_benchmark"
     return "pass" if result.metrics.alpha > 0 else "fail"

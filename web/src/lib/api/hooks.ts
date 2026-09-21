@@ -8,6 +8,7 @@ import type {
   NewOrder,
   Pick,
   PortfolioDetail,
+  PreviewPick,
   PortfolioSummary,
   ProposalOut,
   Status,
@@ -31,6 +32,13 @@ export const usePicks = (date?: string) =>
   useQuery({
     queryKey: ["picks", date ?? "latest"],
     queryFn: () => apiGet<Pick[]>(`/api/picks${date ? `?date=${enc(date)}` : ""}`),
+  });
+
+/** What NOT-promoted strategies would pick. Never a recommendation -- see the Preview section. */
+export const usePreviews = (slug?: string) =>
+  useQuery({
+    queryKey: ["previews", slug ?? "all"],
+    queryFn: () => apiGet<PreviewPick[]>(`/api/previews${slug ? `?slug=${enc(slug)}` : ""}`),
   });
 
 export const useStrategies = () =>
@@ -74,7 +82,25 @@ export const useBrief = (day: string | null) =>
     queryKey: ["brief", day],
     queryFn: () => apiGet<Brief>(`/api/briefs/${enc(day ?? "")}`),
     enabled: !!day,
+    // A queued request is executed by `stk ai worker` out of process, so the only way this
+    // screen learns it finished is by asking again.
+    refetchInterval: (q) => {
+      const st = q.state.data?.state;
+      return st === "queued" || st === "running" ? 5_000 : false;
+    },
   });
+
+/** Queue an evening review. The API cannot call a model -- this only asks for one. */
+export function useGenerateBrief(day: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiPost<Brief>(`/api/briefs/${enc(day ?? "")}/generate`),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["brief", day] });
+      void qc.invalidateQueries({ queryKey: ["briefs"] });
+    },
+  });
+}
 
 export function useStrategyAction(slug: string) {
   const qc = useQueryClient();

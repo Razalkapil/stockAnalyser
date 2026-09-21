@@ -14,20 +14,66 @@ uses commands that exist in the repo; the deploy files are in [`deploy/`](../dep
 |---|---|---|
 | `stk-api.service` | always | FastAPI on `127.0.0.1:8000`. Caddy is the only way in. |
 | `stk-poller.service` | always | Paper-trading poller. Idles outside 09:15–15:30 on trading days. Stale feed ⇒ orders wait for the EOD bar; nothing fills on stale data. |
+| `stk-ai-worker.service` | always | Runs briefs the dashboard's **Generate now** button queued. Polls a local table; calls a provider only when a request is waiting. |
 | `stk-nightly.timer` | Mon–Fri 20:30 and 23:00 (retry) | `stk nightly` |
 | `stk-weekly.timer` | Sun 10:00 | `stk weekly` |
 | `stk-backup.timer` | daily 23:45 | `deploy/backup.sh` |
 | `stk-doctor.timer` | daily 07:30 | `stk doctor --backup-dest …` |
 
 **`stk nightly`** runs, each as its own subprocess and its own `job_runs` row
-(`nightly.<step>`): `corpactions` → `prices` → `indices` → `liquidity` → `scan` → `track` →
-`playground_eod` → `ai_evening`. If `prices` fails, everything that reads today's bars is
+(`nightly.<step>`): `corpactions` → `prices` → `indices` → `liquidity` → `scan` → `preview` →
+`track` → `playground_eod` → `ai_evening`. If `prices` fails, everything that reads today's bars is
 recorded as failed with "not run: prices failed first" (never silently skipped); `corpactions`
 and `indices` still run. Re-running is always safe — every step is idempotent, which is why the
 23:00 retry is just the same command.
 
 **`stk weekly`**: `master` → `calendar` → `fundamentals_sweep` → `xbrl` → `ai_lab`. `xbrl` exits 2
 (recorded `degraded`) when some downloads failed; they are retried next week.
+
+## Generating a brief by hand
+
+The API **cannot** call a model. An import-linter contract keeps `stk.ai` out of `stk.api`, so no
+HTTP request can reach a provider however the routes change. The dashboard's **Generate now**
+button therefore only writes a row to `ai_requests`, and a worker executes it:
+
+```
+stk ai worker            # long-running; what stk-ai-worker.service does
+stk ai worker --once     # drain whatever is queued and exit
+```
+
+Without a worker running, a queued brief simply stays `queued` — it is never lost. You can also
+skip the queue entirely, which works with the API server stopped:
+
+```
+stk ai evening --dry-run   # prints exactly what would be sent, sends nothing
+stk ai evening             # one call; a success for that day is not repeated
+stk ai evening --force     # re-run a day that already succeeded
+```
+
+**The brief says why it is missing**, rather than a bare "pending": `pending` (never attempted),
+`queued`/`running` (a worker has it), `skipped` (it ran and had nothing to do — usually *no picks
+today*), `failed`, `invalid_output`. A day with no picks costs nothing: no picks means no call.
+
+API keys go in `.env` (`GROQ_API_KEY` / `ANTHROPIC_API_KEY`, matching `provider:` in
+`config/ai.yaml`). `stk` copies them into the environment at startup because the provider SDKs
+read them from there; an already-set variable always wins, so systemd's `EnvironmentFile` and an
+inline `GROQ_API_KEY=... stk ...` both still override the file.
+
+## Seeing what an unapproved strategy would buy
+
+Only `live`/`decaying` strategies produce picks, and the gate rejects a strategy that did not beat
+the benchmark out of sample. That is correct — but it should not make a rejected rule invisible.
+
+```
+stk strategies preview                  # every non-promoted strategy, latest bar
+stk strategies preview swing_rsi_reset  # just one
+```
+
+Rows land in `strategy_previews` and appear on the Today tab under **Preview — not promoted**, and
+on a strategy's own page as *What it would pick today*. They are **never** written to `picks`, so
+tracking, out-of-sample stats and the AI evening review cannot see them: a preview can never
+become a recommendation. The nightly run does this as its own `preview` step, which nothing else
+depends on.
 
 ## First install
 
@@ -104,6 +150,8 @@ remove those yourself once satisfied.
 | Banner: `nightly.prices failed` | Exchange not yet published, changed format, or the network is down. | `journalctl -u stk-nightly -e` / the `job_runs.error_message`. Re-run: `stk nightly` (safe any time). A `ContentValidationError` or a wrong-date file means the exchange served bad content — the pipeline refused it on purpose. Do not bypass; check `docs/data-sources.md` and probe with `stk doctor --check-endpoints`. |
 | `nightly.corpactions failed` — *unparsed subject* | A corporate action the parser doesn't know. **All rows are stored first**, then it fails so a split can't be silently missed. | Add a rule to the table in `ingest/corpactions.py` (+ a test using the real subject text), then re-run. Until then prices for that symbol may be mis-adjusted — the adjusted series is marked degraded. |
 | `orders_pending_eod` (info) | Delayed feed was down; orders are parked. | Nothing: the EOD pass decides them from the day's bar. |
+| Brief stuck on `queued` | Nothing is draining `ai_requests` — no worker is running. | `systemctl status stk-ai-worker`, or just `stk ai worker --once`. The request is not lost; it waits. |
+| Brief says `skipped — no picks today` | Correct, not a fault: no strategy is `live`, or none fired. Check the Strategy lab; `stk strategies preview` shows what the rejected ones would have bought. | Nothing. A day with no picks never calls a model. |
 | `ai_failing` | Last 3 evening/lab runs failed (key lapsed, model renamed, output invalid). | `stk ai models` (does the key work; is the configured model still offered), `stk ai usage`, `ai_runs.error`; `stk ai evening --dry-run` shows the prompt and its size. Everything else runs regardless. |
 | `backup_missing` / `backup_stale` | The backup timer isn't running or is failing. | `systemctl status stk-backup`, run `deploy/backup.sh` by hand. |
 | Data stale but no failed step | The timer did not fire (VM was off, timer not enabled). | `systemctl list-timers`; `stk nightly`. `Persistent=true` catches up after a boot. |

@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { TicketProvider } from "../components/TicketContext";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { detail, mockApi, pick, summary } from "../test/fixtures";
+import { detail, mockApi, pick, preview, summary } from "../test/fixtures";
 import { Brief } from "./Brief";
 import { Login } from "./Login";
 import { StrategyLab } from "./StrategyLab";
@@ -72,6 +72,32 @@ describe("Today", () => {
     renderWith(<Today />);
     expect(await screen.findByText("No picks yet")).toBeInTheDocument();
     expect(screen.getByText(/stk scan/)).toBeInTheDocument();
+  });
+
+  it("offers previews when the gate has approved nothing, and calls them not-picks", async () => {
+    mockApi({ "/api/picks": [], "/api/previews": [preview()] });
+    renderWith(<Today />);
+    expect(await screen.findByText("No picks yet")).toBeInTheDocument();
+    expect(screen.getByText(/not a recommendation|nothing here is a recommendation/)).toBeInTheDocument();
+    expect(screen.getByText(/Preview — not promoted/)).toBeInTheDocument();
+  });
+
+  it("keeps preview cards collapsed until asked, and marks the strategy's status", async () => {
+    mockApi({ "/api/picks": [], "/api/previews": [preview()] });
+    renderWith(<Today />);
+    await screen.findByText(/Preview — not promoted/);
+    expect(screen.queryByTestId("preview-card")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByText(/Preview — not promoted/));
+    expect(screen.getByTestId("preview-card")).toBeInTheDocument();
+    expect(screen.getByText("TATASTEEL")).toBeInTheDocument();
+    expect(screen.getByText("rejected")).toBeInTheDocument();
+  });
+
+  it("never renders a preview as a pick card", async () => {
+    mockApi({ "/api/picks": [], "/api/previews": [preview()] });
+    renderWith(<Today />);
+    await userEvent.click(await screen.findByText(/Preview — not promoted/));
+    expect(screen.queryAllByTestId("pick-card")).toHaveLength(0);
   });
 
   it("reports a failed load instead of an empty page", async () => {
@@ -164,16 +190,61 @@ describe("StrategyLab", () => {
   });
 });
 
+const unreadyBrief = (state: string, stateReason: string | null = null) => ({
+  date: "2026-09-18", pending: true, state, stateReason, generatedAt: null, overview: "",
+  notablePicks: [], conflicts: [], positionNotes: [],
+});
+
 describe("Brief", () => {
   it("is honestly pending until the AI review writes one", async () => {
     mockApi({
-      "/api/briefs/2026-09-18": { date: "2026-09-18", pending: true, generatedAt: null, overview: "",
-        notablePicks: [], conflicts: [], positionNotes: [] },
-      "/api/briefs": [{ date: "2026-09-18", pending: true }],
+      "/api/briefs/2026-09-18": unreadyBrief("pending"),
+      "/api/briefs": [{ date: "2026-09-18", pending: true, state: "pending" }],
     });
     renderWith(<Brief />);
     expect(await screen.findByText("This brief has not been generated yet")).toBeInTheDocument();
     expect(screen.getByText("pending")).toBeInTheDocument();
+  });
+
+  it("says WHY there is no brief instead of a bare 'pending'", async () => {
+    mockApi({
+      "/api/briefs/2026-09-18": unreadyBrief("skipped", "no picks today"),
+      "/api/briefs": [{ date: "2026-09-18", pending: true, state: "skipped" }],
+    });
+    renderWith(<Brief />);
+    expect(await screen.findByText("Nothing to review")).toBeInTheDocument();
+    expect(screen.getByText(/no picks today/)).toBeInTheDocument();
+  });
+
+  it("queues a review rather than calling a model from the browser", async () => {
+    const fn = mockApi({
+      "/api/briefs/2026-09-18": unreadyBrief("pending"),
+      "/api/briefs": [{ date: "2026-09-18", pending: true, state: "pending" }],
+      "/api/briefs/2026-09-18/generate": unreadyBrief("queued"),
+    });
+    renderWith(<Brief />);
+    await userEvent.click(await screen.findByRole("button", { name: "Generate now" }));
+    const call = fn.mock.calls.find(([u]) => String(u).endsWith("/generate"));
+    expect(call).toBeDefined();
+    expect((call?.[1] as RequestInit | undefined)?.method).toBe("POST");
+  });
+
+  it("cannot be pressed twice while a request is already in flight", async () => {
+    mockApi({
+      "/api/briefs/2026-09-18": unreadyBrief("queued"),
+      "/api/briefs": [{ date: "2026-09-18", pending: true, state: "queued" }],
+    });
+    renderWith(<Brief />);
+    expect(await screen.findByRole("button", { name: "Queued…" })).toBeDisabled();
+  });
+
+  it("does not blank the screen on a state it does not know", async () => {
+    mockApi({
+      "/api/briefs/2026-09-18": unreadyBrief("something_new"),
+      "/api/briefs": [{ date: "2026-09-18", pending: true, state: "something_new" }],
+    });
+    renderWith(<Brief />);
+    expect(await screen.findByText("This brief has not been generated yet")).toBeInTheDocument();
   });
 });
 

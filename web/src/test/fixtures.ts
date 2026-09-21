@@ -1,4 +1,23 @@
-import type { Pick, StrategyDetail, StrategySummary } from "../lib/api/types";
+import type { Pick, PreviewPick, StrategyDetail, StrategySummary } from "../lib/api/types";
+
+export const preview = (over: Partial<PreviewPick> = {}): PreviewPick => ({
+  symbol: "TATASTEEL",
+  company: "Tata Steel Limited",
+  exch: "NSE",
+  horizon: "swing",
+  strategy: "Pullback to EMA20",
+  strategyId: "swing_pullback_ema",
+  strategyStatus: "rejected",
+  score: 64.2,
+  ref: 168.4,
+  stop: 160.1,
+  target: 182.9,
+  window: "up to 10 trading days",
+  holdDays: 10,
+  signalDate: "2026-09-18",
+  reason: "EMA20 > EMA50; low touched the EMA20 with RSI in the reset band.",
+  ...over,
+});
 
 export const pick = (over: Partial<Pick> = {}): Pick => ({
   id: 1,

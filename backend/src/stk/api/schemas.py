@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_camel
@@ -164,19 +165,55 @@ class Bar(Wire):
     volume: int
 
 
+#: Why a brief is not on screen. ``pending`` stays on the wire as the derived
+#: "anything but ready", so nothing that only asks "is it here?" has to learn these.
+#:   pending         never attempted
+#:   queued/running  someone pressed Generate; a worker has it
+#:   skipped         the review ran and had nothing to do (usually: no picks that day)
+#:   failed          the call did not complete
+#:   invalid_output  the model replied, and the reply did not survive validation
+#:   ready           a brief exists
+BriefState = Literal["ready", "pending", "queued", "running", "skipped", "failed",
+                     "invalid_output"]
+
+
 class BriefListItem(Wire):
     date: str
     pending: bool
+    state: BriefState
+    state_reason: str | None = None
 
 
 class Brief(Wire):
     date: str
     pending: bool
+    state: BriefState
+    state_reason: str | None
     generated_at: str | None
     overview: str
     notable_picks: list[dict[str, str]]
     conflicts: list[str]
     position_notes: list[dict[str, str]]
+
+
+class PreviewPick(Wire):
+    """What a strategy the gate has NOT approved would pick. Never a recommendation."""
+
+    symbol: str
+    company: str
+    exch: str
+    horizon: str
+    strategy: str
+    strategy_id: str
+    strategy_status: str
+    score: float
+    ref: float
+    stop: float | None
+    target: float | None
+    window: str
+    hold_days: int
+    signal_date: str
+    reason: str
 
 
 class DemoteRequest(Wire):

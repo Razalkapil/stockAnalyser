@@ -38,6 +38,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/briefs/{day}/generate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Generate Brief
+         * @description Queue an evening review for a day.
+         *
+         *     The only thing this writes is a row in ``ai_requests``; ``stk ai worker`` does the work.
+         *     The API cannot call a model -- an import-linter contract keeps ``stk.ai`` out of
+         *     ``stk.api`` -- and this route is what makes that restriction bearable rather than a dead
+         *     end. Idempotent: a day already queued or running is returned as-is, not queued twice.
+         */
+        post: operations["generate_brief_api_briefs__day__generate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/health": {
         parameters: {
             query?: never;
@@ -154,6 +179,26 @@ export interface paths {
         };
         /** Portfolio */
         get: operations["portfolio_api_portfolios__pid__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/previews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Previews
+         * @description What NOT-promoted strategies would pick. Informational: these are not recommendations.
+         */
+        get: operations["previews_api_previews_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -414,6 +459,13 @@ export interface components {
             positionNotes: {
                 [key: string]: string;
             }[];
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "ready" | "pending" | "queued" | "running" | "skipped" | "failed" | "invalid_output";
+            /** Statereason */
+            stateReason: string | null;
         };
         /** BriefListItem */
         BriefListItem: {
@@ -421,6 +473,13 @@ export interface components {
             date: string;
             /** Pending */
             pending: boolean;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "ready" | "pending" | "queued" | "running" | "skipped" | "failed" | "invalid_output";
+            /** Statereason */
+            stateReason?: string | null;
         };
         /** CostPreview */
         CostPreview: {
@@ -729,6 +788,42 @@ export interface components {
             qty: number;
             /** Symbol */
             symbol: string;
+        };
+        /**
+         * PreviewPick
+         * @description What a strategy the gate has NOT approved would pick. Never a recommendation.
+         */
+        PreviewPick: {
+            /** Company */
+            company: string;
+            /** Exch */
+            exch: string;
+            /** Holddays */
+            holdDays: number;
+            /** Horizon */
+            horizon: string;
+            /** Reason */
+            reason: string;
+            /** Ref */
+            ref: number;
+            /** Score */
+            score: number;
+            /** Signaldate */
+            signalDate: string;
+            /** Stop */
+            stop: number | null;
+            /** Strategy */
+            strategy: string;
+            /** Strategyid */
+            strategyId: string;
+            /** Strategystatus */
+            strategyStatus: string;
+            /** Symbol */
+            symbol: string;
+            /** Target */
+            target: number | null;
+            /** Window */
+            window: string;
         };
         /** PreviewRequest */
         PreviewRequest: {
@@ -1055,6 +1150,39 @@ export interface operations {
             };
         };
     };
+    generate_brief_api_briefs__day__generate_post: {
+        parameters: {
+            query?: {
+                force?: boolean;
+            };
+            header?: never;
+            path: {
+                day: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Brief"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     health_api_health_get: {
         parameters: {
             query?: never;
@@ -1281,6 +1409,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PortfolioDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    previews_api_previews_get: {
+        parameters: {
+            query?: {
+                date?: string | null;
+                slug?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreviewPick"][];
                 };
             };
             /** @description Validation Error */

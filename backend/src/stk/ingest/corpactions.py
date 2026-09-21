@@ -44,7 +44,12 @@ from stk.store.db.engine import connect, transaction
 #: 3: the 193 subjects v2 left unparsed over 2021-2026 -- "Bonus- 1:2" (a real bonus: AJANTPHARM's
 #: adjusted series showed a phantom 34% crash), EGM spellings, "Divdend"/"Div", "Rs - 2.10",
 #: InvIT interest/return-of-capital payouts, capital reductions, bond redemptions.
-PARSER_VERSION = 3
+#: 4: rights issues. The subject carries the ratio AND the subscription premium ("Rights 3:19 @
+#: Premium Rs 74/-"), which is everything needed for a theoretical ex-rights price EXCEPT the
+#: cum-rights close -- so a rights row is now ``parsed`` with an ``issue_premium`` and NO
+#: price_factor, and ingest.adjustments computes the factor where it has the price lake. 215 of
+#: 218 real rights subjects over 2021-2026 carry a premium; the rest stay ambiguous.
+PARSER_VERSION = 4
 
 
 class ActionType(StrEnum):
@@ -68,6 +73,11 @@ class ParsedAction(BaseModel):
     ratio_denominator: int | None = None
     face_value_from: Decimal | None = None
     face_value_to: Decimal | None = None
+    #: Rights only: the subscription PREMIUM over face value, as printed. The issue price is
+    #: face value + this, and the face value is not in the subject -- ingest.adjustments looks
+    #: it up as of the ex-date. Kept as the premium rather than a price so nothing here has to
+    #: guess a face value the subject never stated.
+    issue_premium: Decimal | None = None
     price_factor: Decimal | None = None
     volume_factor: Decimal | None = None
 
@@ -138,8 +148,15 @@ _FACE_VALUE_SPLIT_RE = re.compile(
 _CONSOLIDATION_VALUES_RE = re.compile(
     rf"consolidation\s+of\s+(?:equity\s+)?shares\s+{_FROM_TO}", re.IGNORECASE
 )
+# "Rights 3:19", "Rights Issue 4:17", "Rights - 5:14". The ratio is NEW shares : shares HELD.
 _RIGHTS_RE = re.compile(
-    r"rights\s+(\d+)\s*:\s*(\d+)",
+    r"rights(?:\s+issue)?\s*-?\s*(\d+)\s*:\s*(\d+)",
+    re.IGNORECASE,
+)
+# The subscription premium over face value: "@ Premium Rs 74/-", "@Premium Re 0.45 /-",
+# "@ Premium 91". Singular "Re" is used for amounts of a rupee or less and is common here.
+_RIGHTS_PREMIUM_RE = re.compile(
+    rf"premium\s*(?:of\s*)?(?:{_RUPEE}\s*)?{_AMOUNT}",
     re.IGNORECASE,
 )
 # ANY subject that opens with "Rights" is a rights issue, whatever the wording (real example:
@@ -222,14 +239,60 @@ def _parse_face_value_split(
     )
 
 
-def _parse_rights(match: re.Match) -> ParsedAction:
+def _parse_rights(match: re.Match, subject: str) -> ParsedAction:
+    """Ratio and subscription premium. NO price_factor: that needs the cum-rights close.
+
+    A rights issue dilutes only to the extent the new shares are cheap, so unlike a bonus its
+    factor is not a function of the ratio alone -- it needs the market price the day before the
+    ex-date. ``ingest.adjustments`` finishes the job where it can see the lake. Recording the
+    premium here (not an issue price) keeps this parser honest: the face value it would have to
+    be added to is nowhere in the subject.
+    """
     num, den = int(match.group(1)), int(match.group(2))
-    # Rights issues are price-affecting but require the subscription
-    # price (frequently absent or in a separate field) to compute a
-    # theoretical ex-rights price -- deliberately left as ambiguous
-    # (no factor) until that is available. Recording the ratio is still
-    # useful for audit/UI purposes.
-    return ParsedAction(action_type=ActionType.RIGHTS, ratio_numerator=num, ratio_denominator=den)
+    premium = _RIGHTS_PREMIUM_RE.search(subject)
+    return ParsedAction(
+        action_type=ActionType.RIGHTS,
+        ratio_numerator=num,
+        ratio_denominator=den,
+        issue_premium=_parse_decimal(premium.group(1)) if premium else None,
+    )
+
+
+#: A computed rights factor below this is treated as a misparse, not a very cheap issue. The
+#: deepest real discount seen over 2021-2026 leaves a factor near 0.5; a face value that changed
+#: after the ex-date, or a premium quoted against a different one, is what produces 0.01.
+MIN_RIGHTS_FACTOR = Decimal("0.2")
+
+
+def terp_price_factor(
+    *,
+    new_shares: int,
+    held_shares: int,
+    issue_price: Decimal,
+    cum_price: Decimal,
+) -> Decimal | None:
+    """Back-adjustment factor for a rights issue, from the theoretical ex-rights price.
+
+    A holder of ``held_shares`` may buy ``new_shares`` at ``issue_price``. The portfolio is
+    worth the same either side of the ex-date, so the theoretical price after it is
+
+        TERP = (held * cum_price + new * issue_price) / (held + new)
+
+    and the factor applied to every earlier bar is ``TERP / cum_price``.
+
+    Returns None when the inputs cannot produce a trustworthy factor. Rights priced AT OR ABOVE
+    the market are not a hole in the data -- nobody subscribes, the rights are worthless and the
+    price does not drop -- so those get exactly 1, which is derived, not defaulted.
+    """
+    if held_shares <= 0 or new_shares <= 0 or cum_price <= 0 or issue_price < 0:
+        return None
+    if issue_price >= cum_price:
+        return Decimal(1)
+    terp = (Decimal(held_shares) * cum_price + Decimal(new_shares) * issue_price) / Decimal(
+        held_shares + new_shares
+    )
+    factor = terp / cum_price
+    return factor if factor >= MIN_RIGHTS_FACTOR else None
 
 
 _SIMPLE_MATCHERS: list[tuple[re.Pattern, ActionType]] = [
@@ -287,9 +350,12 @@ def _rights_any(_m: re.Match) -> _ClauseResult:
 
 
 def _rights(m: re.Match) -> _ClauseResult:
-    # Rights issues always lack a computable factor here (need the subscription price, which
-    # this parser does not yet consume).
-    return _ClauseResult(action=_parse_rights(m), recognised=True, ambiguous=True)
+    # Parsed when the premium is there -- adjustments can finish it from the cum-rights close.
+    # Silent about the premium means silent: a rights issue "at par" and one whose premium NSE
+    # simply omitted read identically, and assuming par would invent a discount.
+    parsed = _parse_rights(m, m.string)
+    return _ClauseResult(action=parsed, recognised=True,
+                         ambiguous=parsed.issue_premium is None)
 
 
 #: ORDER MATTERS. A distribution's own text contains "Dividend Re 0.32 Per Unit", so
@@ -431,6 +497,7 @@ def _typed_columns(result: ParseResult) -> tuple[object, ...]:
         action.ratio_denominator if action else None,
         float(action.face_value_from) if action and action.face_value_from else None,
         float(action.face_value_to) if action and action.face_value_to else None,
+        float(action.issue_premium) if action and action.issue_premium is not None else None,
         float(action.price_factor) if action and action.price_factor is not None else None,
         float(action.volume_factor) if action and action.volume_factor is not None else None,
         result.status,
@@ -440,8 +507,8 @@ def _typed_columns(result: ParseResult) -> tuple[object, ...]:
 
 _TYPED_COLUMNS = (
     "action_type", "dividend_per_share", "ratio_numerator", "ratio_denominator",
-    "face_value_from", "face_value_to", "price_factor", "volume_factor", "parse_status",
-    "parser_version",
+    "face_value_from", "face_value_to", "issue_premium", "price_factor", "volume_factor",
+    "parse_status", "parser_version",
 )
 
 
@@ -469,8 +536,13 @@ def _reparse_rows(conn: sqlite3.Connection, rows: list[sqlite3.Row]) -> ReparseR
         if result.status != row["parse_status"]:
             key = f"{row['parse_status']}->{result.status}"
             transitions[key] = transitions.get(key, 0) + 1
-        new_factor = columns[_TYPED_COLUMNS.index("price_factor")]
-        if new_factor != row["price_factor"] and row["ex_date"]:
+        # A rights reparse changes issue_premium, not price_factor (adjustments derives that
+        # from the lake), but the adjusted series is just as stale for it.
+        stale = any(
+            columns[_TYPED_COLUMNS.index(c)] != row[c]
+            for c in ("price_factor", "issue_premium")
+        )
+        if stale and row["ex_date"]:
             changed.add(date.fromisoformat(row["ex_date"]))
         if result.status == "unparsed":
             still_unparsed.append((row["symbol"], row["subject_raw"]))
@@ -489,7 +561,8 @@ def reparse_stored_actions(*, sqlite_path: Path) -> ReparseResult:
     try:
         with job_run(conn, "reparse_corporate_actions") as handle:
             rows = conn.execute(
-                "SELECT ca_id, symbol, ex_date, subject_raw, parse_status, price_factor "
+                "SELECT ca_id, symbol, ex_date, subject_raw, parse_status, price_factor, "
+                "issue_premium "
                 "FROM corporate_actions WHERE parser_version IS NULL OR parser_version < ?",
                 (PARSER_VERSION,),
             ).fetchall()
@@ -527,9 +600,9 @@ def _upsert_action(conn: sqlite3.Connection, raw: RawCorporateAction) -> tuple[s
         """INSERT INTO corporate_actions
                (security_id, isin, symbol, exchange, ex_date, record_date, bc_start_date,
                 bc_end_date, subject_raw, action_type, dividend_per_share, ratio_numerator,
-                ratio_denominator, face_value_from, face_value_to, price_factor, volume_factor,
-                parse_status, parser_version, source, source_hash, captured_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ratio_denominator, face_value_from, face_value_to, issue_premium, price_factor,
+                volume_factor, parse_status, parser_version, source, source_hash, captured_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
            ON CONFLICT (source, source_hash) DO NOTHING""",
         (
             security_id, raw.isin, raw.symbol, raw.exchange,

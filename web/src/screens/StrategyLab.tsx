@@ -3,6 +3,7 @@ import { EmptyState } from "../components/EmptyState";
 import { EquityChart } from "../components/EquityChart";
 import { StatusPill } from "../components/StatusPill";
 import {
+  usePreviews,
   useProposalAction,
   useProposals,
   useStrategies,
@@ -89,6 +90,7 @@ function Row({ s, selected, onClick }: { s: StrategySummary; selected: boolean; 
 
 function Detail({ d }: { d: StrategyDetail }) {
   const { approve, retire } = useStrategyAction(d.id);
+  const { data: previews } = usePreviews(d.id);
   const error = approve.error ?? retire.error;
   return (
     <div
@@ -163,6 +165,31 @@ function Detail({ d }: { d: StrategyDetail }) {
         <div style={{ font: `400 12px ${font.sans}`, color: color.textFaint, marginBottom: 16 }}>
           No walk-forward run yet.
         </div>
+      )}
+
+      {previews && previews.length > 0 && (
+        <>
+          <div style={section}>
+            What it would pick today{" "}
+            <span style={{ textTransform: "none", letterSpacing: 0 }}>(preview, not a pick)</span>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 16 }}>
+            {previews.map((p) => (
+              <div
+                key={p.symbol}
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  font: `500 11.5px ${font.mono}`,
+                }}
+              >
+                <span>{p.symbol}</span>
+                <span style={{ color: color.textMuted }}>{fmtNum(p.ref, 2)}</span>
+                <span style={{ color: color.textMuted }}>{fmtNum(p.score, 0)}</span>
+              </div>
+            ))}
+          </div>
+        </>
       )}
 
       <div style={section}>

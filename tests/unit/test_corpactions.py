@@ -15,7 +15,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from stk.ingest.corpactions import ActionType, parse_subject
+from stk.ingest.corpactions import ActionType, parse_subject, terp_price_factor
 
 # (subject, expected_status, expected_action_types)
 PARSE_CASES = [
@@ -28,7 +28,8 @@ PARSE_CASES = [
     ("Face Value Split From Rs 10 To Rs 2", "parsed", [ActionType.SPLIT]),
     ("Face Value Split From Rs.10/- To Rs.1/-", "parsed", [ActionType.SPLIT]),
     ("Consolidation of shares", "parsed", [ActionType.CONSOLIDATION]),
-    ("Rights 1:4 @ Premium Rs 50", "ambiguous", [ActionType.RIGHTS]),
+    ("Rights 1:4 @ Premium Rs 50", "parsed", [ActionType.RIGHTS]),
+    ("Rights 27:47", "ambiguous", [ActionType.RIGHTS]),  # no premium stated
     ("Annual General Meeting", "parsed", [ActionType.AGM]),
     ("Scheme of Arrangement", "parsed", [ActionType.DEMERGER]),
     ("Buy-Back", "parsed", [ActionType.BUYBACK]),
@@ -229,10 +230,39 @@ def test_a_bond_interest_payment_is_a_recognised_cash_event():
     assert r.status == "parsed" and r.actions[0].action_type is ActionType.DISTRIBUTION
 
 
-def test_rights_issues_remain_ambiguous_because_a_factor_needs_the_issue_price():
-    """Unchanged, and deliberate: excluded from adjustment and COUNTED (job degraded)."""
+def test_a_rights_issue_is_parsed_but_still_carries_no_price_factor():
+    """v4. The ratio and the premium are both in the subject, so the row is `parsed` -- but the
+    factor still needs the cum-rights close, which the parser cannot see. It is derived later,
+    in ingest.adjustments. price_factor staying None here is the point, not an oversight."""
     r = parse_subject("Rights 3:25 @ Premium Rs 1799/-")
-    assert r.status == "ambiguous" and r.actions[0].price_factor is None
+    action = r.actions[0]
+    assert r.status == "parsed"
+    assert action.price_factor is None
+    assert (action.ratio_numerator, action.ratio_denominator) == (3, 25)
+    assert action.issue_premium == Decimal("1799")
+
+
+def test_a_rights_issue_with_no_stated_premium_stays_ambiguous():
+    """Silence is not "at par". A premium NSE simply omitted and a genuine par issue read the
+    same, and assuming par would invent a discount and mark down real history."""
+    r = parse_subject("Rights 27:47")
+    assert r.status == "ambiguous" and r.actions[0].issue_premium is None
+
+
+@pytest.mark.parametrize(
+    ("subject", "premium"),
+    [
+        ("Rights 3:19 @ Premium Rs 74/-", Decimal("74")),
+        ("Rights Issue 4:17@ Premium Rs 390/-", Decimal("390")),   # "Rights Issue", no space
+        ("Rights 161:250 @ Premium Re 0.45 /-", Decimal("0.45")),  # singular Re, under a rupee
+        ("Rights 3:2 @ Premium Re. 0.63/-", Decimal("0.63")),
+        ("Rights 1:9 @ Premium 91", Decimal("91")),                # no currency word at all
+    ],
+)
+def test_the_real_premium_spellings_are_all_read(subject, premium):
+    """Verbatim from the stored NSE subjects; each spelling cost a symbol its adjustment."""
+    action = parse_subject(subject).actions[0]
+    assert action.issue_premium == premium
 
 
 def test_genuinely_unknown_subjects_are_still_unparsed():
@@ -352,3 +382,58 @@ def test_any_rights_wording_is_recognised_as_rights_never_unparsed():
     assert r.actions[0].action_type is ActionType.RIGHTS
     assert r.actions[0].price_factor is None
     assert r.actions[0].ratio_numerator is None  # no ratio was extractable; none is invented
+
+
+# --- v4: the theoretical ex-rights price ----------------------------------------------------
+
+
+class TestTerpFactor:
+    """A rights issue dilutes only as far as the new shares are cheap, so unlike a bonus its
+    factor is not a function of the ratio alone."""
+
+    def test_a_rights_issue_priced_at_zero_is_exactly_a_bonus(self):
+        """The strongest check available without market data: at an issue price of nothing, a
+        1:1 rights IS a 1:1 bonus, so TERP must agree with the bonus formula's 0.5."""
+        assert terp_price_factor(new_shares=1, held_shares=1, issue_price=Decimal(0),
+                                 cum_price=Decimal(100)) == Decimal("0.5")
+        bonus = parse_subject("Bonus 1:1").actions[0]
+        assert terp_price_factor(new_shares=1, held_shares=1, issue_price=Decimal(0),
+                                 cum_price=Decimal(100)) == bonus.price_factor
+
+    def test_a_discounted_issue_marks_history_down_a_little(self):
+        # 3 new at 75 for every 19 held at 120: TERP = (19*120 + 3*75) / 22
+        factor = terp_price_factor(new_shares=3, held_shares=19, issue_price=Decimal(75),
+                                   cum_price=Decimal(120))
+        assert factor is not None
+        assert Decimal("0.94") < factor < Decimal("0.95")
+
+    def test_rights_priced_above_the_market_do_not_move_the_price(self):
+        """Nobody subscribes, the rights expire worthless and there is no ex-date drop. A
+        factor of 1 here is DERIVED -- it is not the "safe-looking default" this codebase bans,
+        because the economics really do say one."""
+        assert terp_price_factor(new_shares=1, held_shares=5, issue_price=Decimal(500),
+                                 cum_price=Decimal(100)) == Decimal(1)
+        assert terp_price_factor(new_shares=1, held_shares=5, issue_price=Decimal(100),
+                                 cum_price=Decimal(100)) == Decimal(1)
+
+    def test_an_implausible_factor_is_refused_rather_than_applied(self):
+        """A face value that changed after the ex-date produces nonsense like 0.01. Refusing
+        leaves the action counted as an excluded hole -- visibly missing beats quietly wrong."""
+        assert terp_price_factor(new_shares=99, held_shares=1, issue_price=Decimal("0.01"),
+                                 cum_price=Decimal(100)) is None
+
+    @pytest.mark.parametrize(
+        ("new", "held", "issue", "cum"),
+        [(0, 10, 50, 100), (10, 0, 50, 100), (1, 1, 50, 0), (1, 1, -5, 100)],
+    )
+    def test_nonsense_inputs_return_none_and_never_raise(self, new, held, issue, cum):
+        assert terp_price_factor(new_shares=new, held_shares=held,
+                                 issue_price=Decimal(issue), cum_price=Decimal(cum)) is None
+
+    def test_the_factor_never_exceeds_one(self):
+        """Back-adjustment scales history DOWN for a dilution; a factor above 1 would invent
+        gains that never happened."""
+        for issue in (0, 1, 50, 99, 100, 150):
+            f = terp_price_factor(new_shares=1, held_shares=4, issue_price=Decimal(issue),
+                                  cum_price=Decimal(100))
+            assert f is not None and f <= 1

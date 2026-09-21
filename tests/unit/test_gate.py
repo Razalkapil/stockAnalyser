@@ -60,6 +60,31 @@ class TestVerdicts:
         detail = next(c for c in r.checks if c.name == "scored_windows").detail
         assert "2 had no benchmark" in detail
 
+    def test_windows_the_strategy_never_traded_in_are_not_counted_either_way(self):
+        """The long-term seed's real shape: fundamentals only exist for the last window, so it
+        sat out the rest at exactly 0%. Against a rising benchmark that reads as a loss, and
+        scoring it so rejected the strategy for lacking data rather than for being bad."""
+        windows = [w("1", "no_trades", dd=0.0, trades=0), w("2", "no_trades", dd=0.0, trades=0),
+                   w("3", "no_trades", dd=0.0, trades=0), w("4", "pass", trades=25)]
+        r = evaluate_gate(windows, T)
+        assert r.verdict == "insufficient_evidence"  # only 1 scored, need 4
+        detail = next(c for c in r.checks if c.name == "scored_windows").detail
+        assert "3 had no trades" in detail
+
+    def test_the_two_unscored_reasons_are_named_apart(self):
+        windows = [w("1", "pass"), w("2", "no_trades", trades=0), w("3", "no_benchmark")]
+        detail = next(c for c in evaluate_gate(windows, T).checks
+                      if c.name == "scored_windows").detail
+        assert "1 had no trades" in detail and "1 had no benchmark" in detail
+
+    def test_excluding_empty_windows_cannot_smuggle_a_thin_strategy_through(self):
+        """Excluding no_trades windows must not become a back door: a strategy that traded in
+        only two windows still has too little evidence to go live, however well it did."""
+        windows = [w("1", "pass", trades=40), w("2", "pass", trades=40)] + [
+            w(str(i), "no_trades", dd=0.0, trades=0) for i in range(3, 9)
+        ]
+        assert evaluate_gate(windows, T).verdict == "insufficient_evidence"
+
     def test_the_boundary_is_inclusive(self):
         # exactly 3 of 5 = 60% and exactly the trade/window minimums
         ws = [w("1", "pass", trades=5), w("2", "pass", trades=5), w("3", "pass", trades=5),

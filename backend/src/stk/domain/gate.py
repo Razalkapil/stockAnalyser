@@ -16,10 +16,17 @@ Three verdicts, kept distinct on purpose:
                         not loaded yet) has not been shown to be bad -- it has not
                         been tested -- so it lands here, never in "fail".
 
-Windows the benchmark did not cover (``no_benchmark``) are excluded from the
-count and the pass ratio: with nothing to beat, they are neither wins nor
-losses. They are reported so a gate that "passed" on two windows out of ten
-is visibly a gate that mostly could not look.
+Two kinds of window are excluded from the count and the pass ratio, because
+neither is a win or a loss:
+
+  no_benchmark  the benchmark did not cover it -- there was nothing to beat.
+  no_trades     the strategy never traded in it -- nothing was tested. Scoring
+                such a window as a loss (its 0% return trails a rising index)
+                would reject a strategy for lacking data rather than for being
+                bad, which is exactly the distinction this module exists to keep.
+
+Both are counted and named in the ``scored_windows`` detail, so a gate that
+"passed" on two windows out of ten is visibly a gate that mostly could not look.
 """
 
 from __future__ import annotations
@@ -38,7 +45,7 @@ class GateThresholds:
 @dataclass(frozen=True)
 class WindowSummary:
     label: str
-    outcome: str  # pass | fail | no_benchmark
+    outcome: str  # pass | fail | no_benchmark | no_trades
     max_drawdown: float  # negative fraction
     trade_count: int
 
@@ -69,17 +76,25 @@ class GateReport:
 
 def evaluate_gate(windows: list[WindowSummary], t: GateThresholds) -> GateReport:
     scored = [w for w in windows if w.outcome in ("pass", "fail")]
-    unscored = len(windows) - len(scored)
     wins = sum(1 for w in scored if w.outcome == "pass")
     total_trades = sum(w.trade_count for w in windows)
     worst_dd = min((w.max_drawdown for w in windows), default=0.0)
+
+    # Named separately: "the benchmark was missing" and "the strategy never traded" call
+    # for different fixes (ingest the index vs. wait for data), so the report must not
+    # blur them into one "not counted".
+    unscored = [
+        (sum(1 for w in windows if w.outcome == "no_trades"), "had no trades"),
+        (sum(1 for w in windows if w.outcome == "no_benchmark"), "had no benchmark"),
+    ]
+    note = ", ".join(f"{n} {label}" for n, label in unscored if n)
 
     enough = len(scored) >= t.min_scored_windows
     checks = [
         GateCheck(
             "scored_windows", enough,
             f"{len(scored)} scored window(s), need >= {t.min_scored_windows}"
-            + (f" ({unscored} had no benchmark and were not counted)" if unscored else ""),
+            + (f" ({note} and were not counted)" if note else ""),
         ),
     ]
     ratio = wins / len(scored) if scored else 0.0

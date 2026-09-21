@@ -76,6 +76,9 @@ def nightly_steps(day: date) -> list[Step]:
         Step("indices", ("ingest", "indices", "--date", d)),
         Step("liquidity", ("ingest", "liquidity", "--date", d), needs=("prices",)),
         Step("scan", ("scan", "--date", d), needs=("prices",)),
+        # Informational only -- what the strategies the gate has NOT approved would pick.
+        # Nothing depends on it, so its failure costs the run nothing.
+        Step("preview", ("strategies", "preview", "--date", d), needs=("prices",)),
         Step("track", ("picks", "track"), needs=("prices",)),
         Step("playground_eod", ("playground", "eod", "--date", d), needs=("prices",)),
         # Never blocks and never fails the run (it exits 0); its failures live in ai_runs.

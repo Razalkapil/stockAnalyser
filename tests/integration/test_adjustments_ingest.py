@@ -11,6 +11,7 @@ rather than as a silently smooth price series.
 from __future__ import annotations
 
 import hashlib
+import zlib
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -416,3 +417,198 @@ class TestDegradation:
         assert result.unresolved_actions == 1
         assert result.degraded
         assert _adjusted(parquet_root)[("AAA", BEFORE)]["close"] == 50.0
+
+
+def _insert_rights(
+    sqlite_path: Path,
+    *,
+    symbol: str = "AAA",
+    ex_date: date = EX_DATE,
+    num: int = 1,
+    den: int = 1,
+    premium: float | None = 0.0,
+    face_value: float | None = 10.0,
+    parse_status: str = "parsed",
+) -> None:
+    """A rights row as the v4 parser writes one: ratio and premium, NO price factor."""
+    conn = connect(sqlite_path)
+    try:
+        if face_value is not None:
+            # One security PER SYMBOL: sharing a security_id would make these the same company
+            # under two names, and a factor would correctly apply to both series.
+            sid = 1 + zlib.crc32(symbol.encode()) % 10_000  # stable across processes
+            conn.execute(
+                """INSERT INTO securities (security_id, isin, canonical_symbol, company_name,
+                       primary_exchange, face_value, status, first_seen_on, last_seen_on,
+                       updated_at)
+                   VALUES (?,?,?,'A Ltd','NSE',?,'ACTIVE','2020-01-01','2026-01-01','2026-01-01')
+                   ON CONFLICT(security_id) DO NOTHING""",
+                (sid, f"INE{sid:06d}1", symbol, face_value),
+            )
+            conn.execute(
+                """INSERT INTO listings (security_id, exchange, symbol, series, source, updated_at)
+                   VALUES (?,'NSE',?, 'EQ','t','2026-01-01')""", (sid, symbol))
+        conn.execute(
+            """INSERT INTO corporate_actions
+                   (symbol, exchange, ex_date, subject_raw, action_type, ratio_numerator,
+                    ratio_denominator, issue_premium, price_factor, volume_factor, parse_status,
+                    parser_version, source, source_hash, captured_at)
+               VALUES (?,'NSE',?,?, 'RIGHTS', ?,?,?, NULL, NULL, ?, 4, 'nse_corp_actions', ?,
+                       '2026-06-01T00:00:00+00:00')""",
+            (
+                symbol, ex_date.isoformat(), f"Rights {num}:{den} @ Premium Rs {premium}/-",
+                num, den, premium, parse_status,
+                hashlib.sha256(f"rights{symbol}{ex_date}{num}{den}".encode()).hexdigest(),
+            ),
+        )
+    finally:
+        conn.close()
+
+
+class TestRightsIssues:
+    """A rights factor is DERIVED here, not read: the parser knows the ratio and the premium,
+    and only this step can see the cum-rights close it has to be measured against."""
+
+    def test_a_rights_issue_at_par_adjusts_history_and_stops_degrading_the_run(self, env):
+        sqlite_path, parquet_root = env
+        _write_bars(parquet_root, "AAA", [BEFORE, EX_DATE, AFTER], close=100.0)
+        # 1 new share per 1 held at face value 10, cum price 100:
+        # TERP = (1*100 + 1*10)/2 = 55  ->  factor 0.55
+        _insert_rights(sqlite_path, num=1, den=1, premium=0.0, face_value=10.0)
+
+        result = rebuild_adjusted_bars(
+            exchange="NSE", sqlite_path=sqlite_path, parquet_root=parquet_root
+        )
+
+        rows = _adjusted(parquet_root)
+        assert rows[("AAA", BEFORE)]["close"] == pytest.approx(55.0)
+        assert rows[("AAA", EX_DATE)]["close"] == 100.0   # the ex-date bar is never adjusted
+        assert rows[("AAA", AFTER)]["close"] == 100.0
+        assert result.rights_applied == 1
+        assert result.excluded_actions == 0 and not result.degraded
+
+    def test_the_premium_is_added_to_the_face_value(self, env):
+        sqlite_path, parquet_root = env
+        _write_bars(parquet_root, "AAA", [BEFORE, EX_DATE, AFTER], close=100.0)
+        # issue price = 10 + 40 = 50; TERP = (1*100 + 1*50)/2 = 75
+        _insert_rights(sqlite_path, num=1, den=1, premium=40.0, face_value=10.0)
+
+        rebuild_adjusted_bars(
+            exchange="NSE", sqlite_path=sqlite_path, parquet_root=parquet_root
+        )
+        assert _adjusted(parquet_root)[("AAA", BEFORE)]["close"] == pytest.approx(75.0)
+
+    def test_a_face_value_change_after_the_rights_wins_over_todays_value(self, env):
+        """The premium was quoted against the face value OF THE DAY. 15 real rights issues are
+        followed by a split, and using today's value would misprice every one of them."""
+        sqlite_path, parquet_root = env
+        _write_bars(parquet_root, "AAA", [BEFORE, EX_DATE, AFTER], close=100.0)
+        _insert_rights(sqlite_path, num=1, den=1, premium=40.0, face_value=1.0)  # TODAY it is 1
+        _insert_action(sqlite_path, symbol="AAA", ex_date=date(2026, 8, 1),
+                       action_type="SPLIT", price_factor=0.1, volume_factor=10.0,
+                       source_hash="split-after-rights")
+        conn = connect(sqlite_path)
+        try:  # ... because it split 10 -> 1 AFTER the rights issue
+            conn.execute("UPDATE corporate_actions SET face_value_from=10, face_value_to=1 "
+                         "WHERE action_type='SPLIT'")
+        finally:
+            conn.close()
+
+        rebuild_adjusted_bars(
+            exchange="NSE", sqlite_path=sqlite_path, parquet_root=parquet_root
+        )
+        # Face value at the rights date was 10, so issue price 50 and TERP 75 -- then the later
+        # split scales everything before 2026-08-01 by a further 0.1.
+        assert _adjusted(parquet_root)[("AAA", BEFORE)]["close"] == pytest.approx(7.5)
+
+    def test_rights_priced_above_the_market_leave_history_alone(self, env):
+        sqlite_path, parquet_root = env
+        _write_bars(parquet_root, "AAA", [BEFORE, EX_DATE, AFTER], close=100.0)
+        _insert_rights(sqlite_path, num=1, den=4, premium=500.0, face_value=10.0)
+
+        result = rebuild_adjusted_bars(
+            exchange="NSE", sqlite_path=sqlite_path, parquet_root=parquet_root
+        )
+        assert _adjusted(parquet_root)[("AAA", BEFORE)]["close"] == 100.0
+        assert result.rights_applied == 1 and not result.degraded
+
+    def test_a_rights_issue_with_no_price_history_stays_a_counted_hole(self, env):
+        """No cum-rights close, no factor -- and it must still be VISIBLE as missing."""
+        sqlite_path, parquet_root = env
+        _write_bars(parquet_root, "AAA", [AFTER], close=100.0)  # nothing before the ex-date
+        _insert_rights(sqlite_path, num=1, den=1, premium=0.0, face_value=10.0)
+
+        result = rebuild_adjusted_bars(
+            exchange="NSE", sqlite_path=sqlite_path, parquet_root=parquet_root
+        )
+        assert result.rights_applied == 0
+        assert result.excluded_actions == 1 and result.degraded
+
+    def test_an_ambiguous_rights_row_is_never_guessed_at(self, env):
+        """No premium in the subject means no issue price. Assuming par would invent a discount
+        and mark down history that never fell."""
+        sqlite_path, parquet_root = env
+        _write_bars(parquet_root, "AAA", [BEFORE, EX_DATE, AFTER], close=100.0)
+        _insert_rights(sqlite_path, premium=None, parse_status="ambiguous")
+
+        result = rebuild_adjusted_bars(
+            exchange="NSE", sqlite_path=sqlite_path, parquet_root=parquet_root
+        )
+        assert _adjusted(parquet_root)[("AAA", BEFORE)]["close"] == 100.0
+        assert result.rights_applied == 0 and result.excluded_actions == 1
+
+    def test_a_rights_issue_with_no_face_value_is_not_guessed_either(self, env):
+        sqlite_path, parquet_root = env
+        _write_bars(parquet_root, "AAA", [BEFORE, EX_DATE, AFTER], close=100.0)
+        _insert_rights(sqlite_path, premium=40.0, face_value=None)
+
+        result = rebuild_adjusted_bars(
+            exchange="NSE", sqlite_path=sqlite_path, parquet_root=parquet_root
+        )
+        assert result.rights_applied == 0 and result.excluded_actions == 1
+
+    def test_a_rights_issue_composes_with_a_later_bonus(self, env):
+        sqlite_path, parquet_root = env
+        _write_bars(parquet_root, "AAA", [BEFORE, EX_DATE, AFTER], close=100.0)
+        _insert_rights(sqlite_path, num=1, den=1, premium=0.0, face_value=10.0)  # 0.55
+        _insert_action(sqlite_path, symbol="AAA", ex_date=date(2026, 7, 1),
+                       source_hash="bonus-after-rights")                          # 0.5
+
+        rebuild_adjusted_bars(
+            exchange="NSE", sqlite_path=sqlite_path, parquet_root=parquet_root
+        )
+        rows = _adjusted(parquet_root)
+        assert rows[("AAA", BEFORE)]["close"] == pytest.approx(27.5)   # 100 * 0.55 * 0.5
+        assert rows[("AAA", AFTER)]["close"] == pytest.approx(50.0)    # only the bonus applies
+
+    def test_turnover_is_never_scaled(self, env):
+        sqlite_path, parquet_root = env
+        _write_bars(parquet_root, "AAA", [BEFORE, EX_DATE, AFTER], close=100.0)
+        _insert_rights(sqlite_path, num=1, den=1, premium=0.0, face_value=10.0)
+
+        rebuild_adjusted_bars(
+            exchange="NSE", sqlite_path=sqlite_path, parquet_root=parquet_root
+        )
+        assert _adjusted(parquet_root)[("AAA", BEFORE)]["turnover"] == pytest.approx(100_000.0)
+
+
+class TestSeveralRightsIssues:
+    def test_each_rights_issue_is_priced_against_its_OWN_cum_close(self, env):
+        """Regression: the price fetch was bounded by the EARLIEST ex-date, so every later
+        rights issue saw no history and silently got no factor -- 24 liquid symbols' worth.
+        A single-ex-date test cannot catch it, because then earliest == latest."""
+        sqlite_path, parquet_root = env
+        early_ex, late_ex = date(2026, 3, 10), date(2026, 9, 10)
+        _write_bars(parquet_root, "AAA", [date(2026, 3, 9), early_ex], close=100.0)
+        _write_bars(parquet_root, "BBB", [date(2026, 9, 9), late_ex], close=100.0)
+        _insert_rights(sqlite_path, symbol="AAA", ex_date=early_ex, num=1, den=1, premium=0.0)
+        _insert_rights(sqlite_path, symbol="BBB", ex_date=late_ex, num=1, den=1, premium=0.0)
+
+        result = rebuild_adjusted_bars(
+            exchange="NSE", sqlite_path=sqlite_path, parquet_root=parquet_root
+        )
+
+        assert result.rights_applied == 2, "the later rights issue was not priced"
+        rows = _adjusted(parquet_root)
+        assert rows[("AAA", date(2026, 3, 9))]["close"] == pytest.approx(55.0)
+        assert rows[("BBB", date(2026, 9, 9))]["close"] == pytest.approx(55.0)

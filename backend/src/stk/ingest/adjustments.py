@@ -60,6 +60,7 @@ from pathlib import Path
 import pyarrow as pa
 from pydantic import BaseModel
 
+from stk.ingest.corpactions import terp_price_factor
 from stk.store import duck
 from stk.store.db.engine import connect
 from stk.store.parquet.layout import (
@@ -89,6 +90,144 @@ PRICE_COLUMNS = ("open", "high", "low", "close", "prev_close", "last", "vwap", "
 #: fact, and since price_factor * volume_factor == 1 it is conserved
 #: anyway -- scaling it would actively corrupt it.
 VOLUME_COLUMNS = ("volume", "delivery_qty")
+
+
+#: Series a cum-rights close may be read from, best first. A symbol can publish several series
+#: on one day (an EQ line and a T0 stub); the equity line is the one whose price the rights are
+#: priced against.
+_CUM_PRICE_SERIES = ("EQ", "BE", "BZ")
+
+
+class RightsFactor(BaseModel):
+    """A rights issue whose factor was computed from the lake, and how."""
+
+    ca_id: int
+    symbol: str
+    ex_date: date
+    cum_price: Decimal
+    issue_price: Decimal
+    face_value: Decimal
+    price_factor: Decimal
+
+
+def _face_value_asof(
+    conn: sqlite3.Connection, *, exchange: str, symbol: str, ex_date: date
+) -> Decimal | None:
+    """The face value this symbol's shares carried on ``ex_date``.
+
+    A rights premium is quoted over the face value AT THE TIME. Reading today's face value
+    would be wrong for any company that later split -- 15 of the stored rights issues are
+    followed by one. A face-value change records what it changed FROM, so the earliest such
+    change after the ex-date states the value in force before it.
+    """
+    row = conn.execute(
+        """SELECT face_value_from FROM corporate_actions
+           WHERE symbol = ? AND exchange = ? AND ex_date > ? AND face_value_from IS NOT NULL
+             AND parse_status = 'parsed'
+           ORDER BY ex_date LIMIT 1""",
+        (symbol, exchange, ex_date.isoformat()),
+    ).fetchone()
+    if row and row["face_value_from"]:
+        return Decimal(str(row["face_value_from"]))
+    current = conn.execute(
+        """SELECT s.face_value FROM securities s
+           JOIN listings l ON l.security_id = s.security_id
+           WHERE l.exchange = ? AND l.symbol = ? AND s.face_value IS NOT NULL
+           LIMIT 1""",
+        (exchange, symbol),
+    ).fetchone()
+    return Decimal(str(current["face_value"])) if current else None
+
+
+def _cum_prices(
+    parquet_root: Path, exchange: str, wanted: list[tuple[str, date]]
+) -> dict[tuple[str, date], Decimal]:
+    """Last close strictly BEFORE each ex-date, from the raw (unadjusted) lake.
+
+    Raw on purpose: every factor in the timeline is expressed against the price as the exchange
+    reported it that day, and they compose multiplicatively afterwards. One query for all the
+    symbols, then the pick happens in Python -- a query per action would rescan the lake ~215
+    times for no benefit.
+    """
+    if not wanted:
+        return {}
+    symbols = sorted({sym for sym, _ in wanted})
+    # The LATEST ex-date bounds the fetch: every action needs the close just before its OWN
+    # ex-date, so bounding by the earliest would starve all the others. (It did: 24 liquid
+    # symbols silently got no factor until this read `max`.)
+    latest = max(d for _, d in wanted)
+    with duck.connect(parquet_root) as session:
+        rows = session.con.execute(
+            """SELECT symbol, date, series, close FROM bars_daily
+               WHERE exchange = ? AND symbol IN ? AND date < ? AND close > 0
+                 AND series IN ?
+               ORDER BY symbol, date""",
+            [exchange, symbols, latest.isoformat(), list(_CUM_PRICE_SERIES)],
+        ).fetchall()
+    # symbol -> ordered list of (date, series_rank, close)
+    history: dict[str, list[tuple[date, int, Decimal]]] = {}
+    for symbol, day, series, close in rows:
+        history.setdefault(symbol, []).append(
+            (day, _CUM_PRICE_SERIES.index(series), Decimal(str(close)))
+        )
+    out: dict[tuple[str, date], Decimal] = {}
+    for symbol, ex_date in wanted:
+        before = [h for h in history.get(symbol, []) if h[0] < ex_date]
+        if not before:
+            continue
+        last_day = max(h[0] for h in before)
+        same_day = sorted(h for h in before if h[0] == last_day)  # series rank breaks the tie
+        out[(symbol, ex_date)] = same_day[0][2]
+    return out
+
+
+def rights_factors(
+    conn: sqlite3.Connection, *, exchange: str, parquet_root: Path
+) -> dict[int, RightsFactor]:
+    """Theoretical ex-rights factors for every rights action the parser left computable.
+
+    This is the half of a rights issue the parser cannot do: it needs the face value as of the
+    ex-date and the cum-rights close. An action whose price is missing, or whose numbers give an
+    implausible factor, is simply absent from the result -- and therefore still counted as an
+    excluded action, which is the honest outcome.
+    """
+    rows = conn.execute(
+        """SELECT ca_id, symbol, ex_date, ratio_numerator, ratio_denominator, issue_premium
+           FROM corporate_actions
+           WHERE exchange = ? AND action_type = 'RIGHTS' AND parse_status = 'parsed'
+             AND price_factor IS NULL AND issue_premium IS NOT NULL
+             AND ratio_numerator IS NOT NULL AND ratio_denominator IS NOT NULL
+             AND ex_date IS NOT NULL""",
+        (exchange,),
+    ).fetchall()
+    if not rows:
+        return {}
+    wanted = [(str(r["symbol"]), date.fromisoformat(str(r["ex_date"]))) for r in rows]
+    prices = _cum_prices(parquet_root, exchange, wanted)
+
+    out: dict[int, RightsFactor] = {}
+    for row in rows:
+        symbol, ex_date = str(row["symbol"]), date.fromisoformat(str(row["ex_date"]))
+        cum = prices.get((symbol, ex_date))
+        if cum is None:
+            continue
+        face_value = _face_value_asof(conn, exchange=exchange, symbol=symbol, ex_date=ex_date)
+        if face_value is None:
+            continue
+        issue_price = face_value + Decimal(str(row["issue_premium"]))
+        factor = terp_price_factor(
+            new_shares=int(row["ratio_numerator"]),
+            held_shares=int(row["ratio_denominator"]),
+            issue_price=issue_price,
+            cum_price=cum,
+        )
+        if factor is None:
+            continue
+        out[int(row["ca_id"])] = RightsFactor(
+            ca_id=int(row["ca_id"]), symbol=symbol, ex_date=ex_date, cum_price=cum,
+            issue_price=issue_price, face_value=face_value, price_factor=factor,
+        )
+    return out
 
 
 class ActionFactor(BaseModel):
@@ -124,6 +263,7 @@ class AdjustmentResult:
         bars_written: int,
         excluded_actions: int,
         unresolved_actions: int,
+        rights_applied: int = 0,
     ) -> None:
         self.exchange = exchange
         self.actions_applied = actions_applied
@@ -131,6 +271,9 @@ class AdjustmentResult:
         self.bars_written = bars_written
         self.excluded_actions = excluded_actions
         self.unresolved_actions = unresolved_actions
+        #: Rights issues whose theoretical ex-rights factor was derived from the lake. Reported
+        #: because it is the one number here that says a KNOWN hole got smaller.
+        self.rights_applied = rights_applied
 
     @property
     def degraded(self) -> bool:
@@ -262,7 +405,12 @@ def _symbol_owners(conn: sqlite3.Connection, *, exchange: str) -> dict[str, set[
     return owners
 
 
-def load_actions(conn: sqlite3.Connection, *, exchange: str) -> _LoadedActions:
+def load_actions(
+    conn: sqlite3.Connection,
+    *,
+    exchange: str,
+    rights: dict[int, RightsFactor] | None = None,
+) -> _LoadedActions:
     """Load price-affecting corporate actions for one exchange, deduped.
 
     Returns the usable actions plus counts of what was left out, so the
@@ -293,12 +441,23 @@ def load_actions(conn: sqlite3.Connection, *, exchange: str) -> _LoadedActions:
         candidates = owners.get(str(row["symbol"]), set())
         return next(iter(candidates)) if len(candidates) == 1 else None
 
-    deduped: dict[tuple, tuple[sqlite3.Row, int | None]] = {}
+    deduped: dict[tuple, tuple[sqlite3.Row, int | None, float, float | None]] = {}
     excluded = 0
     unresolved = 0
 
+    rights = rights or {}
     for row in rows:
-        if row["parse_status"] != "parsed" or row["price_factor"] is None:
+        price_factor = row["price_factor"]
+        volume_factor = row["volume_factor"]
+        if price_factor is None and row["parse_status"] == "parsed":
+            # A rights issue is stored parsed but factorless on purpose: its factor needs the
+            # cum-rights close, which the parser cannot see. If the caller worked it out, it is
+            # as good as any other factor; if not, it stays a counted hole below.
+            computed = rights.get(int(row["ca_id"]))
+            if computed is not None:
+                price_factor = float(computed.price_factor)
+                volume_factor = float(1 / computed.price_factor)
+        if row["parse_status"] != "parsed" or price_factor is None:
             # A dividend legitimately has no price factor under this
             # project's convention and is not a degradation; anything
             # else we could not parse IS one.
@@ -313,14 +472,14 @@ def load_actions(conn: sqlite3.Connection, *, exchange: str) -> _LoadedActions:
             row["action_type"],
             row["ratio_numerator"],
             row["ratio_denominator"],
-            round(float(row["price_factor"]), 12),
+            round(float(price_factor), 12),
         )
         incumbent = deduped.get(identity)
         if incumbent is None or str(row["captured_at"]) > str(incumbent[0]["captured_at"]):
-            deduped[identity] = (row, security_id)
+            deduped[identity] = (row, security_id, price_factor, volume_factor)
 
     actions: list[ActionFactor] = []
-    for row, resolved in deduped.values():
+    for row, resolved, price_factor, volume_factor in deduped.values():
         symbol = str(row["symbol"])
         if resolved is not None:
             security_id = resolved
@@ -344,8 +503,8 @@ def load_actions(conn: sqlite3.Connection, *, exchange: str) -> _LoadedActions:
                 security_key=key,
                 symbols=symbols,
                 ex_date=date.fromisoformat(str(row["ex_date"])),
-                price_factor=Decimal(str(row["price_factor"])),
-                volume_factor=Decimal(str(row["volume_factor"] or 1)),
+                price_factor=Decimal(str(price_factor)),
+                volume_factor=Decimal(str(volume_factor or 1)),
             )
         )
 
@@ -413,7 +572,10 @@ def rebuild_adjusted_bars(
     """
     conn = connect(sqlite_path)
     try:
-        loaded = load_actions(conn, exchange=exchange)
+        # Rights first: their factors are the one kind this module has to DERIVE (from the
+        # cum-rights close) rather than read, so they must exist before the timeline is built.
+        rights = rights_factors(conn, exchange=exchange, parquet_root=parquet_root)
+        loaded = load_actions(conn, exchange=exchange, rights=rights)
     finally:
         conn.close()
 
@@ -480,6 +642,7 @@ def rebuild_adjusted_bars(
         bars_written=bars_written,
         excluded_actions=loaded.excluded,
         unresolved_actions=loaded.unresolved,
+        rights_applied=len(rights),
     )
 
 
@@ -505,6 +668,7 @@ def rebuild_adjusted_bars_job(
             handle.metrics.update(
                 {
                     "factor_rows": result.factor_rows,
+                    "rights_applied": result.rights_applied,
                     "excluded_actions": result.excluded_actions,
                     "unresolved_actions": result.unresolved_actions,
                 }

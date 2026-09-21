@@ -90,11 +90,37 @@
             },
             "title": "Positionnotes",
             "type": "array"
+          },
+          "state": {
+            "enum": [
+              "ready",
+              "pending",
+              "queued",
+              "running",
+              "skipped",
+              "failed",
+              "invalid_output"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "stateReason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Statereason"
           }
         },
         "required": [
           "date",
           "pending",
+          "state",
+          "stateReason",
           "generatedAt",
           "overview",
           "notablePicks",
@@ -113,11 +139,36 @@
           "pending": {
             "title": "Pending",
             "type": "boolean"
+          },
+          "state": {
+            "enum": [
+              "ready",
+              "pending",
+              "queued",
+              "running",
+              "skipped",
+              "failed",
+              "invalid_output"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "stateReason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Statereason"
           }
         },
         "required": [
           "date",
-          "pending"
+          "pending",
+          "state"
         ],
         "title": "BriefListItem",
         "type": "object"
@@ -1198,6 +1249,104 @@
         "title": "PositionOut",
         "type": "object"
       },
+      "PreviewPick": {
+        "description": "What a strategy the gate has NOT approved would pick. Never a recommendation.",
+        "properties": {
+          "company": {
+            "title": "Company",
+            "type": "string"
+          },
+          "exch": {
+            "title": "Exch",
+            "type": "string"
+          },
+          "holdDays": {
+            "title": "Holddays",
+            "type": "integer"
+          },
+          "horizon": {
+            "title": "Horizon",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "ref": {
+            "title": "Ref",
+            "type": "number"
+          },
+          "score": {
+            "title": "Score",
+            "type": "number"
+          },
+          "signalDate": {
+            "title": "Signaldate",
+            "type": "string"
+          },
+          "stop": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop"
+          },
+          "strategy": {
+            "title": "Strategy",
+            "type": "string"
+          },
+          "strategyId": {
+            "title": "Strategyid",
+            "type": "string"
+          },
+          "strategyStatus": {
+            "title": "Strategystatus",
+            "type": "string"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target"
+          },
+          "window": {
+            "title": "Window",
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol",
+          "company",
+          "exch",
+          "horizon",
+          "strategy",
+          "strategyId",
+          "strategyStatus",
+          "score",
+          "ref",
+          "stop",
+          "target",
+          "window",
+          "holdDays",
+          "signalDate",
+          "reason"
+        ],
+        "title": "PreviewPick",
+        "type": "object"
+      },
       "PreviewRequest": {
         "properties": {
           "price": {
@@ -2273,6 +2422,61 @@
         "summary": "Brief"
       }
     },
+    "/api/briefs/{day}/generate": {
+      "post": {
+        "description": "Queue an evening review for a day.\n\nThe only thing this writes is a row in ``ai_requests``; ``stk ai worker`` does the work.\nThe API cannot call a model -- an import-linter contract keeps ``stk.ai`` out of\n``stk.api`` -- and this route is what makes that restriction bearable rather than a dead\nend. Idempotent: a day already queued or running is returned as-is, not queued twice.",
+        "operationId": "generate_brief_api_briefs__day__generate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "day",
+            "required": true,
+            "schema": {
+              "title": "Day",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "force",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Force",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Brief"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Generate Brief"
+      }
+    },
     "/api/health": {
       "get": {
         "operationId": "health_api_health_get",
@@ -2615,6 +2819,78 @@
           }
         ],
         "summary": "Portfolio"
+      }
+    },
+    "/api/previews": {
+      "get": {
+        "description": "What NOT-promoted strategies would pick. Informational: these are not recommendations.",
+        "operationId": "previews_api_previews_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "date",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date"
+            }
+          },
+          {
+            "in": "query",
+            "name": "slug",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Slug"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PreviewPick"
+                  },
+                  "title": "Response Previews Api Previews Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Previews"
       }
     },
     "/api/proposals": {

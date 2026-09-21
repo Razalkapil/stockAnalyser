@@ -10,10 +10,12 @@ inside a cron job.
 
 from __future__ import annotations
 
+import os
 from datetime import date, time
 from pathlib import Path
 from typing import Any
 
+from dotenv import dotenv_values
 from pydantic import BaseModel, Field
 from pydantic_settings import (
     BaseSettings,
@@ -146,6 +148,32 @@ class AppSettings(BaseSettings):
             dotenv_settings,
             _YamlSettingsSource(settings_cls),
         )
+
+
+#: Secrets that are NOT settings: they belong to a third party's SDK, which reads them straight
+#: from the process environment. pydantic-settings only maps STK_-prefixed keys onto AppSettings
+#: and never touches os.environ, so without this a key sitting in .env reached nothing -- while
+#: .env.example told you to put it there. Deployed, systemd's EnvironmentFile does this job.
+ENV_FILE_SECRETS = ("GROQ_API_KEY", "ANTHROPIC_API_KEY")
+
+
+def load_env_file_secrets(env_file: Path | None = None) -> list[str]:
+    """Copy third-party API keys from .env into os.environ. Returns the names it set.
+
+    A variable already in the environment WINS: an explicit `GROQ_API_KEY=... stk ai ...` or a
+    systemd EnvironmentFile must not be silently overridden by a stale checkout.
+    """
+    path = env_file or Path.cwd() / ".env"
+    if not path.is_file():
+        return []
+    values = dotenv_values(path, encoding="utf-8")
+    loaded = []
+    for name in ENV_FILE_SECRETS:
+        value = values.get(name)
+        if value and not os.environ.get(name):
+            os.environ[name] = value
+            loaded.append(name)
+    return loaded
 
 
 _settings: AppSettings | None = None

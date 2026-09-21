@@ -394,6 +394,15 @@ class TestWalkForward:
             assert wr.result.dates[-1] <= wr.window.test_end
             assert wr.outcome == "no_benchmark"
 
+    def test_a_window_the_strategy_sat_out_is_no_trades_not_a_loss(self):
+        """0% in a window is not the same as losing: a strategy that never traded there was
+        never tested. The gate excludes these, so an empty window cannot reject a strategy."""
+        data, _ds, windows = self._setup()
+        out = run_walk_forward(data, lambda _p: Scripted({}, name="wf").bind(data), windows,
+                               config(), lambda _e, _d: zero_cost_rates())
+        assert [wr.outcome for wr in out] == ["no_trades", "no_trades"]
+        assert all(wr.result.metrics.trade_count == 0 for wr in out)
+
     def test_param_grid_is_chosen_on_train_and_applied_to_test(self):
         data, _, windows = self._setup()
         chosen_calls = []
@@ -441,7 +450,9 @@ class TestStorage:
         summary = load_run_summary(conn, run_id)
         conn.close()
         assert [w["label"] for w in summary["windows"]] == ["W1", "W2"]
-        assert {w["result"] for w in summary["windows"]} == {"no_benchmark"}
+        # This strategy is scripted to emit no signals, so neither window traded: the stored
+        # outcome is no_trades, not a loss. (The schema accepts the value -- migration 0011.)
+        assert {w["result"] for w in summary["windows"]} == {"no_trades"}
 
     def test_empty_walk_forward_rejected(self, tmp_db_path):
         migrate(tmp_db_path)

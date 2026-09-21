@@ -24,7 +24,7 @@ from stk.cli.commands import (
     playground,
     strategies,
 )
-from stk.config.settings import get_settings
+from stk.config.settings import get_settings, load_env_file_secrets
 from stk.core.logging import configure_logging
 
 app = typer.Typer(help="stk -- Indian stock suggester + virtual playground.", no_args_is_help=True)
@@ -47,6 +47,10 @@ app.add_typer(doctor.app)
 
 @app.callback()
 def _init() -> None:
+    # Third-party API keys live in .env beside the STK_ settings, but pydantic-settings only
+    # maps the STK_ ones. Without this, a key in .env reached nothing and `stk ai` reported it
+    # as "not set" while sitting right there in the file.
+    load_env_file_secrets()
     settings = get_settings()
     configure_logging(env=settings.app.env, level=settings.app.log_level)
 
