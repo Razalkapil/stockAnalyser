@@ -24,6 +24,9 @@ class ApiContext:
     sqlite_path: Path
     parquet_root: Path
     cfg: BacktestConfig
+    #: The token from STK_AUTH__TOKEN, passed in by whoever built the app. None means the API
+    #: accepts only tokens created with `stk api token create`.
+    auth_token: str | None = None
 
 
 def get_ctx(request: Request) -> ApiContext:
@@ -41,9 +44,21 @@ def get_conn(ctx: Annotated[ApiContext, Depends(get_ctx)]) -> Iterator[sqlite3.C
 
 def require_token(
     creds: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
+    ctx: Annotated[ApiContext, Depends(get_ctx)],
     conn: Annotated[sqlite3.Connection, Depends(get_conn)],
 ) -> None:
-    if creds is None or not auth.verify_token(conn, creds.credentials):
+    """Accept either the configured token (STK_AUTH__TOKEN) or one stored in api_tokens.
+
+    The configured one is checked first: it needs no query and no `last_used_at` write, so the
+    common single-user case costs nothing. Neither path is a fallback for the other failing --
+    both are real credentials, and revoking a database token cannot revoke the .env one.
+    """
+    if creds is None:
+        raise HTTPException(status_code=401, detail="missing or invalid token",
+                            headers={"WWW-Authenticate": "Bearer"})
+    if auth.verify_configured_token(ctx.auth_token, creds.credentials):
+        return
+    if not auth.verify_token(conn, creds.credentials):
         raise HTTPException(status_code=401, detail="missing or invalid token",
                             headers={"WWW-Authenticate": "Bearer"})
 

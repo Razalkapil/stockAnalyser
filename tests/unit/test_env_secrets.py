@@ -1,8 +1,11 @@
-"""Third-party API keys in .env actually reach the SDKs that read os.environ.
+"""Secrets in .env actually reach the code that reads them.
 
-pydantic-settings maps only STK_-prefixed keys onto AppSettings and never writes to
-os.environ, while .env.example tells you to put GROQ_API_KEY there. The result was a key
-sitting in the file and `stk ai` reporting it as "not set". These tests hold that shut.
+Two halves of the same failure. Third-party API keys: pydantic-settings maps only
+STK_-prefixed keys onto AppSettings and never writes to os.environ, while .env.example tells
+you to put GROQ_API_KEY there -- so the key sat in the file and `stk ai` reported it "not
+set". And STK_AUTH__TOKEN, which IS STK_-prefixed but had no field to land on, so
+`extra="ignore"` swallowed it and the only token that worked was one from
+`stk api token create`. These tests hold both shut.
 """
 
 from __future__ import annotations
@@ -73,3 +76,63 @@ def test_the_example_file_documents_every_secret_we_load():
         if f"{name}=" in body:
             continue
         pytest.fail(f"{name} is loaded from .env but .env.example does not mention it")
+
+
+class TestConfiguredApiToken:
+    """STK_AUTH__TOKEN is a credential the API actually accepts, not a decorative env var."""
+
+    @pytest.fixture(autouse=True)
+    def _isolate_settings(self, monkeypatch):
+        from stk.config.settings import get_settings  # noqa: PLC0415
+
+        monkeypatch.delenv("STK_AUTH__TOKEN", raising=False)
+        yield
+        # Clear it BEFORE reloading: this fixture unwinds ahead of monkeypatch, so a test's
+        # token would otherwise still be in the environment for the reload.
+        monkeypatch.delenv("STK_AUTH__TOKEN", raising=False)
+        get_settings(force_reload=True)  # never leave a test's token in the singleton
+
+    def test_the_env_var_lands_on_a_real_setting(self, monkeypatch):
+        from stk.config.settings import get_settings  # noqa: PLC0415
+
+        monkeypatch.setenv("STK_AUTH__TOKEN", "t" * 40)
+        assert get_settings(force_reload=True).auth.token == "t" * 40
+
+    def test_blank_means_not_configured_not_an_empty_token(self, monkeypatch):
+        """`.env.example` ships the key blank; that must not become a token the API compares."""
+        from stk.config.settings import get_settings  # noqa: PLC0415
+
+        monkeypatch.setenv("STK_AUTH__TOKEN", "")
+        assert get_settings(force_reload=True).auth.token is None
+
+    def test_a_short_token_is_refused_at_startup(self, monkeypatch):
+        from pydantic import ValidationError  # noqa: PLC0415
+
+        from stk.config.settings import get_settings  # noqa: PLC0415
+
+        monkeypatch.setenv("STK_AUTH__TOKEN", "hunter2")
+        with pytest.raises(ValidationError, match="at least 32"):
+            get_settings(force_reload=True)
+
+    def test_verify_accepts_the_configured_token_and_nothing_else(self):
+        from stk.api.auth import verify_configured_token  # noqa: PLC0415
+
+        tok = "x" * 40
+        assert verify_configured_token(tok, tok) is True
+        assert verify_configured_token(tok, "x" * 39) is False
+        assert verify_configured_token(tok, "") is False
+
+    def test_no_configured_token_accepts_nothing(self):
+        """Not even an empty presented token -- `not configured` must not read as a match."""
+        from stk.api.auth import verify_configured_token  # noqa: PLC0415
+
+        assert verify_configured_token(None, "anything") is False
+        assert verify_configured_token(None, "") is False
+        assert verify_configured_token("", "") is False
+
+
+def test_the_example_file_documents_the_api_token():
+    from pathlib import Path  # noqa: PLC0415
+
+    example = Path(__file__).parents[2] / ".env.example"
+    assert "STK_AUTH__TOKEN=" in example.read_text()

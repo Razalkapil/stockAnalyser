@@ -46,6 +46,19 @@ def verify_token(conn: sqlite3.Connection, token: str) -> bool:
     return True
 
 
+def verify_configured_token(configured: str | None, presented: str) -> bool:
+    """Check the token from ``STK_AUTH__TOKEN`` (settings/.env), which has no database row.
+
+    This is the single-user path the .env file has always advertised: one token, set once,
+    no `stk api token create` round trip and nothing to lose when app.db is restored from a
+    backup. Compared as SHA-256 digests through ``compare_digest`` so neither the value nor
+    its length leaks through timing -- the DB path gets that for free from the hash lookup.
+    """
+    if not configured:
+        return False
+    return secrets.compare_digest(hash_token(presented), hash_token(configured))
+
+
 def revoke_token(conn: sqlite3.Connection, name: str) -> bool:
     cur = conn.execute(
         "UPDATE api_tokens SET revoked_at=? WHERE name=? AND revoked_at IS NULL",

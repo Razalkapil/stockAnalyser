@@ -82,11 +82,17 @@ depends on.
 2. `sudo git clone <repo> /srv/stockanalyser/app && cd /srv/stockanalyser/app`
 3. `deploy/install.sh` — creates the `stk` user and directories, `uv sync --frozen`, migrates,
    installs and enables the units and timers. It creates `/etc/stockanalyser/env` from
-   `deploy/env.example`; edit it (`GROQ_API_KEY` — or `ANTHROPIC_API_KEY` if `config/ai.yaml` says `provider: anthropic` — and `STK_OFFSITE_CMD`).
+   `deploy/env.example`; edit it (`STK_AUTH__TOKEN`, `GROQ_API_KEY` — or `ANTHROPIC_API_KEY` if `config/ai.yaml` says `provider: anthropic` — and `STK_OFFSITE_CMD`).
 4. Build the web app: `cd web && npm ci && npm run build` (output `web/dist`, served by Caddy).
 5. Put `deploy/Caddyfile` at `/etc/caddy/Caddyfile` (replace `stk.example.com`), `sudo systemctl reload caddy`.
-6. Create your API token — **shown once**: `sudo -u stk env STK_APP__ENV=prod .venv/bin/stk api token create me`.
-   Paste it into the sign-in screen.
+6. Your API token: set `STK_AUTH__TOKEN` in `/etc/stockanalyser/env` (`openssl rand -hex 32`,
+   at least 32 characters) and `sudo systemctl restart stk-api` — that value *is* the token, so
+   paste it into the sign-in screen. It has no database row, so it survives a restore and cannot
+   be revoked from the DB; to rotate it, change the file and restart.
+   The alternative, per-client tokens stored hashed in `app.db` and revocable by name, still
+   works alongside it — **shown once**:
+   `sudo -u stk env STK_APP__ENV=prod .venv/bin/stk api token create me`.
+   `stk api token list` shows both.
 7. Load data (long-running; run in `tmux`, and **check each exit code** — a wrapper that prints
    "done" regardless once hid a crash for an hour):
    ```bash
@@ -156,7 +162,7 @@ remove those yourself once satisfied.
 | `backup_missing` / `backup_stale` | The backup timer isn't running or is failing. | `systemctl status stk-backup`, run `deploy/backup.sh` by hand. |
 | Data stale but no failed step | The timer did not fire (VM was off, timer not enabled). | `systemctl list-timers`; `stk nightly`. `Persistent=true` catches up after a boot. |
 | Disk full | Raw bytes + lake + backups grow. | `du -sh data/*`; the parquet lake was 330 MB for 5 years of NSE, `data/raw` was 418 MB and grows fastest — prune it only if you accept re-fetching to re-parse. |
-| API 401 everywhere | Token revoked/lost. | `stk api token create <name>`; tokens are stored hashed, so a lost one cannot be recovered, only replaced. |
+| API 401 everywhere | Token revoked/lost, or `STK_AUTH__TOKEN` not reaching the service. | `stk api token list` (does the `(STK_AUTH__TOKEN)` row appear — if not, the value is missing from `/etc/stockanalyser/env` or the unit was not restarted). `stk api serve` says so at startup when no token exists at all. Database tokens are stored hashed, so a lost one cannot be recovered, only replaced: `stk api token create <name>`. |
 | DB corruption | `stk doctor` / SQLite errors. | `deploy/restore.sh <latest backup>`. |
 
 ## Things never verified live

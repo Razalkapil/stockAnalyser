@@ -35,7 +35,8 @@ export function Login() {
           RZ<span style={{ color: color.accent }}>•</span>TERMINAL
         </div>
         <div style={{ font: `400 12px ${font.sans}`, color: color.textMuted, lineHeight: 1.5 }}>
-          Paste your API token. Create one with <code>stk api token create NAME</code>.
+          Paste your API token: the <code>STK_AUTH__TOKEN</code> from <code>.env</code>, or one
+          created with <code>stk api token create NAME</code>.
         </div>
         <input
           type="password"

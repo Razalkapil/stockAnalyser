@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import dotenv_values
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -97,6 +97,40 @@ class YFinanceHttpConfig(BaseModel):
     min_interval_ms: int = 1500
 
 
+#: Minimum length for a configured API token. 32 random hex characters is 128 bits; the
+#: tokens `stk api token create` mints are 47 characters, so pasting one in is accepted.
+MIN_TOKEN_CHARS = 32
+
+
+class AuthConfig(BaseModel):
+    """The dashboard API's single-user bearer token, from ``STK_AUTH__TOKEN`` in .env.
+
+    It is a real credential, not a name: a token shorter than
+    :data:`MIN_TOKEN_CHARS` is refused at startup rather than accepted as a
+    weak one. An empty value means "not configured" -- the API then only
+    accepts tokens created with ``stk api token create``.
+    """
+
+    token: str | None = None
+
+    @field_validator("token", mode="before")
+    @classmethod
+    def _blank_is_unset(cls, v: Any) -> Any:
+        # `.env.example` ships `STK_AUTH__TOKEN=` blank; that is "no token", not an empty one.
+        return None if isinstance(v, str) and not v.strip() else v
+
+    @field_validator("token")
+    @classmethod
+    def _long_enough(cls, v: str | None) -> str | None:
+        if v is not None and len(v) < MIN_TOKEN_CHARS:
+            raise ValueError(
+                f"STK_AUTH__TOKEN is {len(v)} characters; at least {MIN_TOKEN_CHARS} are "
+                "required. Generate one with `openssl rand -hex 32` or paste the output of "
+                "`stk api token create NAME`."
+            )
+        return v
+
+
 class HttpConfig(BaseModel):
     nse_archives: HttpEndpointConfig = Field(default_factory=HttpEndpointConfig)
     nse_api: HttpEndpointConfig = Field(default_factory=HttpEndpointConfig)
@@ -126,6 +160,7 @@ class AppSettings(BaseSettings):
     )
 
     app: AppMeta = Field(default_factory=AppMeta)
+    auth: AuthConfig = Field(default_factory=AuthConfig)
     paths: PathsConfig = Field(default_factory=PathsConfig)
     ingest: IngestConfig
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)

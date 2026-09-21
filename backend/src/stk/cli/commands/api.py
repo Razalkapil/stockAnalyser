@@ -32,8 +32,29 @@ def serve(
     if reload:
         typer.secho("--reload is not supported with a factory app; restart to pick up changes.",
                     fg="yellow")
+    _warn_if_unreachable(settings.auth.token, settings.paths.sqlite)
     uvicorn.run(create_app(sqlite_path=settings.paths.sqlite,
-                           parquet_root=settings.paths.parquet), host=host, port=port)
+                           parquet_root=settings.paths.parquet,
+                           auth_token=settings.auth.token), host=host, port=port)
+
+
+def _warn_if_unreachable(configured: str | None, sqlite_path: Path) -> None:
+    """An API with no token at all answers 401 to everything, including its owner. Say so at
+    startup rather than letting the dashboard look broken."""
+    if configured:
+        return
+    try:
+        conn = connect(sqlite_path)
+    except Exception:  # a missing/unmigrated db has its own, louder failure on the first request
+        return
+    try:
+        active = [r for r in auth.list_tokens(conn) if not r["revoked_at"]]
+    finally:
+        conn.close()
+    if not active:
+        typer.secho("No API token exists: set STK_AUTH__TOKEN in .env or run "
+                    "`stk api token create NAME`. Every request will be 401 until you do.",
+                    fg="red", err=True)
 
 
 @app.command("openapi")
@@ -73,8 +94,15 @@ def token_list() -> None:
         rows = auth.list_tokens(conn)
     finally:
         conn.close()
-    if not rows:
-        typer.echo("No tokens. Create one with `stk api token create NAME`.")
+    configured = get_settings().auth.token
+    if configured:
+        # It has no api_tokens row, so without this line the only token most setups use is
+        # invisible to the command that lists tokens.
+        typer.echo(f"{'(STK_AUTH__TOKEN)':<20} {'active':<8} from .env / environment  "
+                   f"ends ...{configured[-4:]}")
+    if not rows and not configured:
+        typer.echo("No tokens. Create one with `stk api token create NAME`, or set "
+                   "STK_AUTH__TOKEN in .env.")
     for r in rows:
         state = "revoked" if r["revoked_at"] else "active"
         typer.echo(f"{r['name']:<20} {state:<8} created {r['created_at'][:19]}  "

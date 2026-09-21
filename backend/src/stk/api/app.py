@@ -176,11 +176,14 @@ def generate_brief(day: str, conn: Conn, force: bool = False) -> s.Brief:
     return services.request_brief(conn, _day(day), force=force)
 
 
-def create_app(*, sqlite_path: Path, parquet_root: Path, cfg: BacktestConfig | None = None
-               ) -> FastAPI:
+def create_app(*, sqlite_path: Path, parquet_root: Path, cfg: BacktestConfig | None = None,
+               auth_token: str | None = None) -> FastAPI:
+    """Build the app. ``auth_token`` is the configured single-user token (STK_AUTH__TOKEN);
+    the app never reads it from the environment itself, so a test app accepts exactly the
+    credentials its caller gave it. ``stk api serve`` passes ``settings.auth.token``."""
     app = FastAPI(title="stk", docs_url="/api/docs", openapi_url="/api/openapi.json")
     resolved = cfg or load_backtest_config()
-    app.state.ctx = ApiContext(sqlite_path, parquet_root, resolved)
+    app.state.ctx = ApiContext(sqlite_path, parquet_root, resolved, auth_token)
     app.state.play_ctx = PlayCtx(parquet_root, resolved, make_rates_fn())
     app.include_router(open_router)
     app.include_router(router)

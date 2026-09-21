@@ -113,6 +113,53 @@ class TestAuth:
         conn.close()
 
 
+class TestConfiguredToken:
+    """The token from STK_AUTH__TOKEN (.env) is passed into the app and accepted on its own,
+    with no api_tokens row behind it."""
+
+    CONFIGURED = "c" * 40
+
+    @pytest.fixture
+    def app_with_configured_token(self, tmp_path):
+        db, root = tmp_path / "a.db", tmp_path / "p"
+        root.mkdir(); migrate(db)  # noqa: E702
+        conn = connect(db); db_token = auth.create_token(conn, "t"); conn.close()  # noqa: E702
+        app = create_app(sqlite_path=db, parquet_root=root, auth_token=self.CONFIGURED)
+        return app, db_token
+
+    def bearer(self, app, token):
+        return TestClient(app, headers={"Authorization": f"Bearer {token}"})
+
+    def test_it_is_accepted_without_a_database_row(self, app_with_configured_token):
+        app, _ = app_with_configured_token
+        assert self.bearer(app, self.CONFIGURED).get("/api/status").status_code == 200
+
+    def test_database_tokens_still_work_beside_it(self, app_with_configured_token):
+        """Configuring one in .env must not quietly invalidate the ones already minted."""
+        app, db_token = app_with_configured_token
+        assert self.bearer(app, db_token).get("/api/status").status_code == 200
+
+    def test_a_near_miss_is_still_rejected(self, app_with_configured_token):
+        app, _ = app_with_configured_token
+        r = self.bearer(app, self.CONFIGURED[:-1] + "d").get("/api/status")
+        assert r.status_code == 401
+
+    def test_it_writes_no_token_row(self, app_with_configured_token, tmp_path):
+        """It is not registered on first use: nothing to revoke, nothing to leak from app.db."""
+        app, _ = app_with_configured_token
+        self.bearer(app, self.CONFIGURED).get("/api/status")
+        conn = connect(app.state.ctx.sqlite_path)
+        assert conn.execute("SELECT COUNT(*) FROM api_tokens").fetchone()[0] == 1
+        conn.close()
+
+    def test_an_app_given_no_token_does_not_pick_one_up(self, tmp_path):
+        """create_app reads no environment of its own -- it accepts exactly what it was given."""
+        db, root = tmp_path / "b.db", tmp_path / "q"
+        root.mkdir(); migrate(db)  # noqa: E702
+        app = create_app(sqlite_path=db, parquet_root=root)
+        assert self.bearer(app, self.CONFIGURED).get("/api/status").status_code == 401
+
+
 class TestPicks:
     def test_shape_matches_the_design_contract(self, world):
         picks = world[0].get("/api/picks").json()
