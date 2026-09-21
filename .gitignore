@@ -38,8 +38,5 @@ web/dist/
 .DS_Store
 .hypothesis/
 
-# graphify (graph.json + manifest.json are committed; cache/cost are local)
-graphify-out/cache/
-graphify-out/cost.json
-graphify-out/20*/
-graphify-out/graph.html
+# graphify knowledge graph: derived output, rebuilt by the post-commit hook, not tracked
+graphify-out/
