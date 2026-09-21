@@ -20,7 +20,11 @@ from stk.core.errors import IngestAssertionError, ParseError, ProviderError
 from stk.core.time import today_ist
 from stk.ingest.adjustments import rebuild_adjusted_bars_job
 from stk.ingest.calendar import ingest_calendar_from_bars, ingest_calendar_year
-from stk.ingest.corpactions import UnparsedCorporateActionsError, ingest_corporate_actions
+from stk.ingest.corpactions import (
+    UnparsedCorporateActionsError,
+    ingest_corporate_actions,
+    reparse_stored_actions,
+)
 from stk.ingest.daily import (
     IngestResult,
     ingest_bse_prices_for_date,
@@ -34,10 +38,10 @@ from stk.ingest.fundamentals_xbrl import (
     ingest_xbrl_documents,
     reparse_from_raw,
 )
-from stk.ingest.indices import ingest_indices_for_date
+from stk.ingest.indices import ingest_indices_for_date, reparse_indices_from_raw
 from stk.ingest.instruments import ingest_instrument_classes
 from stk.ingest.liquidity import compute_liquidity_for_date
-from stk.ingest.master import ingest_security_master
+from stk.ingest.master import ingest_security_master, ingest_symbol_changes
 from stk.providers.base import Period, SecurityRef
 
 app = typer.Typer(help="Nightly data ingest.")
@@ -198,6 +202,13 @@ def indices(
     date_str: str | None = typer.Option(
         None, "--date", help="YYYY-MM-DD, defaults to today (IST)"
     ),
+    reparse: bool = typer.Option(
+        False, "--reparse",
+        help="Re-run the parser over index files ALREADY on disk for days whose newest ingest "
+             "failed. No network. Optionally bounded by --from/--to.",
+    ),
+    from_date: str | None = typer.Option(None, "--from", help="With --reparse: YYYY-MM-DD"),
+    to_date: str | None = typer.Option(None, "--to", help="With --reparse: YYYY-MM-DD"),
 ) -> None:
     """Ingest one day of NSE index closes (the Phase-2 benchmark).
 
@@ -205,6 +216,25 @@ def indices(
     begins. See ingest/indices.py for why that gap is left visible
     rather than filled in.
     """
+    if reparse:
+        settings = get_settings()
+        rr = reparse_indices_from_raw(
+            sqlite_path=settings.paths.sqlite,
+            parquet_root=settings.paths.parquet,
+            raw_root=settings.paths.raw,
+            start=datetime.strptime(from_date, "%Y-%m-%d").date() if from_date else None,
+            end=datetime.strptime(to_date, "%Y-%m-%d").date() if to_date else None,
+        )
+        typer.echo(f"re-parsed {len(rr.reparsed)} day(s) from stored files")
+        if rr.raw_missing:
+            typer.secho(f"raw file missing for {len(rr.raw_missing)} day(s): "
+                        f"{[d.isoformat() for d in rr.raw_missing]}", fg="yellow")
+        for day, msg in rr.still_failing.items():
+            typer.secho(f"  {day.isoformat()}: STILL FAILING ({msg})", fg="red")
+        if rr.still_failing:
+            raise typer.Exit(code=1)
+        return
+
     business_date = resolve_business_date(
         datetime.strptime(date_str, "%Y-%m-%d").date() if date_str else None
     )
@@ -284,11 +314,45 @@ def master() -> None:
                     "see the job_runs metrics.", fg="yellow")
 
 
+@app.command("symbol-changes")
+def symbol_changes() -> None:
+    """Backfill symbol_history from NSE's symbol-change history (symbolchange.csv).
+
+    Master snapshots only know today's symbols, so a rename older than the first snapshot is
+    otherwise invisible and its corporate actions never reach the old symbol's bars. Run after
+    `stk ingest master`; takes effect at the next `stk ingest adjustments`.
+    """
+    settings = get_settings()
+    try:
+        result = ingest_symbol_changes(
+            sqlite_path=settings.paths.sqlite, raw_root=settings.paths.raw
+        )
+    except (ProviderError, ParseError) as exc:
+        typer.secho(f"FAILED: {exc}", fg="red", bold=True)
+        raise typer.Exit(code=1) from exc
+    typer.secho(
+        f"OK: {result.changes} change(s): {result.inserted} old symbol(s) linked, "
+        f"{result.already_known} already known, {result.unresolved} for securities no longer "
+        f"listed; {result.classes_inherited} old symbol(s) inherited a fund/equity class",
+        fg="green",
+    )
+    if result.conflicts:
+        typer.secho(
+            f"{len(result.conflicts)} old symbol(s) since reused by another security were NOT "
+            f"linked (their bars stay unadjusted): {', '.join(sorted(result.conflicts)[:10])}",
+            fg="yellow",
+        )
+
+
 @app.command("corpactions")
 def corpactions(
     since_str: str | None = typer.Option(
         None, "--since", help="YYYY-MM-DD; defaults to the provider's own rolling window"
     ),
+    reparse: bool = typer.Option(
+        False, "--reparse",
+        help="Re-run the current parser over rows stored by an older one (no network) -- "
+        "after a parser fix. Stored rows are never re-parsed by a fetch."),
 ) -> None:
     """Fetch, parse, and upsert corporate actions (NSE, currently the
     sole source for both exchanges per docs/data-sources.md).
@@ -297,6 +361,21 @@ def corpactions(
     a missed bonus/split must never be silently absorbed.
     """
     settings = get_settings()
+    if reparse:
+        rr = reparse_stored_actions(sqlite_path=settings.paths.sqlite)
+        changes = ", ".join(f"{k}: {v}" for k, v in sorted(rr.transitions.items())) or "none"
+        typer.echo(f"re-parsed {rr.reparsed} row(s); status changes: {changes}")
+        if rr.changed_price_ex_dates:
+            typer.echo(
+                f"{len(rr.changed_price_ex_dates)} ex-date(s) gained or changed a price factor "
+                "-- run `stk ingest adjustments` to rebuild the adjusted series."
+            )
+        if rr.still_unparsed:
+            shown = "; ".join(f"{sym}: {subj!r}" for sym, subj in rr.still_unparsed[:5])
+            typer.secho(f"FAILED: {len(rr.still_unparsed)} still unparsed -- {shown}",
+                        fg="red", bold=True)
+            raise typer.Exit(code=1)
+        return
     since = datetime.strptime(since_str, "%Y-%m-%d").date() if since_str else None
     try:
         result = ingest_corporate_actions(

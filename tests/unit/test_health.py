@@ -15,12 +15,17 @@ from pathlib import Path
 import pyarrow as pa
 import pytest
 
+from integration.lake import write_index_by_year
+from stk.ingest.adjustments import rebuild_adjusted_bars
+from stk.ingest.calendar import expected_data_date
 from stk.ingest.health import (
     check_adjusted_freshness,
+    check_adjusted_jumps,
     check_ai_runs,
     check_backup_age,
     check_calendar_coverage,
     check_fundamentals_freshness,
+    check_index_coverage,
     check_job_runs,
     check_partition_manifests,
     check_poller,
@@ -46,7 +51,8 @@ def db(tmp_path):
 
 
 def _write_bars(
-    parquet_root: Path, symbol: str, days: list[date], *, with_manifest: bool = True
+    parquet_root: Path, symbol: str, days: list[date], *, with_manifest: bool = True,
+    close: float = 100.0,
 ) -> None:
     n = len(days)
     table = pa.table(
@@ -58,8 +64,8 @@ def _write_bars(
             "isin": pa.array([None] * n, type=pa.string()),
             "series": pa.array(["EQ"] * n).dictionary_encode(),
             "instrument_type": pa.array(["EQ"] * n).dictionary_encode(),
-            "open": [100.0] * n, "high": [100.0] * n, "low": [100.0] * n, "close": [100.0] * n,
-            "prev_close": [100.0] * n, "last": [100.0] * n,
+            "open": [close] * n, "high": [close] * n, "low": [close] * n, "close": [close] * n,
+            "prev_close": [close] * n, "last": [close] * n,
             "vwap": pa.array([None] * n, type=pa.float64()),
             "volume": [1000] * n, "turnover": [100_000.0] * n,
             "trades": pa.array([50] * n, type=pa.int64()),
@@ -95,6 +101,21 @@ def _add_calendar(conn, days: list[date], *, trading: bool = True) -> None:
             "source, captured_at) VALUES (?, 'NSE', 'CM', ?, 'test', ?)",
             (day.isoformat(), int(trading), datetime.now(UTC).isoformat()),
         )
+
+
+def _add_to_universe(conn, symbol: str, *, liquid: bool = True) -> None:
+    """Put a symbol in the current universe snapshot (securities + NSE listing + universe row)."""
+    now = datetime.now(UTC).isoformat()
+    sid = conn.execute(
+        "INSERT INTO securities (isin, canonical_symbol, company_name, primary_exchange, "
+        "first_seen_on, last_seen_on, updated_at) VALUES (?, ?, ?, 'NSE', '2021-01-01', "
+        "'2026-09-18', ?)", (f"INE{symbol:0<9}"[:12], symbol, symbol, now)).lastrowid
+    conn.execute(
+        "INSERT INTO listings (security_id, exchange, symbol, source, updated_at) "
+        "VALUES (?, 'NSE', ?, 'test', ?)", (sid, symbol, now))
+    conn.execute(
+        "INSERT INTO universe_current (security_id, as_of_date, is_liquid, reason) "
+        "VALUES (?, '2026-09-18', ?, 'test')", (sid, int(liquid)))
 
 
 def _weekdays(end: date, n: int) -> list[date]:
@@ -144,6 +165,30 @@ class TestJobRuns:
             "INSERT INTO job_runs (job_name, business_date, status, started_at, attempt, "
             "code_version) VALUES ('rebuild_adjustments_nse', ?, 'degraded', ?, 1, 'test')",
             (TODAY.isoformat(), datetime.now(UTC).isoformat()),
+        )
+        assert len(check_job_runs(db, today=TODAY)) == 1
+
+
+    def test_a_failure_on_a_day_later_known_to_be_a_holiday_is_not_reported(self, db):
+        """On NSE holidays the archive serves the previous session's file and the ingest's
+        wrong-date guard refuses it -- correctly. Once the holiday master arrives the day is
+        known not to have traded; the failed row is not a problem to alert on forever."""
+        holiday = TODAY - timedelta(days=4)
+        _add_calendar(db, [holiday], trading=False)
+        db.execute(
+            "INSERT INTO job_runs (job_name, business_date, status, started_at, attempt, "
+            "code_version) VALUES ('ingest_nse_prices', ?, 'failed', ?, 1, 'test')",
+            (holiday.isoformat(), datetime.now(UTC).isoformat()),
+        )
+        assert check_job_runs(db, today=TODAY) == []
+
+    def test_a_failure_on_a_trading_day_is_still_reported_when_the_calendar_knows_it(self, db):
+        traded = TODAY - timedelta(days=1)
+        _add_calendar(db, [traded], trading=True)
+        db.execute(
+            "INSERT INTO job_runs (job_name, business_date, status, started_at, attempt, "
+            "code_version) VALUES ('ingest_nse_prices', ?, 'failed', ?, 1, 'test')",
+            (traded.isoformat(), datetime.now(UTC).isoformat()),
         )
         assert len(check_job_runs(db, today=TODAY)) == 1
 
@@ -206,25 +251,110 @@ class TestCalendarCoverage:
         assert check_calendar_coverage(db, tmp_parquet_root, exchange="NSE", today=TODAY) == []
 
 
+class TestCalendarCoverageBeforeTheDataIsDue:
+    def test_todays_missing_bhavcopy_is_not_a_gap_until_it_is_due(self, db, tmp_parquet_root):
+        """At 11am on a trading day today's file does not exist yet. Doctor used to report the
+        day as missing while the dashboard's stale banner correctly said nothing was late."""
+        days = _weekdays(TODAY, 5)
+        _add_calendar(db, days)
+        _write_bars(tmp_parquet_root, "AAA", days[:-1])  # today (days[-1]) has no bars
+
+        assert check_calendar_coverage(db, tmp_parquet_root, exchange="NSE", today=TODAY) != []
+        before_publish = datetime(2026, 9, 18, 11, 0)
+        assert check_calendar_coverage(
+            db, tmp_parquet_root, exchange="NSE", today=TODAY,
+            expected_through=expected_data_date(db, before_publish)) == []
+
+    def test_after_publish_time_the_same_missing_day_is_a_gap(self, db, tmp_parquet_root):
+        days = _weekdays(TODAY, 5)
+        _add_calendar(db, days)
+        _write_bars(tmp_parquet_root, "AAA", days[:-1])
+
+        after_publish = datetime(2026, 9, 18, 19, 0)
+        problems = check_calendar_coverage(
+            db, tmp_parquet_root, exchange="NSE", today=TODAY,
+            expected_through=expected_data_date(db, after_publish))
+        assert len(problems) == 1 and days[-1].isoformat() in problems[0].message
+
+
 class TestStaleSymbols:
-    def test_a_symbol_that_stopped_updating_is_reported(self, db, tmp_parquet_root):
+    def test_a_universe_symbol_that_stopped_updating_is_reported(self, db, tmp_parquet_root):
         days = _weekdays(TODAY, 20)
         _add_calendar(db, days)
         _write_bars(tmp_parquet_root, "FRESH", days)
         _write_bars(tmp_parquet_root, "STALE", days[:3])
+        _add_to_universe(db, "FRESH")
+        _add_to_universe(db, "STALE")
 
         problems = check_stale_symbols(db, tmp_parquet_root, exchange="NSE", today=TODAY)
         assert len(problems) == 1
         assert "STALE" in problems[0].message
         assert "FRESH" not in problems[0].message
 
+    def test_a_symbol_outside_the_universe_is_not_reported(self, db, tmp_parquet_root):
+        """A name delisted years ago, a matured rights line: the lake holds ~1,000 of them and
+        listing them buried the one thing worth seeing -- a symbol we DO scan going quiet."""
+        days = _weekdays(TODAY, 20)
+        _add_calendar(db, days)
+        _write_bars(tmp_parquet_root, "FRESH", days)
+        _write_bars(tmp_parquet_root, "DELISTED", days[:3])
+        _write_bars(tmp_parquet_root, "ILLIQUID", days[:3])
+        _add_to_universe(db, "FRESH")
+        _add_to_universe(db, "ILLIQUID", liquid=False)  # in the snapshot, but not scanned
+
+        assert check_stale_symbols(db, tmp_parquet_root, exchange="NSE", today=TODAY) == []
+
+    def test_says_nothing_without_a_universe_snapshot(self, db, tmp_parquet_root):
+        days = _weekdays(TODAY, 20)
+        _add_calendar(db, days)
+        _write_bars(tmp_parquet_root, "STALE", days[:3])
+
+        assert check_stale_symbols(db, tmp_parquet_root, exchange="NSE", today=TODAY) == []
+
     def test_says_nothing_without_enough_calendar_to_judge(self, db, tmp_parquet_root):
         """A fresh install must not report every symbol as stale."""
         days = _weekdays(TODAY, 3)
         _add_calendar(db, days)
         _write_bars(tmp_parquet_root, "AAA", days)
+        _add_to_universe(db, "AAA")
 
         assert check_stale_symbols(db, tmp_parquet_root, exchange="NSE", today=TODAY) == []
+
+
+class TestIndexCoverage:
+    """The benchmark is forward-filled by the backtest, so a hole in it never fails loudly: a
+    month with no index data reads as a month of a perfectly flat market."""
+
+    def _setup(self, tmp_parquet_root, price_days, bench_days):
+        _write_bars(tmp_parquet_root, "AAA", price_days)
+        write_index_by_year(tmp_parquet_root, "NIFTY_500", "Nifty 500", bench_days,
+                            [100.0 + i for i in range(len(bench_days))])
+
+    def test_a_day_with_prices_but_no_benchmark_is_reported(self, tmp_parquet_root):
+        days = _weekdays(TODAY, 6)
+        self._setup(tmp_parquet_root, days, [d for d in days if d != days[3]])
+
+        (problem,) = check_index_coverage(tmp_parquet_root, exchange="NSE",
+                                          index_code="NIFTY_500")
+        assert problem.code == "benchmark_gap" and days[3].isoformat() in problem.message
+
+    def test_full_coverage_reports_nothing(self, tmp_parquet_root):
+        days = _weekdays(TODAY, 6)
+        self._setup(tmp_parquet_root, days, days)
+        assert check_index_coverage(tmp_parquet_root, exchange="NSE",
+                                    index_code="NIFTY_500") == []
+
+    def test_history_before_the_benchmark_begins_is_not_a_gap(self, tmp_parquet_root):
+        """The free archive starts two years after the price lake: a known limit, not a hole."""
+        days = _weekdays(TODAY, 8)
+        self._setup(tmp_parquet_root, days, days[4:])
+        assert check_index_coverage(tmp_parquet_root, exchange="NSE",
+                                    index_code="NIFTY_500") == []
+
+    def test_no_benchmark_at_all_says_nothing(self, tmp_parquet_root):
+        _write_bars(tmp_parquet_root, "AAA", _weekdays(TODAY, 4))
+        assert check_index_coverage(tmp_parquet_root, exchange="NSE",
+                                    index_code="NIFTY_500") == []
 
 
 class TestPartitionManifests:
@@ -284,6 +414,56 @@ class TestAdjustedFreshness:
             (datetime.now(UTC).isoformat(),),
         )
         assert check_adjusted_freshness(db, tmp_parquet_root) == []
+
+
+class TestAdjustedJumps:
+    """A phantom crash left in the adjusted series: the check that would have caught
+    BAJAJFINSV's half-applied split + bonus and AJANTPHARM's unparsed bonus."""
+
+    D1, D2 = date(2026, 6, 12), date(2026, 6, 15)
+
+    def _halve(self, root, symbol):
+        _write_bars(root, symbol, [self.D1])
+        _write_bars(root, symbol, [self.D2], close=50.0)
+
+    def _action(self, db, symbol, action_type, price_factor):
+        db.execute(
+            "INSERT INTO corporate_actions (symbol, exchange, ex_date, subject_raw, action_type, "
+            "price_factor, volume_factor, parse_status, parser_version, source, source_hash, "
+            "captured_at) VALUES (?, 'NSE', ?, 'x', ?, ?, ?, ?, 3, 'nse', ?, ?)",
+            (symbol, self.D2.isoformat(), action_type, price_factor,
+             None if price_factor is None else 1 / price_factor,
+             "parsed" if price_factor else "ambiguous", f"h-{symbol}",
+             datetime.now(UTC).isoformat()),
+        )
+
+    def _check(self, db, tmp_path, root):
+        rebuild_adjusted_bars(exchange="NSE", sqlite_path=tmp_path / "app.db", parquet_root=root)
+        return check_adjusted_jumps(db, root)
+
+    def test_an_adjusted_split_leaves_no_jump(self, db, tmp_path, tmp_parquet_root):
+        self._halve(tmp_parquet_root, "AAA")
+        self._action(db, "AAA", "SPLIT", 0.5)
+        assert self._check(db, tmp_path, tmp_parquet_root) == []
+
+    def test_an_unexplained_halving_is_a_problem(self, db, tmp_path, tmp_parquet_root):
+        self._halve(tmp_parquet_root, "AAA")
+        (problem,) = self._check(db, tmp_path, tmp_parquet_root)
+        assert problem.code == "adjusted_jump" and problem.is_problem
+        assert "AAA 2026-06-15 x0.50 (no action found)" in problem.message
+
+    def test_a_demerger_is_a_known_hole_not_a_problem(self, db, tmp_path, tmp_parquet_root):
+        self._halve(tmp_parquet_root, "AAA")
+        self._action(db, "AAA", "DEMERGER", None)
+        (problem,) = self._check(db, tmp_path, tmp_parquet_root)
+        assert problem.code == "adjusted_jump_known" and not problem.is_problem
+        assert "(DEMERGER)" in problem.message
+
+    def test_funds_are_ignored(self, db, tmp_path, tmp_parquet_root):
+        self._halve(tmp_parquet_root, "GOLDETF")
+        db.execute("INSERT INTO instrument_class (exchange, symbol, isin, class, source_date, "
+                   "updated_at) VALUES ('NSE', 'GOLDETF', 'INF000', 'fund', '2026-09-18', 'x')")
+        assert self._check(db, tmp_path, tmp_parquet_root) == []
 
 
 def _ai_run(db, kind, status, *, error=None):

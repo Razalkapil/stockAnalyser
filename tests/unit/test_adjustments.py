@@ -13,6 +13,7 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
+import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
@@ -100,6 +101,32 @@ class TestComposition:
 
         for bar_date in (date(2023, 1, 1), date(2025, 1, 1), date(2026, 7, 1)):
             assert factors_for_bar(forward, bar_date) == factors_for_bar(reverse, bar_date)
+
+    def test_two_actions_on_the_same_ex_date_both_apply(self):
+        """BAJAJFINSV 2022-09-13: split Rs 5 -> Re 1 AND bonus 1:1, one
+        ex-date. Two rows sharing an effective_date made the lookup pick
+        whichever came first, so only x0.2 was applied (should be x0.1)
+        -- a phantom 48% crash in the adjusted series. Same for
+        BAJFINANCE, 360ONE, NAZARA and LINC."""
+        for actions in (
+            [_split_10_to_2(), _bonus_1_1()],
+            [_bonus_1_1(), _split_10_to_2()],
+        ):
+            rows = build_factor_rows(actions)
+            assert factors_for_bar(rows, date(2026, 1, 1)) == (Decimal("0.1"), Decimal("10"))
+            assert factors_for_bar(rows, EX) == (Decimal(1), Decimal(1))
+            assert [r.effective_date for r in rows] == [EX]
+
+    def test_same_date_actions_compose_with_an_older_one(self):
+        early = date(2024, 3, 1)
+        rows = build_factor_rows([_bonus_1_1(early), _split_10_to_2(), _bonus_1_1()])
+        assert factors_for_bar(rows, date(2025, 1, 1))[0] == Decimal("0.1")
+        assert factors_for_bar(rows, date(2023, 1, 1))[0] == Decimal("0.05")
+
+    def test_duplicate_effective_dates_are_refused(self):
+        rows = build_factor_rows([_bonus_1_1()])
+        with pytest.raises(ValueError, match="duplicate effective_date"):
+            factors_for_bar(rows + rows, date(2026, 1, 1))
 
     def test_actions_on_different_securities_do_not_mix(self):
         mine = _action(EX, "0.5", "2", symbols=("AAA",))

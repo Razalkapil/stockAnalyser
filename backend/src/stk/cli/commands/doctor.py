@@ -16,9 +16,10 @@ from typing import Annotated
 
 import typer
 
+from stk.config.backtest import load_backtest_config
 from stk.config.settings import get_settings
 from stk.core.errors import DataNotPublished, ProviderError
-from stk.core.time import today_ist
+from stk.core.time import now_ist, today_ist
 from stk.ingest.health import Problem, check_backup_age, run_all_checks
 from stk.providers.registry import get_price_provider
 from stk.store.backup import latest_backup_age_days
@@ -69,6 +70,8 @@ def doctor(
             settings.paths.parquet,
             exchanges=list(settings.ingest.exchanges),
             today=today_ist(),
+            now=now_ist(),
+            benchmark_index_code=load_backtest_config().benchmark_index_code,
         )
         if backup_dest is not None:
             problems.extend(

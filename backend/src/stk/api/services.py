@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from pathlib import Path
 
 import pandas as pd
@@ -18,7 +18,7 @@ from stk.api import schemas as s
 from stk.config.backtest import BacktestConfig
 from stk.core.time import MARKET_CLOSE, MARKET_OPEN, is_market_hours, now_ist
 from stk.domain.dsl.evaluate import explain
-from stk.ingest.calendar import is_trading_day
+from stk.ingest.calendar import expected_data_date, is_trading_day
 from stk.ingest.fundamentals_metrics import load_metric_frame
 from stk.store import duck
 from stk.strategies.proposals import list_proposals
@@ -27,8 +27,6 @@ from stk.strategies.stats import BacktestStats, LiveStats, backtest_stats, live_
 
 EXCHANGE = "NSE"
 INGEST_JOB = "ingest_nse_prices"
-#: A day's bhavcopy is not expected before this IST hour (config: ingest.eod_publish_time_ist).
-EOD_READY_HOUR = 18
 BRIEF_DAYS_SHOWN = 14
 
 
@@ -41,23 +39,6 @@ def latest_bar_date(parquet_root: Path) -> date | None:
             "SELECT max(date) FROM bars_daily WHERE exchange = ?", [EXCHANGE]
         ).fetchone()
     return row[0] if row and row[0] else None
-
-
-def expected_data_date(conn: sqlite3.Connection, now: datetime) -> date:
-    """The most recent trading day whose bhavcopy should already be out.
-
-    Unknown calendar days count as trading days on weekdays -- the same tri-state rule the
-    ingest uses (unknown is never treated as a holiday).
-    """
-    d = now.date()
-    if now.hour < EOD_READY_HOUR:
-        d -= timedelta(days=1)
-    for _ in range(14):
-        known = is_trading_day(conn, d, EXCHANGE)
-        if known is True or (known is None and d.weekday() < 5):
-            return d
-        d -= timedelta(days=1)
-    return d
 
 
 def build_status(conn: sqlite3.Connection, parquet_root: Path) -> s.Status:
@@ -94,24 +75,58 @@ ALERT_WINDOW_DAYS = 3
 
 
 def _job_alerts(conn: sqlite3.Connection, today: date) -> list[s.JobAlert]:
-    """Scheduled steps (nightly.*, weekly.*) whose NEWEST attempt for a date did not succeed.
+    """Jobs whose NEWEST attempt for a date did not succeed, inside the alert window.
 
     Newest attempt, not any attempt: a step that failed at 20:30 and was re-run successfully at
-    21:10 is fixed and must stop alerting. Nothing here can be silent -- the orchestrator
-    records a failed row for every step it could not run, including the ones it blocked.
+    21:10 is fixed and must stop alerting.
+
+    Scheduled steps (``nightly.*``, ``weekly.*``) always count. A bare job (``ingest_*``,
+    ``rebuild_*`` ...) counts only when no scheduled step already reports the same day, because
+    the orchestrator runs each of those as a subprocess and records its own failed row for it --
+    reporting both would show one failure twice. That exclusion used to be absolute, which left
+    the banner green whenever the jobs were run by hand (``stk ingest ...``) rather than by the
+    timer, while ``stk doctor`` listed them as problems. A row with no business date (a sweep, a
+    rebuild) is placed by when it started, so it can neither be dropped nor alert forever.
+
+    A failure dated on a day the calendar marks as a non-trading day is not an alert: on NSE
+    holidays the archive serves the previous session's file and the ingest's wrong-date guard
+    correctly refuses it.
     """
     since = (today - timedelta(days=ALERT_WINDOW_DAYS)).isoformat()
+    day = "COALESCE(j.business_date, substr(j.started_at, 1, 10))"
     rows = conn.execute(
-        """SELECT j.job_name, j.business_date, j.status, j.error_message
+        f"""SELECT j.job_name, {day} AS day, j.status, j.error_message, j.metrics_json
            FROM job_runs j
-           WHERE (j.job_name LIKE 'nightly.%' OR j.job_name LIKE 'weekly.%')
-             AND j.business_date >= ?
-             AND j.status IN ('failed','degraded')
+           WHERE j.status IN ('failed','degraded')
+             AND {day} >= ?
              AND j.attempt = (SELECT MAX(attempt) FROM job_runs k
                               WHERE k.job_name = j.job_name AND k.business_date IS j.business_date)
-           ORDER BY j.business_date DESC, j.job_name""", (since,)).fetchall()
-    return [s.JobAlert(job=r["job_name"], business_date=r["business_date"], status=r["status"],
-                       message=(r["error_message"] or r["status"])[:300]) for r in rows]
+             AND NOT EXISTS (SELECT 1 FROM trading_calendar c
+                             WHERE c.cal_date = j.business_date AND c.is_trading_day = 0)
+             AND (j.job_name LIKE 'nightly.%' OR j.job_name LIKE 'weekly.%'
+                  OR NOT EXISTS (SELECT 1 FROM job_runs o
+                                 WHERE (o.job_name LIKE 'nightly.%' OR o.job_name LIKE 'weekly.%')
+                                   AND o.status IN ('failed','degraded')
+                                   AND o.business_date = {day}))
+           ORDER BY day DESC, j.job_name""", (since,)).fetchall()
+    return [s.JobAlert(job=r["job_name"], business_date=r["day"], status=r["status"],
+                       message=_alert_message(r["error_message"], r["metrics_json"], r["status"]))
+            for r in rows]
+
+
+def _alert_message(error_message: str | None, metrics_json: str | None, status: str) -> str:
+    """Why a job alerts. A failure carries an error; a DEGRADED run finished but knows it is
+    incomplete and says how in its metrics (``excluded_actions=293``) -- surfacing those beats a
+    banner that reads "degraded: degraded"."""
+    if error_message:
+        return error_message[:300]
+    try:
+        metrics = json.loads(metrics_json) if metrics_json else {}
+    except ValueError:
+        metrics = {}
+    facts = [f"{k}={v}" for k, v in metrics.items()
+             if isinstance(v, int | float) and not isinstance(v, bool) and v]
+    return (", ".join(facts) or status)[:300]
 
 
 def _stale_warning(

@@ -3,6 +3,7 @@ import { useCostPreview, usePlaceOrder, usePortfolios, useStock } from "../lib/a
 import { fmtINR } from "../lib/format";
 import { color, font, tint } from "../lib/theme";
 import { Num } from "./Num";
+import { SymbolPicker } from "./SymbolPicker";
 import { useTicket } from "./TicketContext";
 
 type OrderType = "MARKET" | "LIMIT" | "SL" | "TARGET";
@@ -39,7 +40,8 @@ export function OrderDrawer() {
   const place = usePlaceOrder();
 
   const [side, setSide] = useState<"buy" | "sell">("buy");
-  const [symbol, setSymbol] = useState("");
+  const [symbolText, setSymbolText] = useState("");
+  const [picked, setPicked] = useState<string | null>(null);
   const [portfolioId, setPortfolioId] = useState<number | null>(null);
   const [qty, setQty] = useState("10");
   const [type, setType] = useState<OrderType>("MARKET");
@@ -52,7 +54,9 @@ export function OrderDrawer() {
   useEffect(() => {
     if (!open) return;
     setSide(prefill.side ?? "buy");
-    setSymbol(prefill.symbol ?? "");
+    const seeded = prefill.symbol?.trim().toUpperCase() || null;
+    setSymbolText(seeded ?? "");
+    setPicked(seeded);
     setQty("10");
     setType("MARKET");
     setPrice("");
@@ -67,8 +71,9 @@ export function OrderDrawer() {
     if (portfolioId == null && portfolios?.length) setPortfolioId(portfolios[0]?.id ?? null);
   }, [portfolios, portfolioId]);
 
-  const sym = symbol.trim().toUpperCase();
-  const { data: stock } = useStock(open && sym ? sym : null);
+  // Only a symbol chosen from the search (or pre-filled) is looked up or orderable.
+  const sym = picked ?? "";
+  const { data: stock } = useStock(open && picked ? picked : null);
   const ref = prefill.symbol === sym && prefill.ref != null ? prefill.ref : (stock?.lastClose ?? null);
   const priced = type !== "MARKET";
   const px = priced ? num(price) : ref;
@@ -162,10 +167,23 @@ export function OrderDrawer() {
           </div>
         )}
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+        <div style={{ marginBottom: 10 }}>
           <Field name="Symbol">
-            <input aria-label="Symbol" value={symbol} onChange={(e) => setSymbol(e.target.value)} style={input} placeholder="RELIANCE" />
+            <SymbolPicker
+              text={symbolText}
+              picked={picked}
+              onText={(t) => {
+                setSymbolText(t);
+                setPicked(null);
+              }}
+              onPick={(s) => {
+                setSymbolText(s);
+                setPicked(s);
+              }}
+            />
           </Field>
+        </div>
+        <div style={{ marginBottom: 10 }}>
           <Field name="Portfolio">
             <select
               aria-label="Portfolio"
@@ -181,8 +199,8 @@ export function OrderDrawer() {
             </select>
           </Field>
         </div>
-        <div style={{ font: `500 10.5px ${font.sans}`, color: color.textFaint, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 14 }}>
-          {sym || "—"} · NSE · ref {ref != null ? fmtINR(ref) : "—"}
+        <div style={{ font: `500 10.5px ${font.sans}`, color: color.textFaint, letterSpacing: 0.4, marginBottom: 14 }}>
+          {sym || "—"} · {stock?.company ? `${stock.company} · ` : ""}NSE · ref {ref != null ? fmtINR(ref) : "—"}
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>

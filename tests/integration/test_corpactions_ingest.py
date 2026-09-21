@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+from datetime import date
+
 import httpx
 import pytest
 import respx
 
 from stk.core.errors import ParseError
-from stk.ingest.corpactions import UnparsedCorporateActionsError, ingest_corporate_actions
+from stk.ingest.corpactions import (
+    PARSER_VERSION,
+    UnparsedCorporateActionsError,
+    ingest_corporate_actions,
+    reparse_stored_actions,
+)
 from stk.store.db.engine import connect, migrate
 
 URL = "https://www.nseindia.com/api/corporates-corporateActions"
@@ -168,3 +175,45 @@ class TestIngestCorporateActions:
         finally:
             conn.close()
         assert count == 1  # same source_hash both times -- ON CONFLICT DO NOTHING
+
+
+class TestReparseStoredActions:
+    @respx.mock
+    def test_a_parser_fix_reaches_rows_already_stored(self, tmp_path):
+        """Rows are ON CONFLICT DO NOTHING, so re-fetching never applies a parser fix. AJANTPHARM's
+        'Bonus- 1:2' sat as 'unparsed' under v2; reparsing must give it its factor, touch only
+        rows from an older parser, and report the ex-date whose adjusted series is now stale."""
+        sqlite_path = tmp_path / "app.db"
+        migrate(sqlite_path)
+        respx.get(URL).mock(return_value=httpx.Response(200, json=[
+            _row(symbol="AJANTPHARM", subject="Bonus- 1:2", ex_date="22-Jun-2022"),
+            _row(symbol="OTHER", subject="Dividend - Rs 5 Per Share"),
+        ]))
+        ingest_corporate_actions(sqlite_path=sqlite_path)
+        conn = connect(sqlite_path)
+        try:
+            conn.execute(  # what v2 stored for it
+                "UPDATE corporate_actions SET parse_status='unparsed', parser_version=2, "
+                "action_type=NULL, ratio_numerator=NULL, ratio_denominator=NULL, "
+                "price_factor=NULL, volume_factor=NULL WHERE symbol='AJANTPHARM'"
+            )
+        finally:
+            conn.close()
+
+        result = reparse_stored_actions(sqlite_path=sqlite_path)
+
+        assert result.reparsed == 1  # the dividend row is already current
+        assert result.transitions == {"unparsed->parsed": 1}
+        assert result.changed_price_ex_dates == {date(2022, 6, 22)}
+        assert result.still_unparsed == []
+        conn = connect(sqlite_path)
+        try:
+            row = conn.execute(
+                "SELECT * FROM corporate_actions WHERE symbol='AJANTPHARM'").fetchone()
+        finally:
+            conn.close()
+        assert row["parse_status"] == "parsed" and row["action_type"] == "BONUS"
+        assert row["price_factor"] == pytest.approx(2 / 3)
+        assert row["parser_version"] == PARSER_VERSION
+
+        assert reparse_stored_actions(sqlite_path=sqlite_path).reparsed == 0  # idempotent

@@ -36,12 +36,15 @@ from stk.core.errors import ParseError
 from stk.ingest.jobs import job_run
 from stk.providers.base import RawCorporateAction
 from stk.providers.registry import get_corporate_actions_provider
-from stk.store.db.engine import connect
+from stk.store.db.engine import connect, transaction
 
 #: 2: real-data pass over 3,180 NSE subjects -- singular "Re", truncated "Per Sh", the
 #: "(Sub-Division)" split wording, face-value consolidations, InvIT/REIT distributions,
 #: bond interest payments. v1 rows (none survive in a fresh DB) parsed ~2/3 of real subjects.
-PARSER_VERSION = 2
+#: 3: the 193 subjects v2 left unparsed over 2021-2026 -- "Bonus- 1:2" (a real bonus: AJANTPHARM's
+#: adjusted series showed a phantom 34% crash), EGM spellings, "Divdend"/"Div", "Rs - 2.10",
+#: InvIT interest/return-of-capital payouts, capital reductions, bond redemptions.
+PARSER_VERSION = 3
 
 
 class ActionType(StrEnum):
@@ -52,6 +55,7 @@ class ActionType(StrEnum):
     RIGHTS = "RIGHTS"
     BUYBACK = "BUYBACK"
     CONSOLIDATION = "CONSOLIDATION"
+    CAPITAL_REDUCTION = "CAPITAL_REDUCTION"  # price-affecting; the subject never carries a ratio
     DEMERGER = "DEMERGER"
     AGM = "AGM"
     OTHER = "OTHER"
@@ -90,20 +94,40 @@ class ParseResult(BaseModel):
 # being liberal on them cannot corrupt a series -- unlike splits/bonuses, matched strictly below.
 _RUPEE = r"(?:rs|re)\.?"
 _AMOUNT = r"([\d,]+(?:\.\d+)?)"
+# "Divdend", "Div". No leading \b: NSE glues words ("Interimdividend", "Meetingdividend"); the
+# trailing \b is what keeps "Sub-Division" out.
+_DIVIDEND_WORD = r"(?:interim\s+|final\s+|special\s+)?div(?:idend|dend)?\b"
 _DIVIDEND_RE = re.compile(
-    rf"(?:interim\s+|final\s+|special\s+)?dividend\s*(?:-|of)?\s*{_RUPEE}\s*{_AMOUNT}",
+    rf"{_DIVIDEND_WORD}\s*(?:-|of)?\s*(?:{_RUPEE}\s*-?\s*)?{_AMOUNT}",
     re.IGNORECASE,
 )
+# A dividend whose amount is missing or garbled ("Interim Dividend", "Rs Per 0.50 Share"). Cash
+# never adjusts prices, so this is recognised -- but ambiguous, since there is no amount to credit.
+_DIVIDEND_ANY_RE = re.compile(rf"^\s*{_DIVIDEND_WORD}", re.IGNORECASE)
 # Checked BEFORE dividends: a distribution's own text contains "Dividend Re 0.32 Per Unit",
 # which would otherwise be misread as the whole payout.
+_DISTRIBUTION_WORD = r"distr\w*ion\b"  # also NSE's "Distritbution"
 _DISTRIBUTION_RE = re.compile(
-    rf"distribution\s*(?:-|of)?\s*(?:{_RUPEE}\s*)?{_AMOUNT}", re.IGNORECASE
+    rf"{_DISTRIBUTION_WORD}\s*(?:-|of)?\s*(?:{_RUPEE}\s*)?{_AMOUNT}", re.IGNORECASE
 )
-_INTEREST_PAYMENT_RE = re.compile(r"^\s*interest\s+payment\b", re.IGNORECASE)
-_BONUS_RE = re.compile(
-    r"bonus(?:\s+issue)?\s+(\d+)\s*:\s*(\d+)",
+# InvIT/REIT unit payouts split into components with no single total ("Interest Amount - Rs
+# 1.20 Per Unit/ Return On Capital - Rs 0.80 Per Unit", "Nterest Amount- Rs 3.0556/..."). Cash,
+# recognised, ambiguous: summing free-text components is a guess this parser does not make.
+_UNIT_PAYOUT_RE = re.compile(
+    rf"^\s*(?:\w+\s+)?(?:{_DISTRIBUTION_WORD}|i?nterest\b|return\s+o[nf]\s+capital)",
     re.IGNORECASE,
 )
+# A bond/G-sec series repaying principal ("Redemption"): the instrument ends; no equity series.
+_REDEMPTION_RE = re.compile(r"^\s*redemption\b", re.IGNORECASE)
+_INTEREST_PAYMENT_RE = re.compile(r"^\s*interest\s+payment\b", re.IGNORECASE)
+_BONUS_RE = re.compile(
+    r"bonus(?:\s+issue)?\s*-?\s*(\d+)\s*:\s*(\d+)",  # "Bonus- 1:2" is a real subject
+    re.IGNORECASE,
+)
+# Any other bonus ("Bonus Ncrps 1:116" -- preference shares, not equity): price-affecting, but
+# not an equity share ratio. Recognised and ambiguous, so it is counted rather than applied.
+_BONUS_ANY_RE = re.compile(r"^\s*bonus\b", re.IGNORECASE)
+_CAPITAL_REDUCTION_RE = re.compile(r"capital\s+reduction", re.IGNORECASE)
 _FROM_TO = (
     rf"from\s+{_RUPEE}\s*{_AMOUNT}\s*/?-?\s*(?:per\s*sh(?:are)?\s+)?to\s+{_RUPEE}\s*{_AMOUNT}"
 )
@@ -125,11 +149,11 @@ _RIGHTS_RE = re.compile(
 _RIGHTS_ANY_RE = re.compile(r"^\s*rights\b", re.IGNORECASE)
 _CONSOLIDATION_RE = re.compile(r"consolidation\s+of\s+(?:equity\s+)?shares", re.IGNORECASE)
 _BUYBACK_RE = re.compile(r"buy\s*-?\s*back", re.IGNORECASE)
-_DEMERGER_RE = re.compile(r"demerger|scheme\s+of\s+arrangement", re.IGNORECASE)
-_AGM_RE = re.compile(
-    r"annual\s+general\s+meeting|extraordinary\s+general\s+meeting|\bagm\b|\begm\b",
-    re.IGNORECASE,
-)
+_DEMERGER_RE = re.compile(r"demerger|scheme\s+of\s+arr?angement", re.IGNORECASE)
+# EGMs are informational like AGMs; NSE spells them "Extra Ordinary", "Extra-Ordinary", "Entra
+# Ordinary", "Extra Oridinary", "Extra General Meeting", "... Meting". Liberal on purpose: a
+# meeting has no price effect, and every price rule is tried before this one.
+_AGM_RE = re.compile(r"general\s+me\w*?t|\bagm\b|\begm\b", re.IGNORECASE)
 
 
 def _parse_decimal(s: str) -> Decimal:
@@ -237,6 +261,14 @@ def _bond_interest(_m: re.Match) -> _ClauseResult:
     return _ClauseResult(action=ParsedAction(action_type=ActionType.DISTRIBUTION), recognised=True)
 
 
+def _ambiguous(action_type: ActionType) -> Callable[[re.Match], _ClauseResult]:
+    def build(_m: re.Match) -> _ClauseResult:
+        return _ClauseResult(action=ParsedAction(action_type=action_type), recognised=True,
+                             ambiguous=True)
+
+    return build
+
+
 def _bonus(m: re.Match) -> _ClauseResult:
     return _ClauseResult(action=_parse_bonus(m), recognised=True)
 
@@ -265,8 +297,14 @@ def _rights(m: re.Match) -> _ClauseResult:
 _CLAUSE_RULES: list[tuple[re.Pattern, Callable[[re.Match], _ClauseResult]]] = [
     (_DISTRIBUTION_RE, _cash_distribution),
     (_INTEREST_PAYMENT_RE, _bond_interest),
+    (_REDEMPTION_RE, _bond_interest),
     (_DIVIDEND_RE, _cash_dividend),
+    # After dividends, so "Interest - Rs 1.24/.../Dividend - Rs 2.21 Per Unit" keeps the v2 reading.
+    (_UNIT_PAYOUT_RE, _ambiguous(ActionType.DISTRIBUTION)),
+    (_DIVIDEND_ANY_RE, _ambiguous(ActionType.DIVIDEND)),
     (_BONUS_RE, _bonus),
+    (_BONUS_ANY_RE, _ambiguous(ActionType.BONUS)),  # after the ratio form, as for rights
+    (_CAPITAL_REDUCTION_RE, _ambiguous(ActionType.CAPITAL_REDUCTION)),
     (_FACE_VALUE_SPLIT_RE, _face_value_change(ActionType.SPLIT)),
     (_CONSOLIDATION_VALUES_RE, _face_value_change(ActionType.CONSOLIDATION)),
     (_RIGHTS_RE, _rights),
@@ -376,6 +414,97 @@ def _resolve_security_id(conn: sqlite3.Connection, *, exchange: str, symbol: str
     return int(row["security_id"]) if row is not None else None
 
 
+def _typed_columns(result: ParseResult) -> tuple[object, ...]:
+    """The parser-derived columns, in schema order: action_type through parser_version.
+
+    A compound subject can produce multiple ParsedAction rows; only the first is used for the
+    typed factor columns (price/volume adjustment only ever applies once per ex-date in this
+    schema) -- subject_raw itself is preserved verbatim regardless, so nothing about a second
+    clause (e.g. "and Bonus 1:1") is lost to a reader. No stored subject has two price-affecting
+    clauses (checked over 2021-2026); one that did would lose its second factor here.
+    """
+    action = result.actions[0] if result.actions else None
+    return (
+        action.action_type.value if action else None,
+        float(action.dividend_per_share) if action and action.dividend_per_share else None,
+        action.ratio_numerator if action else None,
+        action.ratio_denominator if action else None,
+        float(action.face_value_from) if action and action.face_value_from else None,
+        float(action.face_value_to) if action and action.face_value_to else None,
+        float(action.price_factor) if action and action.price_factor is not None else None,
+        float(action.volume_factor) if action and action.volume_factor is not None else None,
+        result.status,
+        PARSER_VERSION,
+    )
+
+
+_TYPED_COLUMNS = (
+    "action_type", "dividend_per_share", "ratio_numerator", "ratio_denominator",
+    "face_value_from", "face_value_to", "price_factor", "volume_factor", "parse_status",
+    "parser_version",
+)
+
+
+class ReparseResult(BaseModel):
+    reparsed: int
+    #: (old parse_status, new parse_status) -> count, for rows whose status changed.
+    transitions: dict[str, int]
+    #: Ex-dates of rows that gained or changed a price factor: the adjusted series is stale.
+    changed_price_ex_dates: set[date]
+    still_unparsed: list[tuple[str, str]]
+
+
+def _reparse_rows(conn: sqlite3.Connection, rows: list[sqlite3.Row]) -> ReparseResult:
+    transitions: dict[str, int] = {}
+    changed: set[date] = set()
+    still_unparsed: list[tuple[str, str]] = []
+    assignments = ", ".join(f"{c}=?" for c in _TYPED_COLUMNS)
+    for row in rows:
+        result = parse_subject(row["subject_raw"])
+        columns = _typed_columns(result)
+        conn.execute(
+            f"UPDATE corporate_actions SET {assignments} WHERE ca_id=?",
+            (*columns, row["ca_id"]),
+        )
+        if result.status != row["parse_status"]:
+            key = f"{row['parse_status']}->{result.status}"
+            transitions[key] = transitions.get(key, 0) + 1
+        new_factor = columns[_TYPED_COLUMNS.index("price_factor")]
+        if new_factor != row["price_factor"] and row["ex_date"]:
+            changed.add(date.fromisoformat(row["ex_date"]))
+        if result.status == "unparsed":
+            still_unparsed.append((row["symbol"], row["subject_raw"]))
+    return ReparseResult(reparsed=len(rows), transitions=transitions,
+                         changed_price_ex_dates=changed, still_unparsed=still_unparsed)
+
+
+def reparse_stored_actions(*, sqlite_path: Path) -> ReparseResult:
+    """Re-run the CURRENT parser over stored rows written by an older one. No network.
+
+    Rows are keyed on (source, source_hash) and inserted ON CONFLICT DO NOTHING, so a parser
+    fix never reaches rows already stored -- re-fetching changes nothing. subject_raw is kept
+    verbatim for exactly this. Only the parser-derived columns are rewritten.
+    """
+    conn = connect(sqlite_path)
+    try:
+        with job_run(conn, "reparse_corporate_actions") as handle:
+            rows = conn.execute(
+                "SELECT ca_id, symbol, ex_date, subject_raw, parse_status, price_factor "
+                "FROM corporate_actions WHERE parser_version IS NULL OR parser_version < ?",
+                (PARSER_VERSION,),
+            ).fetchall()
+            with transaction(conn):  # all rows re-parsed, or none
+                result = _reparse_rows(conn, rows)
+            handle.rows_in = len(rows)
+            handle.rows_written = len(rows)
+            handle.metrics.update(result.transitions)
+            handle.metrics["unparsed"] = len(result.still_unparsed)
+            handle.metrics["changed_price_ex_dates"] = len(result.changed_price_ex_dates)
+        return result
+    finally:
+        conn.close()
+
+
 def _upsert_action(conn: sqlite3.Connection, raw: RawCorporateAction) -> tuple[str, bool]:
     """Parse raw.subject_raw and upsert one corporate_actions row keyed
     on (source, source_hash) -- re-ingesting an unchanged action is a
@@ -391,13 +520,6 @@ def _upsert_action(conn: sqlite3.Connection, raw: RawCorporateAction) -> tuple[s
     has been stored -- see ``ingest_corporate_actions``.
     """
     result = parse_subject(raw.subject_raw)
-
-    # A compound subject can produce multiple ParsedAction rows; only
-    # the first is used for the typed factor columns (price/volume
-    # adjustment only ever applies once per ex-date in this schema) --
-    # subject_raw itself is preserved verbatim regardless, so nothing
-    # about a second clause (e.g. "and Bonus 1:1") is lost to a reader.
-    action = result.actions[0] if result.actions else None
     security_id = _resolve_security_id(conn, exchange=raw.exchange, symbol=raw.symbol)
 
     changes_before = conn.total_changes
@@ -416,15 +538,8 @@ def _upsert_action(conn: sqlite3.Connection, raw: RawCorporateAction) -> tuple[s
             raw.bc_start_date.isoformat() if raw.bc_start_date else None,
             raw.bc_end_date.isoformat() if raw.bc_end_date else None,
             raw.subject_raw,
-            action.action_type.value if action else None,
-            float(action.dividend_per_share) if action and action.dividend_per_share else None,
-            action.ratio_numerator if action else None,
-            action.ratio_denominator if action else None,
-            float(action.face_value_from) if action and action.face_value_from else None,
-            float(action.face_value_to) if action and action.face_value_to else None,
-            float(action.price_factor) if action and action.price_factor is not None else None,
-            float(action.volume_factor) if action and action.volume_factor is not None else None,
-            result.status, PARSER_VERSION, raw.source, raw.source_hash,
+            *_typed_columns(result),
+            raw.source, raw.source_hash,
             raw.captured_at.isoformat(),
         ),
     )

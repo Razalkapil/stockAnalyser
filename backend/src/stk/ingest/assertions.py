@@ -168,6 +168,17 @@ def assert_index_bars_sane(bars: list[IndexBar], *, context: str) -> None:
     null OHLC on derived series (NSE's file carries e.g. "Nifty50
     Dividend Points", which has a close and nothing else). So only the
     invariants that genuinely hold are asserted.
+
+    That same distinction governs the close: a PRICE LEVEL is always
+    positive, but a derived counter is not a level and zero is a real
+    reading for it. "Nifty50 Dividend Points" accumulates dividend
+    points across a financial year and RESETS TO ZERO on the first
+    sessions of the next one -- live-confirmed: it prints 289.38 on
+    2025-03-27 and 4.22 by 2025-04-28. Treating that zero as corrupt
+    aborted the whole day's index ingest and cost the benchmark 65
+    trading days between 2021 and 2026, every one of them in the first
+    weeks of April. The series is told apart by what it carries, not by
+    its name: no open, no high and no low means it is not a price level.
     """
     if not bars:
         raise IngestAssertionError(f"{context}: parsed zero index bars")
@@ -181,7 +192,9 @@ def assert_index_bars_sane(bars: list[IndexBar], *, context: str) -> None:
             )
         seen.add(key)
 
-        if bar.close <= 0:
+        # A negative reading is nonsense for either kind of series.
+        price_level = not (bar.open is None and bar.high is None and bar.low is None)
+        if bar.close < 0 or (price_level and bar.close == 0):
             raise IngestAssertionError(
                 f"{context}: index {bar.index_name} has non-positive close {bar.close}"
             )

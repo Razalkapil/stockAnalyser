@@ -46,6 +46,7 @@ from pathlib import Path
 from stk.core.errors import IngestAssertionError, NotSupportedError, ProviderError
 from stk.core.time import is_weekend
 from stk.ingest.daily import IngestResult, ingest_bse_prices_for_date, ingest_nse_prices_for_date
+from stk.ingest.indices import IndicesIngestResult, ingest_indices_for_date
 
 
 @dataclass
@@ -61,7 +62,7 @@ class BackfillSummary:
 
 
 def _backfill_prices(
-    ingest_one_date: Callable[[date], IngestResult],
+    ingest_one_date: Callable[[date], IngestResult | IndicesIngestResult],
     start: date,
     end: date,
     *,
@@ -87,7 +88,7 @@ def _backfill_prices(
             continue
 
         summary.total_dates += 1
-        result: IngestResult | None = None
+        result: IngestResult | IndicesIngestResult | None = None
         error: Exception | None = None
 
         try:
@@ -163,6 +164,35 @@ def backfill_bse_prices(
     """
     return _backfill_prices(
         lambda d: ingest_bse_prices_for_date(
+            d, sqlite_path=sqlite_path, parquet_root=parquet_root, raw_root=raw_root
+        ),
+        start,
+        end,
+        throttle_s=throttle_s,
+        on_progress=on_progress,
+    )
+
+
+def backfill_indices(
+    start: date,
+    end: date,
+    *,
+    sqlite_path: Path,
+    parquet_root: Path,
+    raw_root: Path,
+    throttle_s: float = 1.0,
+    on_progress: object | None = None,
+) -> BackfillSummary:
+    """Ingest every weekday of NSE index closes in [start, end] (inclusive).
+
+    Same shape as the price backfills, and it exists because indices had NO range fill at all:
+    a 2023 hole of 29 trading days (2023-04-10 .. 2023-05-22) came from a hand-run loop that
+    stopped early and left no trace, and the benchmark silently went flat across it. A day
+    that already has a raw file still re-fetches here; the parquet write is
+    overwrite-by-partition, so that is wasteful but never wrong.
+    """
+    return _backfill_prices(
+        lambda d: ingest_indices_for_date(
             d, sqlite_path=sqlite_path, parquet_root=parquet_root, raw_root=raw_root
         ),
         start,

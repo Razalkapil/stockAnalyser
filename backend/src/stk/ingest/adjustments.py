@@ -151,6 +151,11 @@ def build_factor_rows(actions: Iterable[ActionFactor]) -> list[FactorRow]:
     Arithmetic is Decimal throughout. Float would make
     price_factor * volume_factor == 1 fail by ~1e-17 per action, which
     compounds into a visible drift over a 15-year series.
+
+    Actions sharing an ex-date (a split AND a bonus, as BAJAJFINSV did on
+    2022-09-13) are merged into ONE row carrying their product. Emitting a
+    row each gave two rows with the same effective_date but different
+    running products, and the lookup applied only one of them.
     """
     by_security: dict[tuple[str, str], list[ActionFactor]] = {}
     for action in actions:
@@ -158,22 +163,33 @@ def build_factor_rows(actions: Iterable[ActionFactor]) -> list[FactorRow]:
 
     rows: list[FactorRow] = []
     for (exchange, _key), group in by_security.items():
+        by_date: dict[date, list[ActionFactor]] = {}
+        for action in group:
+            by_date.setdefault(action.ex_date, []).append(action)
+
         # Newest first: the running product for an older bar includes
         # every action that happened after it.
-        ordered = sorted(group, key=lambda a: a.ex_date, reverse=True)
         cumulative_price = Decimal(1)
         cumulative_volume = Decimal(1)
-        for action in ordered:
-            cumulative_price *= action.price_factor
-            cumulative_volume *= action.volume_factor
-            for symbol in action.symbols:
+        for ex_date in sorted(by_date, reverse=True):
+            same_day = by_date[ex_date]
+            price_factor = Decimal(1)
+            volume_factor = Decimal(1)
+            symbols: set[str] = set()
+            for action in same_day:
+                price_factor *= action.price_factor
+                volume_factor *= action.volume_factor
+                symbols.update(action.symbols)
+            cumulative_price *= price_factor
+            cumulative_volume *= volume_factor
+            for symbol in sorted(symbols):
                 rows.append(
                     FactorRow(
                         exchange=exchange,
                         symbol=symbol,
-                        effective_date=action.ex_date,
-                        price_factor=action.price_factor,
-                        volume_factor=action.volume_factor,
+                        effective_date=ex_date,
+                        price_factor=price_factor,
+                        volume_factor=volume_factor,
                         cumulative_price_factor=cumulative_price,
                         cumulative_volume_factor=cumulative_volume,
                     )
@@ -188,7 +204,15 @@ def factors_for_bar(rows: list[FactorRow], bar_date: date) -> tuple[Decimal, Dec
     A bar ON an ex-date is NOT adjusted by that action -- the ex-date is
     the first session whose price already reflects it. Hence the strict
     ``effective_date > bar_date``.
+
+    Raises on two rows with one effective_date: which one "wins" would be
+    arbitrary, and picking one silently drops the other action.
     """
+    if len({r.effective_date for r in rows}) != len(rows):
+        raise ValueError(
+            f"duplicate effective_date in factor timeline for {rows[0].symbol}; "
+            "same-day actions must be merged by build_factor_rows"
+        )
     applicable = [r for r in rows if r.effective_date > bar_date]
     if not applicable:
         return Decimal(1), Decimal(1)
@@ -226,6 +250,18 @@ def _symbols_for_security(
     return tuple(sorted(symbols))
 
 
+def _symbol_owners(conn: sqlite3.Connection, *, exchange: str) -> dict[str, set[int]]:
+    """Every security that has ever used each symbol on this exchange."""
+    owners: dict[str, set[int]] = {}
+    for r in conn.execute(
+        "SELECT symbol, security_id FROM listings WHERE exchange=? "
+        "UNION SELECT symbol, security_id FROM symbol_history WHERE exchange=?",
+        (exchange, exchange),
+    ):
+        owners.setdefault(str(r["symbol"]), set()).add(int(r["security_id"]))
+    return owners
+
+
 def load_actions(conn: sqlite3.Connection, *, exchange: str) -> _LoadedActions:
     """Load price-affecting corporate actions for one exchange, deduped.
 
@@ -246,7 +282,18 @@ def load_actions(conn: sqlite3.Connection, *, exchange: str) -> _LoadedActions:
     # Economic identity, NOT source_hash: NSE republishing a corrected
     # row creates a second row by design, and applying both would
     # compound the same bonus twice.
-    deduped: dict[tuple, sqlite3.Row] = {}
+    owners = _symbol_owners(conn, exchange=exchange)
+
+    def security_of(row: sqlite3.Row) -> int | None:
+        # corporate_actions.security_id is resolved at INGEST time from current listings, so an
+        # action announced under a since-renamed symbol is stored NULL. Resolve it again here
+        # (symbol_history now knows old symbols) -- else the same company gets two timelines.
+        if row["security_id"] is not None:
+            return int(row["security_id"])
+        candidates = owners.get(str(row["symbol"]), set())
+        return next(iter(candidates)) if len(candidates) == 1 else None
+
+    deduped: dict[tuple, tuple[sqlite3.Row, int | None]] = {}
     excluded = 0
     unresolved = 0
 
@@ -259,8 +306,9 @@ def load_actions(conn: sqlite3.Connection, *, exchange: str) -> _LoadedActions:
                 excluded += 1
             continue
 
+        security_id = security_of(row)
         identity = (
-            row["security_id"] if row["security_id"] is not None else f"sym:{row['symbol']}",
+            security_id if security_id is not None else f"sym:{row['symbol']}",
             row["ex_date"],
             row["action_type"],
             row["ratio_numerator"],
@@ -268,14 +316,14 @@ def load_actions(conn: sqlite3.Connection, *, exchange: str) -> _LoadedActions:
             round(float(row["price_factor"]), 12),
         )
         incumbent = deduped.get(identity)
-        if incumbent is None or str(row["captured_at"]) > str(incumbent["captured_at"]):
-            deduped[identity] = row
+        if incumbent is None or str(row["captured_at"]) > str(incumbent[0]["captured_at"]):
+            deduped[identity] = (row, security_id)
 
     actions: list[ActionFactor] = []
-    for row in deduped.values():
+    for row, resolved in deduped.values():
         symbol = str(row["symbol"])
-        if row["security_id"] is not None:
-            security_id = int(row["security_id"])
+        if resolved is not None:
+            security_id = resolved
             key = f"sid:{security_id}"
             symbols = _symbols_for_security(
                 conn, exchange=exchange, security_id=security_id, fallback=symbol

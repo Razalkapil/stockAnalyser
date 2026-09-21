@@ -80,6 +80,34 @@ def _to_table(bars: list[IndexBar]) -> pa.Table:
     )
 
 
+def _parse_and_write(content: bytes, business_date: date, parquet_root: Path) -> int:
+    """Parse one day's index file and write its partition. Returns rows written.
+
+    The tail shared by the fetching path and the offline re-parse, kept in
+    one place deliberately: a re-parse that validated differently from an
+    ingest would be worse than no re-parse at all.
+    """
+    bars = parse_ind_close_all(content.decode("utf-8-sig"))
+    context = f"indices {business_date.isoformat()}"
+    assert_index_bars_sane(bars, context=context)
+    assert_index_bars_match_requested_date(bars, business_date, context=context)
+
+    # indices_daily has no `symbol` column, so the writer's
+    # default (symbol, date) sort key does not apply here.
+    upsert_partition(
+        indices_daily_partition(parquet_root, business_date.year),
+        _to_table(bars),
+        schema=INDICES_DAILY_SCHEMA,
+        replace_dates={business_date},
+        sort_keys=[("index_name", "ascending"), ("date", "ascending")],
+        manifest_root=parquet_root,
+        dataset="indices_daily",
+        exchange=None,
+        year=business_date.year,
+    )
+    return len(bars)
+
+
 def ingest_indices_for_date(
     business_date: date,
     *,
@@ -102,32 +130,77 @@ def ingest_indices_for_date(
 
             persist_artifact(raw_root, conn, artifact)
 
-            bars = parse_ind_close_all(artifact.content.decode("utf-8-sig"))
-            context = f"indices {business_date.isoformat()}"
-            assert_index_bars_sane(bars, context=context)
-            assert_index_bars_match_requested_date(bars, business_date, context=context)
+            written = _parse_and_write(artifact.content, business_date, parquet_root)
 
-            # indices_daily has no `symbol` column, so the writer's
-            # default (symbol, date) sort key does not apply here.
-            upsert_partition(
-                indices_daily_partition(parquet_root, business_date.year),
-                _to_table(bars),
-                schema=INDICES_DAILY_SCHEMA,
-                replace_dates={business_date},
-                sort_keys=[("index_name", "ascending"), ("date", "ascending")],
-                manifest_root=parquet_root,
-                dataset="indices_daily",
-                exchange=None,
-                year=business_date.year,
-            )
-
-            handle.rows_in = len(bars)
-            handle.rows_written = len(bars)
+            handle.rows_in = written
+            handle.rows_written = written
 
         if handle.skipped:
             return IndicesIngestResult(business_date, status="skipped_holiday")
         return IndicesIngestResult(
             business_date, status="success", rows_written=handle.rows_written or 0
         )
+    finally:
+        conn.close()
+
+
+class IndicesReparseResult:
+    def __init__(self) -> None:
+        self.reparsed: list[date] = []
+        self.raw_missing: list[date] = []
+        self.still_failing: dict[date, str] = {}
+
+
+def reparse_indices_from_raw(
+    *,
+    sqlite_path: Path,
+    parquet_root: Path,
+    raw_root: Path,
+    start: date | None = None,
+    end: date | None = None,
+) -> IndicesReparseResult:
+    """Re-run parse -> assert -> write over index files ALREADY on disk. No network.
+
+    Targets the days whose newest ``ingest_indices`` attempt did not succeed and for which a
+    raw file was stored: exactly what a fix to the assertions can recover. Each day is its own
+    ``ingest_indices`` job_run, so a recovered day's newest attempt turns into a success and
+    stops alerting in ``stk doctor`` -- recording it under a separate job name would leave the
+    original failure standing forever. One day still failing is recorded and does not stop
+    the others.
+    """
+    conn = connect(sqlite_path)
+    result = IndicesReparseResult()
+    try:
+        candidates = conn.execute(
+            """SELECT j.business_date AS business_date, r.path AS path
+               FROM job_runs j
+               JOIN raw_artifacts r
+                 ON r.source = 'nse_indices' AND r.business_date = j.business_date
+               WHERE j.job_name = 'ingest_indices'
+                 AND j.status IN ('failed', 'degraded')
+                 AND j.attempt = (SELECT MAX(attempt) FROM job_runs k
+                                  WHERE k.job_name = j.job_name
+                                    AND k.business_date IS j.business_date)
+               ORDER BY j.business_date"""
+        ).fetchall()
+        for row in candidates:
+            day = date.fromisoformat(row["business_date"])
+            if (start and day < start) or (end and day > end):
+                continue
+            # raw_artifacts.path is stored relative to the data root, one level above raw/.
+            path = raw_root.parent / row["path"]
+            if not path.exists():
+                result.raw_missing.append(day)
+                continue
+            try:
+                with job_run(conn, "ingest_indices", business_date=day) as handle:
+                    written = _parse_and_write(path.read_bytes(), day, parquet_root)
+                    handle.rows_in = written
+                    handle.rows_written = written
+                    handle.metrics = {"reparsed_from_raw": True}
+                result.reparsed.append(day)
+            except Exception as exc:  # recorded by job_run; keep going with the other days
+                result.still_failing[day] = str(exc)
+        return result
     finally:
         conn.close()

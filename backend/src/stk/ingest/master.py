@@ -43,12 +43,16 @@ from collections import defaultdict
 from datetime import UTC, date, datetime
 from pathlib import Path
 
+from pydantic import BaseModel
+
 from stk.config.universe import LifecycleConfig, load_universe_config
 from stk.core.errors import ProviderError
 from stk.core.time import today_ist
 from stk.domain.universe import lifecycle_status
+from stk.ingest.instruments import inherit_classes_from_renames
 from stk.ingest.jobs import job_run
-from stk.providers.base import MasterRecord
+from stk.ingest.raw_store import persist_artifact
+from stk.providers.base import MasterRecord, SymbolChange
 from stk.providers.registry import get_security_master_provider
 from stk.store.db.engine import connect, transaction
 
@@ -276,5 +280,109 @@ def ingest_security_master(
 
         return MasterIngestResult(securities_upserted, listings_upserted, renames,
                                   suspended=suspended, delisted=delisted, degraded=bool(broken))
+    finally:
+        conn.close()
+
+
+# --- Historical symbol changes ---------------------------------------------
+
+#: valid_from for a symbol whose start we do not know (it was used since listing, before any
+#: change the exchange records). Sorts before every real date, as symbol_history compares text.
+UNKNOWN_START = "1900-01-01"
+
+
+class SymbolChangeResult(BaseModel):
+    changes: int
+    inserted: int
+    already_known: int
+    #: New symbol not in our master at all -- a company no longer listed. Normal, not an error.
+    unresolved: int
+    #: Old symbol also used by ANOTHER security (reused). Skipped: linking it would apply one
+    #: company's corporate actions to another's bars. Those bars stay unadjusted, as before.
+    conflicts: list[str]
+    #: Old symbols given the instrument class (fund/equity) of the symbol they became.
+    classes_inherited: int = 0
+
+
+def apply_symbol_changes(
+    conn: sqlite3.Connection, changes: list[SymbolChange]
+) -> SymbolChangeResult:
+    """Record each old symbol in symbol_history against the security that holds the new one.
+
+    Newest change first, so a chain resolves in one pass: TATAMOTORS -> TMPV (2025) links
+    TATAMOTORS to TMPV's security, then TELCO -> TATAMOTORS (2003) finds TATAMOTORS in
+    symbol_history. valid_to is the change date (bars before it carry the old symbol); valid_from
+    is the change INTO the old symbol when the file has one, else UNKNOWN_START.
+    """
+    entered: dict[tuple[str, str], date] = {}
+    for ch in changes:
+        key = (ch.exchange, ch.new_symbol)
+        entered[key] = max(entered.get(key, ch.effective_date), ch.effective_date)
+
+    def owners(exchange: str, symbol: str) -> set[int]:
+        return {
+            int(r["security_id"]) for r in conn.execute(
+                "SELECT security_id FROM listings WHERE exchange=? AND symbol=? "
+                "UNION SELECT security_id FROM symbol_history WHERE exchange=? AND symbol=?",
+                (exchange, symbol, exchange, symbol),
+            )
+        }
+
+    inserted = already = unresolved = 0
+    conflicts: list[str] = []
+    for ch in sorted(changes, key=lambda c: c.effective_date, reverse=True):
+        new_owner = owners(ch.exchange, ch.new_symbol)
+        if len(new_owner) != 1:
+            unresolved += 1
+            continue
+        (security_id,) = new_owner
+        old_owner = owners(ch.exchange, ch.old_symbol)
+        if old_owner - {security_id}:
+            conflicts.append(ch.old_symbol)
+            continue
+        if old_owner:
+            already += 1
+            continue
+        start = entered.get((ch.exchange, ch.old_symbol))
+        valid_from = start.isoformat() if start and start < ch.effective_date else UNKNOWN_START
+        conn.execute(
+            "INSERT INTO symbol_history (security_id, exchange, symbol, valid_from, valid_to) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (security_id, ch.exchange, ch.old_symbol, valid_from, ch.effective_date.isoformat()),
+        )
+        inserted += 1
+    return SymbolChangeResult(changes=len(changes), inserted=inserted, already_known=already,
+                              unresolved=unresolved, conflicts=conflicts)
+
+
+def ingest_symbol_changes(
+    *, sqlite_path: Path, raw_root: Path, provider_name: str = "nse_equity_l"
+) -> SymbolChangeResult:
+    """Fetch the exchange's symbol-change history and backfill symbol_history from it.
+
+    EQUITY_L only ever shows today's symbol, so symbol_history built from master snapshots starts
+    at our first snapshot: MINDAIND -> UNOMINDA (2022) was invisible, and UNOMINDA's bonus never
+    reached the MINDAIND bars. Run `stk ingest master` first -- a change resolves only when its
+    new symbol is in listings. Idempotent: a symbol already tracked is left alone.
+    """
+    conn = connect(sqlite_path)
+    try:
+        with job_run(conn, "ingest_symbol_changes") as handle:
+            provider = get_security_master_provider(provider_name)
+            artifact = provider.fetch_symbol_changes_artifact()
+            persist_artifact(raw_root, conn, artifact)
+            changes = provider.parse_symbol_changes(artifact)
+            with transaction(conn):
+                result = apply_symbol_changes(conn, changes)
+                result.classes_inherited = inherit_classes_from_renames(
+                    conn, changes, now=datetime.now(UTC).isoformat())
+            handle.rows_in = result.changes
+            handle.rows_written = result.inserted
+            handle.metrics.update(
+                inserted=result.inserted, already_known=result.already_known,
+                unresolved=result.unresolved, conflicts=len(result.conflicts),
+                classes_inherited=result.classes_inherited,
+            )
+        return result
     finally:
         conn.close()

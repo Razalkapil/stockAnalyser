@@ -202,6 +202,49 @@ describe("Order ticket", () => {
     expect(screen.getByRole("dialog")).toBeInTheDocument(); // stays open so it can be corrected
   });
 
+  describe("symbol search", () => {
+    const hits = [
+      { symbol: "RELIANCE", company: "Reliance Industries Limited", exch: "NSE", isin: "INE002A01018" },
+      { symbol: "RELINFRA", company: "Reliance Infrastructure Limited", exch: "NSE", isin: "INE036A01016" },
+    ];
+
+    it("finds a stock by name and orders the one picked from the dropdown", async () => {
+      const fn = await openTicket({}, { "/api/stocks/search": hits, "/api/orders": { id: 5 } });
+      const place = screen.getByRole("button", { name: "Place paper order" });
+      expect(place).toBeDisabled();
+      await userEvent.type(screen.getByLabelText("Symbol"), "reliance ind");
+      await userEvent.click(await screen.findByRole("option", { name: /Reliance Industries Limited/ }));
+      expect(screen.getByLabelText("Symbol")).toHaveValue("RELIANCE");
+      expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+      await waitFor(() => expect(place).toBeEnabled());
+      await userEvent.click(place);
+      await waitFor(() => {
+        const call = fn.mock.calls.find(([u]) => String(u) === "/api/orders");
+        expect(JSON.parse((call![1] as RequestInit).body as string)).toMatchObject({ symbol: "RELIANCE" });
+      });
+    });
+
+    it("does not look a half-typed symbol up, so nothing 404s and nothing can be ordered", async () => {
+      const fn = await openTicket({}, { "/api/stocks/search": [] });
+      await userEvent.type(screen.getByLabelText("Symbol"), "TEST");
+      expect(await screen.findByText("No match")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Place paper order" })).toBeDisabled();
+      expect(fn.mock.calls.some(([u]) => String(u).startsWith("/api/stocks/TE"))).toBe(false);
+    });
+
+    it("picks with the keyboard, and typing again clears the choice", async () => {
+      await openTicket({}, { "/api/stocks/search": hits, "/api/stocks/RELINFRA": stockDetail({ symbol: "RELINFRA" }) });
+      const box = screen.getByLabelText("Symbol");
+      await userEvent.type(box, "rel");
+      await screen.findByRole("option", { name: /RELINFRA/ });
+      await userEvent.keyboard("{ArrowDown}{Enter}");
+      expect(box).toHaveValue("RELINFRA");
+      await waitFor(() => expect(screen.getByRole("button", { name: "Place paper order" })).toBeEnabled());
+      await userEvent.type(box, "X");
+      expect(screen.getByRole("button", { name: "Place paper order" })).toBeDisabled();
+    });
+  });
+
   it("closes from the ✕", async () => {
     await openTicket({ symbol: "RELIANCE", ref: 2945 });
     await userEvent.click(screen.getByLabelText("Close"));

@@ -237,8 +237,101 @@ def test_rights_issues_remain_ambiguous_because_a_factor_needs_the_issue_price()
 
 def test_genuinely_unknown_subjects_are_still_unparsed():
     """Widening the parser must not turn it into a catch-all."""
-    for subject in ("Something Entirely New", "Distributionally Challenged", "Capital Reduction"):
+    for subject in ("Something Entirely New", "Distributionally Challenged"):
         assert parse_subject(subject).status == "unparsed", subject
+
+
+# --- v3: the 193 subjects v2 left unparsed over 2021-2026, verbatim from the API ------------
+
+
+def test_a_bonus_written_with_a_dash_is_a_real_bonus():
+    """AJANTPHARM 2022-06-22. Unparsed under v2, so its adjusted series showed a phantom 34%
+    crash (1840.80 -> 1214.80). Bonus 1:2: two held earn one more, pre-ex prices x 2/3."""
+    r = parse_subject("Bonus- 1:2")
+    assert r.status == "parsed"
+    (a,) = r.actions
+    assert a.action_type is ActionType.BONUS
+    assert (a.ratio_numerator, a.ratio_denominator) == (1, 2)
+    assert a.price_factor * a.volume_factor == Decimal(1)
+    assert a.volume_factor == Decimal("1.5")
+
+
+@pytest.mark.parametrize("subject", [
+    "Bonus Ncrps 1:116",  # TVSHLTD: preference shares -- not an equity share ratio
+    "Capital Reduction",
+    "Capital Reduction Pursuant To Nclt Order",
+])
+def test_price_events_without_a_computable_factor_are_ambiguous_never_guessed(subject):
+    r = parse_subject(subject)
+    assert r.status == "ambiguous", subject
+    assert r.actions[0].price_factor is None
+
+
+@pytest.mark.parametrize("subject", [
+    "Extra Ordinary General Meeting",
+    "Extra-Ordinary General Meeting",
+    "Extra- Ordinary General Meeting",
+    "Extra-Ordinary General Meting",
+    "Entra Ordinary General Meeting",
+    "Extra Oridinary General Meeting",
+    "Extra General Meeting",
+])
+def test_egm_spellings_are_informational_meetings(subject):
+    r = parse_subject(subject)
+    assert r.status == "parsed", subject
+    assert r.actions[0].action_type is ActionType.AGM
+
+
+@pytest.mark.parametrize(("subject", "amount"), [
+    ("Interim Divdend - Rs 7.60 Per Share", "7.60"),
+    ("Div - Rs 0.50 Per Sh", "0.50"),
+    ("Interim Dividend - 0.50 Per Share", "0.50"),
+    ("Interim Dividend Rs - 2.10 Per Share", "2.10"),
+    ("Interimdividend - Re 0.50 Per Share", "0.50"),
+    ("Annual General Meetingdividend - Rs 20 Per Share", "20"),
+])
+def test_misspelt_dividends_keep_their_amount(subject, amount):
+    r = parse_subject(subject)
+    assert r.status == "parsed", subject
+    assert r.actions[0].action_type is ActionType.DIVIDEND
+    assert r.actions[0].dividend_per_share == Decimal(amount)
+
+
+@pytest.mark.parametrize(("subject", "action_type"), [
+    ("Interim Dividend", ActionType.DIVIDEND),
+    ("Interim Dividend - Rs Per 0.50 Share", ActionType.DIVIDEND),
+    ("Interest Amount - Rs 1.20 Per Unit/ Return On Capital - Rs 0.80 Per Unit",
+     ActionType.DISTRIBUTION),
+    ("Nterest Amount- Rs 3.0556/Return Of Capital- Rs 0.2444", ActionType.DISTRIBUTION),
+    ("Return On Capital - Re 1 Per Unit/ Interest Amount - Rs 1.20 Per Unit",
+     ActionType.DISTRIBUTION),
+    ("Fourth Distribution - Interest Payment Rs 1.70 Per Unit/ Return Of Capital Re 0.80 Per Unit",
+     ActionType.DISTRIBUTION),
+    ("Distribution", ActionType.DISTRIBUTION),
+])
+def test_cash_events_without_one_clean_amount_are_ambiguous_cash(subject, action_type):
+    """Recognised (the run does not fail) but ambiguous: there is no single amount to credit, and
+    summing free-text components is a guess. Cash, so never a price-series hole."""
+    r = parse_subject(subject)
+    assert r.status == "ambiguous", subject
+    assert r.actions[0].action_type is action_type
+    assert r.actions[0].price_factor is None
+
+
+def test_a_misspelt_scheme_of_arrangement_is_a_demerger():
+    r = parse_subject("Scheme Of Arangement- Bonus - 1 Debenture For 1 Equity Share Held")
+    assert r.actions[0].action_type is ActionType.DEMERGER
+    assert r.actions[0].price_factor is None
+
+
+def test_a_bond_redemption_is_a_cash_event():
+    r = parse_subject("Redemption")
+    assert r.status == "parsed" and r.actions[0].action_type is ActionType.DISTRIBUTION
+
+
+def test_sub_division_is_never_read_as_a_dividend():
+    r = parse_subject(REAL_SPLITS[0][0])  # "Face Value Split (Sub-Division) - From Rs 10/- ..."
+    assert r.actions[0].action_type is ActionType.SPLIT
 
 
 def test_a_distribution_with_no_rupee_marker_is_still_a_cash_event():

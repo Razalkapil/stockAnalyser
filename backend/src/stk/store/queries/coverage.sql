@@ -42,3 +42,37 @@ SELECT exchange, max(date) AS last_date, count(*) AS row_count
 FROM bars_daily_adjusted
 GROUP BY exchange
 ORDER BY exchange
+
+-- name: adjusted_jumps
+-- Next-session moves in the ADJUSTED equity series outside [low, high] -- almost always an
+-- unadjusted corporate action, not a real move (NSE bands cap most stocks at 20%). "Next
+-- session" means consecutive dates of the dataset itself, so a symbol returning after a gap
+-- (suspension, missing file) is not mistaken for a jump. Params: exchange, exchange, low, high.
+WITH days AS (
+    SELECT date, row_number() OVER (ORDER BY date) AS n
+    FROM (SELECT DISTINCT date FROM bars_daily_adjusted WHERE exchange = ?)
+),
+eq AS (
+    SELECT a.symbol, a.date, a.close, d.n,
+           lag(a.close) OVER w AS prior_close,
+           lag(d.n) OVER w AS prior_n
+    FROM bars_daily_adjusted a JOIN days d ON d.date = a.date
+    WHERE a.exchange = ? AND a.series = 'EQ'
+    WINDOW w AS (PARTITION BY a.symbol ORDER BY a.date)
+)
+SELECT symbol, date, prior_close, close, close / prior_close AS ratio
+FROM eq
+WHERE n = prior_n + 1 AND prior_close > 0
+  AND (close / prior_close < ? OR close / prior_close > ?)
+ORDER BY date, symbol
+
+-- name: dates_without_benchmark
+-- Trading days with prices but no close for the benchmark index, from the first day the
+-- benchmark exists (earlier history is a known limit of the free archive, not a gap).
+-- Params: exchange, index_code, index_code.
+SELECT DISTINCT b.date
+FROM bars_daily b
+WHERE b.exchange = ?
+  AND b.date >= (SELECT min(date) FROM indices_daily WHERE index_code = ?)
+  AND b.date NOT IN (SELECT date FROM indices_daily WHERE index_code = ?)
+ORDER BY b.date

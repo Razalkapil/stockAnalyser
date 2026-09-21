@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
+from stk.ingest.calendar import expected_data_date
 from stk.store import duck
 from stk.store.parquet.writer import read_manifest, sha256_of_file
 
@@ -59,6 +60,12 @@ def check_job_runs(conn: sqlite3.Connection, *, today: date) -> list[Problem]:
     Only the LATEST attempt per (job_name, business_date) counts -- an
     earlier failure that a retry fixed is not a live problem. job_runs
     is observability, not a lock, so repeated attempts are expected.
+
+    A failure dated on a day the calendar now marks as a NON-trading day is not counted. On
+    NSE holidays the archive serves the previous session's file and the ingest's wrong-date
+    guard refuses it -- correctly, and the failed row is all that is left. Once the holiday
+    master arrives the date is known not to have traded, so there was never anything to
+    ingest, and reporting it forever would teach the reader to ignore this check.
     """
     cutoff = (today - timedelta(days=LOOKBACK_DAYS)).isoformat()
     rows = conn.execute(
@@ -73,6 +80,10 @@ def check_job_runs(conn: sqlite3.Connection, *, today: date) -> list[Problem]:
          AND j.attempt = latest.max_attempt
         WHERE j.status IN ('degraded', 'failed')
           AND (j.business_date IS NULL OR j.business_date >= ?)
+          AND NOT EXISTS (
+              SELECT 1 FROM trading_calendar c
+              WHERE c.cal_date = j.business_date AND c.is_trading_day = 0
+          )
         ORDER BY j.started_at DESC LIMIT ?
         """,
         (cutoff, MAX_LISTED),
@@ -108,7 +119,12 @@ def check_unparsed_corporate_actions(conn: sqlite3.Connection) -> list[Problem]:
 
 
 def check_calendar_coverage(
-    conn: sqlite3.Connection, parquet_root: Path, *, exchange: str, today: date
+    conn: sqlite3.Connection,
+    parquet_root: Path,
+    *,
+    exchange: str,
+    today: date,
+    expected_through: date | None = None,
 ) -> list[Problem]:
     """Trading days the calendar knows about that have no bars.
 
@@ -116,14 +132,19 @@ def check_calendar_coverage(
     covers: a trading day before the first ingested bar is not a gap,
     it is simply history we have not backfilled, and reporting it would
     bury the real signal under thousands of rows.
+
+    ``expected_through`` bounds the top end the same way: today's bhavcopy does not exist at
+    11am, so today is not a gap until it should have been published (``expected_data_date``,
+    which the dashboard's stale banner also uses). Without it the bound is ``today``.
     """
+    upper = expected_through or today
     rows = conn.execute(
         "SELECT cal_date FROM trading_calendar "
         "WHERE exchange=? AND is_trading_day=1 AND cal_date >= ?",
         (exchange, (today - timedelta(days=LOOKBACK_DAYS)).isoformat()),
     ).fetchall()
     expected = {date.fromisoformat(str(r["cal_date"])) for r in rows if
-                date.fromisoformat(str(r["cal_date"])) <= today}
+                date.fromisoformat(str(r["cal_date"])) <= upper}
     if not expected:
         return []
 
@@ -153,6 +174,12 @@ def check_stale_symbols(
 
     Counted in TRADING days from the calendar, not calendar days -- a
     long holiday stretch must not make every symbol look stale.
+
+    "Current universe" is the liquid set in ``universe_current`` at its newest snapshot. The
+    query itself scans every symbol the lake has ever held, and unscoped it reported ~1,000
+    names -- delisted since 2021, matured rights lines -- burying the one thing worth seeing: a
+    symbol we DO scan that stopped updating. With no universe snapshot yet there is nothing to
+    judge against and this stays quiet, as it does for a thin calendar.
     """
     rows = conn.execute(
         "SELECT cal_date FROM trading_calendar "
@@ -169,6 +196,17 @@ def check_stale_symbols(
 
     with duck.connect(parquet_root) as session:
         stale = session.sql("stale_symbols", [exchange, cutoff.isoformat()]).fetchall()
+    universe = {
+        r["symbol"]
+        for r in conn.execute(
+            """SELECT l.symbol FROM universe_current u
+               JOIN listings l ON l.security_id = u.security_id
+               WHERE u.is_liquid = 1 AND l.exchange = ?
+                 AND u.as_of_date = (SELECT MAX(as_of_date) FROM universe_current)""",
+            (exchange,),
+        ).fetchall()
+    }
+    stale = [row for row in stale if row[0] in universe]
     if not stale:
         return []
     return [
@@ -176,6 +214,35 @@ def check_stale_symbols(
             "stale_symbol",
             f"{exchange}: {len(stale)} symbol(s) with no bar since {cutoff.isoformat()}: "
             f"{_summarise([f'{s[0]}({s[1]})' for s in stale])}",
+        )
+    ]
+
+
+def check_index_coverage(
+    parquet_root: Path, *, exchange: str, index_code: str
+) -> list[Problem]:
+    """Trading days that have prices but no benchmark close.
+
+    The benchmark is what every backtest's alpha is measured against, and a hole in it does not
+    fail loudly: the engine forward-fills it, so a month with no index data reads as a month of
+    a perfectly flat market. Two holes of exactly that kind sat in the lake for years (a
+    financial-year-boundary assertion, and a range fill that stopped early) with nothing
+    reporting them. Bounded below by the first date the benchmark exists -- history before that
+    is a known limit of the free data, not a gap.
+    """
+    with duck.connect(parquet_root) as session:
+        missing = [
+            r[0] for r in session.sql(
+                "dates_without_benchmark", [exchange, index_code, index_code]
+            ).fetchall()
+        ]
+    if not missing:
+        return []
+    return [
+        Problem(
+            "benchmark_gap",
+            f"{index_code}: {len(missing)} trading day(s) with prices but no benchmark close "
+            f"(the backtest forward-fills these): {_summarise([d.isoformat() for d in missing])}",
         )
     ]
 
@@ -266,6 +333,85 @@ AI_FAILURE_STREAK = 3
 #: The poller is judged only against a recent window: an outage last month is history.
 POLLER_WINDOW_HOURS = 48
 BACKUP_MAX_AGE_DAYS = 2
+
+
+#: A next-session move outside this band in an ADJUSTED equity series is almost never real: NSE
+#: price bands cap most stocks at 20%, so a 0.5x day is a split, bonus or demerger the series
+#: does not reflect. Found by exactly this scan: BAJAJFINSV, BAJFINANCE, AJANTPHARM, MINDAIND...
+JUMP_LOW, JUMP_HIGH = 0.6, 1.6
+
+#: How far either side of a jump to look for the corporate action that explains it.
+JUMP_ACTION_WINDOW_DAYS = 5
+
+#: Price events the adjustment cannot compute a factor for (documented holes).
+UNADJUSTABLE_ACTIONS = frozenset({"DEMERGER", "RIGHTS", "CAPITAL_REDUCTION", "BONUS",
+                                  "SPLIT", "CONSOLIDATION"})
+
+
+def _action_near(
+    conn: sqlite3.Connection, *, exchange: str, symbol: str, day: date
+) -> sqlite3.Row | None:
+    """The price-affecting action nearest a jump, on this symbol OR any symbol of the same
+    security (an action is stored under the symbol current when it was announced)."""
+    window = timedelta(days=JUMP_ACTION_WINDOW_DAYS)
+    return conn.execute(
+        """SELECT action_type, price_factor FROM corporate_actions
+           WHERE exchange = ? AND ex_date BETWEEN ? AND ?
+             AND action_type IN ({})
+             AND (symbol = ? OR security_id IN (
+                   SELECT security_id FROM listings WHERE exchange = ? AND symbol = ?
+                   UNION SELECT security_id FROM symbol_history WHERE exchange = ? AND symbol = ?))
+           ORDER BY price_factor IS NULL DESC
+           LIMIT 1""".format(",".join("?" * len(UNADJUSTABLE_ACTIONS))),
+        (exchange, (day - window).isoformat(), (day + window).isoformat(),
+         *sorted(UNADJUSTABLE_ACTIONS), symbol, exchange, symbol, exchange, symbol),
+    ).fetchone()
+
+
+def check_adjusted_jumps(
+    conn: sqlite3.Connection, parquet_root: Path, *, exchange: str = "NSE"
+) -> list[Problem]:
+    """Implausible one-session moves left in the adjusted series -- phantom crashes that trip
+    stop-losses and poison momentum signals in every backtest that touches the symbol.
+
+    A jump explained by an action we KNOW we cannot adjust (demerger, rights, capital reduction)
+    is info: a documented hole. One with no action nearby, or one whose action HAS a factor, is
+    a problem -- the adjustment is missing or failed. Funds are skipped (not in scans/backtests).
+    """
+    with duck.connect(parquet_root) as session:
+        jumps = session.sql("adjusted_jumps", [exchange, exchange, JUMP_LOW, JUMP_HIGH]).fetchall()
+    funds = {str(r["symbol"]) for r in conn.execute(
+        "SELECT symbol FROM instrument_class WHERE exchange=? AND class != 'equity'", (exchange,))}
+
+    known_holes: list[str] = []
+    unexplained: list[str] = []
+    for symbol, day, _prior, _close, ratio in jumps:
+        if symbol in funds:
+            continue
+        action = _action_near(conn, exchange=exchange, symbol=symbol, day=day)
+        label = f"{symbol} {day.isoformat()} x{ratio:.2f}"
+        if action is not None and action["price_factor"] is None:
+            known_holes.append(f"{label} ({action['action_type']})")
+        else:
+            reason = f"{action['action_type']} has a factor" if action else "no action found"
+            unexplained.append(f"{label} ({reason})")
+
+    problems = []
+    if unexplained:
+        problems.append(Problem(
+            "adjusted_jump",
+            f"{exchange}: {len(unexplained)} implausible move(s) in the adjusted series with no "
+            f"unadjustable action to explain them -- a missed split/bonus/rename, or a real "
+            f"event to confirm by hand: {_summarise(unexplained)}",
+        ))
+    if known_holes:
+        problems.append(Problem(
+            "adjusted_jump_known",
+            f"{exchange}: {len(known_holes)} move(s) from actions that cannot be adjusted "
+            f"(demergers/rights/capital reductions -- documented gaps): {_summarise(known_holes)}",
+            severity="info",
+        ))
+    return problems
 
 
 def check_ai_runs(conn: sqlite3.Connection) -> list[Problem]:
@@ -387,18 +533,33 @@ def run_all_checks(
     *,
     exchanges: list[str],
     today: date,
+    now: datetime | None = None,
+    benchmark_index_code: str = "NIFTY_500",
 ) -> list[Problem]:
-    """Every check, in report order."""
+    """Every check, in report order. ``now`` (IST) lets the coverage check ignore a day whose
+    bhavcopy is not out yet; without it every calendar day up to ``today`` is expected."""
     problems: list[Problem] = []
+    expected_through = expected_data_date(conn, now) if now is not None else None
     problems.extend(check_job_runs(conn, today=today))
     problems.extend(check_unparsed_corporate_actions(conn))
     for exchange in exchanges:
         problems.extend(
-            check_calendar_coverage(conn, parquet_root, exchange=exchange, today=today)
+            check_calendar_coverage(
+                conn, parquet_root, exchange=exchange, today=today,
+                expected_through=expected_through,
+            )
         )
+        if exchange == "NSE":  # the benchmark archive is NSE's
+            problems.extend(
+                check_index_coverage(
+                    parquet_root, exchange=exchange, index_code=benchmark_index_code
+                )
+            )
         problems.extend(check_stale_symbols(conn, parquet_root, exchange=exchange, today=today))
     problems.extend(check_partition_manifests(parquet_root))
     problems.extend(check_adjusted_freshness(conn, parquet_root))
+    for exchange in exchanges:
+        problems.extend(check_adjusted_jumps(conn, parquet_root, exchange=exchange))
     problems.extend(check_ai_runs(conn))
     problems.extend(check_instrument_classes(conn, parquet_root))
     problems.extend(check_security_lifecycle(conn, today=today))

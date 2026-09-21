@@ -119,6 +119,14 @@ def test_a_timeout_is_a_failure(monkeypatch):
     assert out.returncode == 124 and "timed out" in out.tail
 
 
+def _insert(conn, job, business_date, status, *, started_at="2026-09-18T20:00:00+00:00",
+            attempt=1):
+    conn.execute(
+        "INSERT INTO job_runs (job_name, business_date, status, started_at, attempt, "
+        "code_version) VALUES (?,?,?,?,?,'v')",
+        (job, business_date, status, started_at, attempt))
+
+
 class TestAlerts:
     def test_a_failure_alerts_until_a_rerun_succeeds(self, conn):
         run_steps(conn, nightly_steps(DAY)[:2], prefix="nightly", business_date=DAY,
@@ -135,10 +143,44 @@ class TestAlerts:
                   runner=Script({"ingest daily": 1}))
         assert _job_alerts(conn, date(2026, 9, 30)) == []
 
-    def test_ingest_jobs_are_not_double_reported(self, conn):
+    def test_an_ingest_job_is_not_double_reported_when_its_scheduled_step_is(self, conn):
+        """The orchestrator runs `ingest daily` as a subprocess and records BOTH the inner
+        ingest_nse_prices row and its own nightly.prices row -- one failure, one alert."""
+        _insert(conn, "ingest_nse_prices", "2026-09-18", "failed")
+        _insert(conn, "nightly.prices", "2026-09-18", "failed")
+        assert [a.job for a in _job_alerts(conn, DAY)] == ["nightly.prices"]
+
+    def test_a_hand_run_failure_is_reported_when_no_scheduled_step_covers_it(self, conn):
+        """`stk ingest ...` run by hand leaves no nightly.* row. The banner used to stay green
+        for those while `stk doctor` listed them."""
+        _insert(conn, "ingest_nse_prices", "2026-09-18", "failed")
+        assert [a.job for a in _job_alerts(conn, DAY)] == ["ingest_nse_prices"]
+
+    def test_a_job_with_no_business_date_is_placed_by_when_it_started(self, conn):
+        _insert(conn, "ingest_xbrl", None, "degraded", started_at="2026-09-18T16:55:00+00:00")
+        _insert(conn, "rebuild_adjustments_nse", None, "degraded",
+                     started_at="2026-06-01T10:00:00+00:00")
+        alerts = _job_alerts(conn, DAY)
+        assert [(a.job, a.business_date, a.status) for a in alerts] == [
+            ("ingest_xbrl", "2026-09-18", "degraded")]  # the June one is history
+
+    def test_a_degraded_run_says_why_from_its_metrics(self, conn):
+        _insert(conn, "rebuild_adjustments_nse", "2026-09-18", "degraded")
+        conn.execute("UPDATE job_runs SET metrics_json=? WHERE job_name='rebuild_adjustments_nse'",
+                     ('{"factor_rows": 620, "excluded_actions": 293, "unresolved_actions": 0}',))
+        (alert,) = _job_alerts(conn, DAY)
+        assert alert.message == "factor_rows=620, excluded_actions=293"  # zeros are noise
+
+    def test_a_failure_on_a_known_holiday_is_not_an_alert(self, conn):
         conn.execute(
-            "INSERT INTO job_runs (job_name, business_date, status, started_at, attempt, "
-            "code_version) VALUES ('ingest_nse_prices','2026-09-18','failed','x',1,'v')")
+            "INSERT INTO trading_calendar (cal_date, exchange, segment, is_trading_day, source, "
+            "captured_at) VALUES ('2026-09-18','NSE','CM',0,'test','x')")
+        _insert(conn, "ingest_nse_prices", "2026-09-18", "failed")
+        assert _job_alerts(conn, DAY) == []
+
+    def test_a_rerun_that_succeeded_stops_a_hand_run_alert(self, conn):
+        _insert(conn, "ingest_nse_prices", "2026-09-18", "failed", attempt=1)
+        _insert(conn, "ingest_nse_prices", "2026-09-18", "success", attempt=2)
         assert _job_alerts(conn, DAY) == []
 
 

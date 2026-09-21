@@ -296,6 +296,43 @@ class TestRenamesAcrossSymbolHistory:
         rows = _adjusted(parquet_root)
         assert rows[("OLDNAME", BEFORE)]["close"] == 50.0
 
+    def test_an_action_stored_under_the_old_name_joins_the_same_timeline(self, env):
+        """corporate_actions.security_id is resolved at ingest from CURRENT listings, so an action
+        announced before a rename is stored NULL under the old symbol. Once symbol_history knows
+        that symbol, both actions must compose into ONE timeline: two timelines for one symbol
+        made an old bar take whichever row was nearest, dropping the later action."""
+        sqlite_path, parquet_root = env
+        conn = connect(sqlite_path)
+        try:
+            conn.execute(
+                "INSERT INTO securities (isin, canonical_symbol, company_name, "
+                "primary_exchange, status, first_seen_on, last_seen_on, updated_at) "
+                "VALUES ('INE000A01001','NEWNAME','Example','NSE','ACTIVE',"
+                "'2020-01-01','2026-09-17','2026-09-17T00:00:00+00:00')"
+            )
+            conn.execute(
+                "INSERT INTO listings (security_id, exchange, symbol, series, status, "
+                "source, updated_at) VALUES (1,'NSE','NEWNAME','EQ','ACTIVE','test',"
+                "'2026-09-17T00:00:00+00:00')"
+            )
+            conn.execute(
+                "INSERT INTO symbol_history (security_id, exchange, symbol, valid_from, "
+                "valid_to) VALUES (1,'NSE','OLDNAME','1900-01-01','2026-04-01')"
+            )
+        finally:
+            conn.close()
+        early = date(2026, 3, 2)
+        _write_bars(parquet_root, "OLDNAME", [date(2026, 3, 1)])
+        _insert_action(sqlite_path, symbol="OLDNAME", ex_date=early, security_id=None)
+        _insert_action(sqlite_path, symbol="NEWNAME", security_id=1)
+
+        result = rebuild_adjusted_bars(
+            exchange="NSE", sqlite_path=sqlite_path, parquet_root=parquet_root
+        )
+
+        assert _adjusted(parquet_root)[("OLDNAME", date(2026, 3, 1))]["close"] == 25.0
+        assert result.unresolved_actions == 0
+
 
 class TestDegradation:
     def test_ambiguous_action_is_excluded_and_marks_the_job_degraded(self, env):

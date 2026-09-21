@@ -233,6 +233,30 @@ def is_trading_day(conn: sqlite3.Connection, cal_date: date, exchange: str) -> b
     return bool(row["is_trading_day"])
 
 
+#: A day's bhavcopy is not expected before this IST hour (config: ingest.eod_publish_time_ist).
+EOD_READY_HOUR = 18
+
+
+def expected_data_date(conn: sqlite3.Connection, now: datetime) -> date:
+    """The most recent trading day whose bhavcopy should already be out.
+
+    One definition for everything that asks "should this day have data yet?": the dashboard's
+    stale banner and `stk doctor` used to disagree, doctor reporting today as a missing trading
+    day at 11am while the API correctly said nothing was late. Unknown calendar days count as
+    trading days on weekdays -- the same tri-state rule the ingest uses (unknown is never
+    treated as a holiday).
+    """
+    d = now.date()
+    if now.hour < EOD_READY_HOUR:
+        d -= timedelta(days=1)
+    for _ in range(14):
+        known = is_trading_day(conn, d, "NSE")
+        if known is True or (known is None and not is_weekend(d)):
+            return d
+        d -= timedelta(days=1)
+    return d
+
+
 def trading_days_between(
     conn: sqlite3.Connection, start: date, end: date, exchange: str
 ) -> list[date] | None:

@@ -24,6 +24,7 @@ from pathlib import Path
 from stk.core.errors import DataNotPublished
 from stk.ingest.jobs import JobSkipped, job_run
 from stk.ingest.raw_store import persist_artifact
+from stk.providers.base import SymbolChange
 from stk.store.db.engine import connect, transaction
 
 FUND_PREFIX = "INF"
@@ -97,3 +98,36 @@ def require_instrument_classes(conn: sqlite3.Connection, exchange: str) -> None:
         raise ValueError(
             f"no instrument classes for {exchange}: ETFs and other funds would be treated as "
             "stocks. Run `stk ingest instruments` first.")
+
+
+def inherit_classes_from_renames(
+    conn: sqlite3.Connection, changes: list[SymbolChange], *, now: str
+) -> int:
+    """Give an old symbol the class of the symbol it became. Returns rows added.
+
+    Classes come from UDiFF, which exists only from 2024-07 and lists only what trades that day:
+    an ETF renamed before then (ICICI500 -> BSE500IETF, NETFAUTO -> AUTOBEES) had no class, so
+    its old-symbol bars sat in the STOCK universe of every backtest -- and its 10:1 unit splits
+    read as 90% crashes. A symbol that already has a class (including one since reused by a
+    different instrument) is never overwritten.
+    """
+    became = {(c.exchange, c.old_symbol): c.new_symbol for c in changes}
+    known = {(str(r["exchange"]), str(r["symbol"])): r for r in conn.execute(
+        "SELECT exchange, symbol, isin, class FROM instrument_class")}
+    added = 0
+    for (exchange, old), new in became.items():
+        if (exchange, old) in known:
+            continue
+        current, hops = new, 0
+        while (exchange, current) in became and hops < len(became):  # follow a chain to today
+            current, hops = became[(exchange, current)], hops + 1
+        source = known.get((exchange, current))
+        if source is None:
+            continue
+        conn.execute(
+            "INSERT INTO instrument_class (exchange, symbol, isin, class, source_date, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (exchange, old, source["isin"], source["class"], f"renamed-to:{current}", now),
+        )
+        added += 1
+    return added

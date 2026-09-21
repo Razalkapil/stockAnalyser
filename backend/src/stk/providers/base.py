@@ -120,6 +120,17 @@ class MasterRecord(BaseModel):
     listing_date: date | None = None
 
 
+class SymbolChange(BaseModel):
+    """One exchange symbol change (NSE symbolchange.csv): bars before ``effective_date`` were
+    written under ``old_symbol``, bars from it on under ``new_symbol``."""
+
+    exchange: str
+    old_symbol: str
+    new_symbol: str
+    effective_date: date
+    company_name: str | None = None
+
+
 class PriceBand(BaseModel):
     """A daily price-band record (NSE sec_list.csv)."""
 
@@ -292,6 +303,14 @@ class SecurityMasterProvider(ABC):
     def fetch_price_bands(self) -> list[PriceBand]:
         """Daily price-band list, used for circuit-lock detection. Optional."""
         raise NotSupportedError(f"{type(self).__name__} does not support fetch_price_bands")
+
+    def fetch_symbol_changes_artifact(self) -> RawArtifact:
+        """The raw, unparsed history of symbol changes. Optional. Fetch and parse are separate
+        (as on CalendarProvider) so the ingest layer persists the bytes before parsing."""
+        raise NotSupportedError(f"{type(self).__name__} has no symbol-change source")
+
+    def parse_symbol_changes(self, artifact: RawArtifact) -> list[SymbolChange]:
+        raise NotSupportedError(f"{type(self).__name__} has no symbol-change source")
 
 
 class CalendarProvider(ABC):
