@@ -13,7 +13,7 @@ from decimal import Decimal
 import pandas as pd
 import pytest
 
-from integration.lake import write_panel_by_year
+from integration.lake import write_bars_daily_only, write_panel_by_year
 from stk.backtest.setup import make_rates_fn
 from stk.config.backtest import load_backtest_config
 from stk.core.time import IST, today_ist
@@ -370,13 +370,48 @@ class TestStaleFeedFallsBackToEod:
         assert D(t["raw_price"]) == D("100")
         assert datetime.fromisoformat(t["filled_at"]).hour == 15  # booked at the close
 
-    def test_an_order_placed_mid_session_cannot_use_that_days_full_range(self, world):
-        """Its high/low include price action from before the order existed -- that would be
-        look-ahead. It waits for the NEXT session's bar."""
+    def test_a_limit_order_placed_mid_session_cannot_use_that_days_full_range(self, world):
+        """Its fill depends on the candle's high/low, which include price action from before the
+        order existed -- that would be look-ahead. It waits for the NEXT session's bar."""
         conn, ctx, pid = world
-        oid = place(conn, pid, type_=OrderType.MARKET, created=at(11, 0, LAST))
+        oid = place(conn, pid, type_=OrderType.LIMIT, limit_price=D("100"),
+                    created=at(11, 0, LAST))
         assert eod_pass(conn, ctx, LAST).fills == 0
         assert order(conn, oid)["status"] == "open"
+
+    def test_a_market_order_placed_mid_session_fills_at_that_days_close(self, world):
+        """The close happened strictly AFTER the order was placed, so this is not look-ahead --
+        the order simply gets the fill the poller missed, priced fairly at the session's end."""
+        conn, ctx, pid = world
+        oid = place(conn, pid, type_=OrderType.MARKET, created=at(11, 0, LAST))
+        r = eod_pass(conn, ctx, LAST)
+        assert r.fills == 1
+        t = trade(conn, oid)
+        assert t["fill_basis"] == EOD and t["fill_reason"] == "market_close"
+        assert datetime.fromisoformat(t["filled_at"]).hour == 15  # booked at the close
+        assert order(conn, oid)["status"] == "filled"
+
+    def test_a_market_order_placed_after_the_close_waits_for_the_next_session(self, world):
+        """It belongs to the NEXT session's bar, not this one -- and must not be cancelled by a
+        close that came before it existed."""
+        conn, ctx, pid = world
+        oid = place(conn, pid, type_=OrderType.MARKET, created=at(20, 0, LAST))
+        assert eod_pass(conn, ctx, LAST).fills == 0
+        assert order(conn, oid)["status"] == "open"
+
+    def test_an_unfilled_market_order_is_cancelled_at_its_own_session_close(self, world):
+        """A locked circuit means MARKET cannot fill even at the close -- a real broker does not
+        carry a day order into a later session at a different price, so it is cancelled."""
+        conn, ctx, pid = world
+        # A 20% move with prev_close=100 lands exactly on the 20% circuit band -> Lock.UPPER.
+        # bar.open==high==low==close is also required for circuit_lock to classify it as locked.
+        write_bars_daily_only(ctx.parquet_root, "AAA", [LAST], [120.0], prev_closes=[100.0])
+        oid = place(conn, pid, type_=OrderType.MARKET, created=at(11, 0, LAST))
+        r = eod_pass(conn, ctx, LAST)
+        assert r.fills == 0
+        row = order(conn, oid)
+        assert row["status"] == "cancelled"
+        assert "session close" in row["status_note"]
 
     def test_an_order_placed_before_the_open_can_use_that_days_bar(self, world):
         conn, ctx, pid = world

@@ -49,13 +49,22 @@ from stk.store.db.engine import connect, transaction
 #: cum-rights close -- so a rights row is now ``parsed`` with an ``issue_premium`` and NO
 #: price_factor, and ingest.adjustments computes the factor where it has the price lake. 215 of
 #: 218 real rights subjects over 2021-2026 carry a premium; the rest stay ambiguous.
-PARSER_VERSION = 4
+#: 5: a bonus of non-convertible redeemable PREFERENCE shares ("Bonus Ncrps 1:116") is recognised
+#: as its own type (BONUS_NON_EQUITY) instead of an unresolved equity BONUS -- it does not dilute
+#: equity, so "parsed, no factor" is correct, not a gap. Previously the one real instance in the
+#: NSE feed made `rebuild_adjustments_nse` cry wolf in the category that must never be ignored.
+PARSER_VERSION = 5
 
 
 class ActionType(StrEnum):
     DIVIDEND = "DIVIDEND"
     DISTRIBUTION = "DISTRIBUTION"  # InvIT/REIT unit payouts, bond interest: cash, like a dividend
     BONUS = "BONUS"
+    #: A bonus of NON-CONVERTIBLE REDEEMABLE PREFERENCE shares ("Bonus Ncrps 1:116"): it does not
+    #: dilute the equity series -- there is no equity ratio to apply, only a preference-share
+    #: one. Kept distinct from BONUS so it can be excused from the "a bonus we could not turn
+    #: into a factor is always a degradation" rule without weakening that rule for a real one.
+    BONUS_NON_EQUITY = "BONUS_NON_EQUITY"
     SPLIT = "SPLIT"
     RIGHTS = "RIGHTS"
     BUYBACK = "BUYBACK"
@@ -134,8 +143,17 @@ _BONUS_RE = re.compile(
     r"bonus(?:\s+issue)?\s*-?\s*(\d+)\s*:\s*(\d+)",  # "Bonus- 1:2" is a real subject
     re.IGNORECASE,
 )
-# Any other bonus ("Bonus Ncrps 1:116" -- preference shares, not equity): price-affecting, but
-# not an equity share ratio. Recognised and ambiguous, so it is counted rather than applied.
+# A bonus of preference shares ("Bonus Ncrps 1:116", "Bonus Non Convertible Redeemable
+# Preference Shares"): recognised as fully understood, not ambiguous -- unlike an equity bonus
+# in an unfamiliar wording (below), there is no ratio here we are failing to extract; there
+# simply is no equity factor to compute, the same as a cash dividend.
+_BONUS_NON_EQUITY_RE = re.compile(
+    r"bonus\s+(?:n\.?c\.?r\.?p\.?s\.?\b|non[\s-]?convertible\b.{0,25}\bpreference\b)",
+    re.IGNORECASE,
+)
+# Any other bonus ("Bonus- 1:2" phrased oddly, or something this parser has not seen): price-
+# affecting, but not a ratio this parser could extract. Recognised and ambiguous, so it is
+# counted rather than silently applied or silently dropped.
 _BONUS_ANY_RE = re.compile(r"^\s*bonus\b", re.IGNORECASE)
 _CAPITAL_REDUCTION_RE = re.compile(r"capital\s+reduction", re.IGNORECASE)
 _FROM_TO = (
@@ -336,6 +354,13 @@ def _bonus(m: re.Match) -> _ClauseResult:
     return _ClauseResult(action=_parse_bonus(m), recognised=True)
 
 
+def _bonus_non_equity(_m: re.Match) -> _ClauseResult:
+    # No price_factor/volume_factor: a preference-share bonus does not dilute the equity series,
+    # the same "no factor by design" convention as a cash dividend.
+    return _ClauseResult(action=ParsedAction(action_type=ActionType.BONUS_NON_EQUITY),
+                         recognised=True)
+
+
 def _face_value_change(action_type: ActionType) -> Callable[[re.Match], _ClauseResult]:
     def build(m: re.Match) -> _ClauseResult:
         parsed = _parse_face_value_split(m, action_type)
@@ -369,6 +394,9 @@ _CLAUSE_RULES: list[tuple[re.Pattern, Callable[[re.Match], _ClauseResult]]] = [
     (_UNIT_PAYOUT_RE, _ambiguous(ActionType.DISTRIBUTION)),
     (_DIVIDEND_ANY_RE, _ambiguous(ActionType.DIVIDEND)),
     (_BONUS_RE, _bonus),
+    # Non-equity bonus checked BEFORE the general fallback below, or "Bonus Ncrps 1:116" would
+    # be swallowed by it and counted as an unresolved equity bonus it is not.
+    (_BONUS_NON_EQUITY_RE, _bonus_non_equity),
     (_BONUS_ANY_RE, _ambiguous(ActionType.BONUS)),  # after the ratio form, as for rights
     (_CAPITAL_REDUCTION_RE, _ambiguous(ActionType.CAPITAL_REDUCTION)),
     (_FACE_VALUE_SPLIT_RE, _face_value_change(ActionType.SPLIT)),

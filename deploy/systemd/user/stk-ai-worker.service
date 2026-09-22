@@ -1,0 +1,22 @@
+[Unit]
+Description=stk AI request worker (runs briefs the dashboard asks for)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=%h/Projects/Personal/stockAnalyser
+EnvironmentFile=%h/Projects/Personal/stockAnalyser/.env
+# The API cannot call a model -- an import-linter contract keeps stk.ai out of stk.api -- so the
+# dashboard's "Generate now" button only queues a row in ai_requests. This executes those rows.
+# It polls a local SQLite table, so idling is nearly free; it calls a provider only when a
+# request is waiting. The nightly run has its own `stk ai evening` step and does not need this.
+ExecStart=%h/Projects/Personal/stockAnalyser/.venv/bin/stk ai worker --interval 15
+Restart=always
+RestartSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=%h/Projects/Personal/stockAnalyser
+
+[Install]
+WantedBy=default.target

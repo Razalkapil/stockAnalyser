@@ -1,0 +1,23 @@
+[Unit]
+Description=stk paper-trading poller (delayed candles; idles outside market hours)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=%h/Projects/Personal/stockAnalyser
+EnvironmentFile=%h/Projects/Personal/stockAnalyser/.env
+# The poller decides for itself whether the market is open (trading calendar + 09:15-15:30 IST),
+# so this can simply run all the time. A stale feed parks orders for the EOD bar; it never fills
+# on stale data. A MARKET order the poller never reaches (feed down, or the machine itself is
+# off through the session) still fills that evening from the EOD bar's close -- see
+# domain.orders' module docstring for the "created mid-candle" rule this depends on.
+ExecStart=%h/Projects/Personal/stockAnalyser/.venv/bin/stk playground poll
+Restart=always
+RestartSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=%h/Projects/Personal/stockAnalyser
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,34 @@
+[Unit]
+Description=stk nightly run (prices, scan, track, paper EOD, AI review)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/Projects/Personal/stockAnalyser
+EnvironmentFile=%h/Projects/Personal/stockAnalyser/.env
+# --catch-up (not a bare `stk nightly`): a laptop is not always on, and a plain run only ever
+# does ONE day -- a missed 20:30 firing would leave a silent hole in the lake that the stale
+# banner cannot see once a later day lands. See CLAUDE.md's "Caveat 1" and `stk nightly --help`.
+ExecStart=%h/Projects/Personal/stockAnalyser/.venv/bin/stk nightly --catch-up
+TimeoutStartSec=3h
+Nice=10
+# Memory guard, not present on the VM unit this was adapted from: this laptop has 15 GB total and
+# the backtest panel a `scan`/`preview` step loads peaks around 5 GB (CLAUDE.md -- it is what
+# OOM-killed `strategies promote --all` here before). MemoryHigh throttles (reclaims aggressively)
+# well before that peak so a heavy step is squeezed against itself rather than inviting the
+# kernel OOM killer to pick a victim (which could as easily be the IDE as this service).
+# MemoryMax is the hard stop, leaving headroom for the rest of a machine actually in use for
+# other things. A step killed this way is recorded as a normal failed job_runs row, never silent.
+MemoryHigh=8G
+MemoryMax=10G
+NoNewPrivileges=true
+PrivateTmp=true
+# Adapted from the VM unit's ProtectSystem=strict + ProtectHome=true: this session runs AS the
+# owning user with the repo under $HOME, so ProtectHome would hide the very directory it needs to
+# write to. Kept as tight as that allows: the whole filesystem stays read-only except this repo.
+ProtectSystem=strict
+ReadWritePaths=%h/Projects/Personal/stockAnalyser
+
+[Install]
+WantedBy=default.target

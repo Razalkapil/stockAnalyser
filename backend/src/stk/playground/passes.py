@@ -6,10 +6,14 @@ created stamped with the END of the candle that filled their parent, so they can
 that same candle.
 
 EOD FALLBACK. If the feed is down, the order is marked ``pending_eod`` and NOTHING fills. After
-the close, ``eod_pass`` tests it against the day's real (unadjusted) bar. An order can fill on
-that bar only if it was placed before the session opened -- otherwise the candle's high/low
-would include price action from before the order existed, which is look-ahead. An order placed
-mid-session with the feed down therefore waits for the NEXT session's bar.
+the close, ``eod_pass`` tests it against the day's real (unadjusted) bar. A LIMIT or STOP order
+can fill on that bar only if it was placed before the session opened -- otherwise the candle's
+high/low would include price action from before the order existed, which is look-ahead. A LIMIT
+or STOP placed mid-session with the feed down therefore waits for the NEXT session's bar. A
+MARKET order is different: it fills at that bar's CLOSE if it was placed during the session (the
+close happened strictly after it, so this is not look-ahead -- see ``domain.orders``), and is
+CANCELLED if it is still unfilled once its own session has ended, rather than silently rolling to
+a later session at a different price.
 """
 
 from __future__ import annotations
@@ -21,7 +25,7 @@ from decimal import Decimal
 
 from stk.core.time import IST, MARKET_CLOSE, MARKET_OPEN
 from stk.domain.fills import BarPrices, Lock, circuit_lock
-from stk.domain.orders import Candle, OrderStatus, resolve_oco, try_fill
+from stk.domain.orders import Candle, OrderStatus, market_order_expired, resolve_oco, try_fill
 from stk.playground import marketdata
 from stk.playground.context import PlayCtx
 from stk.playground.fills import DELAYED, EOD, FillContext, apply_fill
@@ -136,9 +140,10 @@ def intraday_pass(
             rows = active_orders(conn, symbol)
             if not rows:
                 break
-            candle = Candle(ic.start, ic.open, ic.high, ic.low, ic.close, ic.volume)
-            fc = FillContext(DELAYED, "", ic.start + timedelta(minutes=candle_minutes),
-                             feed_source, feed_lag_s)
+            candle_end = ic.start + timedelta(minutes=candle_minutes)
+            candle = Candle(ic.start, ic.open, ic.high, ic.low, ic.close, ic.volume,
+                            end=candle_end)
+            fc = FillContext(DELAYED, "", candle_end, feed_source, feed_lag_s)
             _evaluate(conn, ctx, rows, candle, _lock(ctx, candle, prev_close.get(symbol)),
                       fc=fc, adv=adv.get(symbol), result=result)
     # The feed is alive for these symbols: anything parked as pending_eod goes back to open.
@@ -153,18 +158,33 @@ def eod_pass(conn: sqlite3.Connection, ctx: PlayCtx, day: date) -> PassResult:
     symbols = sorted({r["symbol"] for r in rows})
     bars = marketdata.bars_on_day(ctx.parquet_root, ctx.cfg, symbols, day)
     adv = marketdata.adv_turnover(ctx.parquet_root, ctx.cfg, symbols, day)
+    close = session_close(day)
+    covered = [s for s in symbols if s in bars]
     for symbol in symbols:
         bar = bars.get(symbol)
         if bar is None:
             continue  # no bar for it today (suspended / not ingested): leave it waiting
         candle = Candle(session_open(day), bar["open"] or Decimal(0), bar["high"] or Decimal(0),
-                        bar["low"] or Decimal(0), bar["close"] or Decimal(0))
-        fc = FillContext(EOD, "", session_close(day), None, None)
+                        bar["low"] or Decimal(0), bar["close"] or Decimal(0), end=close)
+        fc = FillContext(EOD, "", close, None, None)
         _evaluate(conn, ctx, active_orders(conn, symbol), candle,
                   _lock(ctx, candle, bar["prev_close"]), fc=fc, adv=adv.get(symbol),
                   result=result)
-    restore_open(conn, [s for s in symbols if s in bars])
+    restore_open(conn, covered)
+    _expire_market_orders(conn, covered, close)
     return result
+
+
+def _expire_market_orders(conn: sqlite3.Connection, symbols: list[str], close: datetime) -> None:
+    """A MARKET day order still active once its own session's bar has been tried is cancelled --
+    a real broker does not carry a market order into a later session at a different price."""
+    for row in active_orders(conn):
+        if row["symbol"] not in symbols:
+            continue
+        if market_order_expired(to_domain(row), close):
+            set_status(conn, row["order_id"], OrderStatus.CANCELLED,
+                      note="market order not filled by session close — cancelled, not carried "
+                           "forward to a later session", closed=True)
 
 
 def mark_pending_eod(conn: sqlite3.Connection, symbols: list[str] | None = None) -> int:

@@ -171,6 +171,15 @@ class TestAlerts:
         (alert,) = _job_alerts(conn, DAY)
         assert alert.message == "factor_rows=620, excluded_actions=293"  # zeros are noise
 
+    def test_a_degraded_runs_string_metric_names_which_symbol_failed(self, conn):
+        """`failures=1` alone forces a log-grep to find who; a string metric says it inline."""
+        _insert(conn, "ingest_fundamentals_sweep", "2026-09-18", "degraded")
+        conn.execute(
+            "UPDATE job_runs SET metrics_json=? WHERE job_name='ingest_fundamentals_sweep'",
+            ('{"securities": 1270, "failures": 1, "failed_symbols": "RELIANCE"}',))
+        (alert,) = _job_alerts(conn, DAY)
+        assert alert.message == "securities=1270, failures=1, failed_symbols=RELIANCE"
+
     def test_a_failure_on_a_known_holiday_is_not_an_alert(self, conn):
         conn.execute(
             "INSERT INTO trading_calendar (cal_date, exchange, segment, is_trading_day, source, "

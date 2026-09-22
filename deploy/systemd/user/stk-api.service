@@ -1,0 +1,20 @@
+[Unit]
+Description=stk dashboard API (FastAPI) -- NOT enabled by default on this machine
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=%h/Projects/Personal/stockAnalyser
+EnvironmentFile=%h/Projects/Personal/stockAnalyser/.env
+# 127.0.0.1 on purpose, same as the VM unit: the only way in from outside would be a reverse
+# proxy, which this dev machine does not run.
+ExecStart=%h/Projects/Personal/stockAnalyser/.venv/bin/stk api serve --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=%h/Projects/Personal/stockAnalyser
+
+[Install]
+WantedBy=default.target

@@ -189,3 +189,109 @@ class TestScripts:
         env = (DEPLOY / "env.example").read_text()
         assert "STK_APP__ENV=prod" in env
         assert re.search(r"^ANTHROPIC_API_KEY=$", env, re.M)  # empty: no key committed
+
+
+# --- Local (non-VM) systemd --user units --------------------------------------------------
+#
+# Adapted from the units above for a developer's own machine, which is not always on: see
+# CLAUDE.md's "Caveat 1" and docs/runbook.md. Different constraints from the VM units --
+# no User=/Group= (invalid in user units), no ProtectHome (the repo lives under $HOME), and
+# EnvironmentFile is the repo's own .env rather than /etc/stockanalyser/env -- so they get
+# their own, smaller set of checks rather than reusing TestServices/TestTimers above.
+
+USER_SYSTEMD = SYSTEMD / "user"
+USER_UNITS = sorted(USER_SYSTEMD.glob("*.service")) + sorted(USER_SYSTEMD.glob("*.timer"))
+REPO_DIR = "%h/Projects/Personal/stockAnalyser"
+
+
+def user_services() -> list[Path]:
+    return [u for u in USER_UNITS if u.suffix == ".service"]
+
+
+def user_timers() -> list[Path]:
+    return [u for u in USER_UNITS if u.suffix == ".timer"]
+
+
+def test_user_units_exist():
+    names = {u.name for u in USER_UNITS}
+    assert {"stk-nightly.service", "stk-nightly.timer", "stk-weekly.service", "stk-weekly.timer",
+            "stk-poller.service", "stk-ai-worker.service", "stk-api.service"} <= names
+
+
+@pytest.mark.parametrize("unit", user_services(), ids=lambda p: p.name)
+class TestUserServices:
+    def test_has_no_system_user_directives(self, unit):
+        """User=/Group= are invalid (and unnecessary) in a systemd --user unit -- it already
+        runs as the logged-in user."""
+        assert values(unit, "Service", "User") == []
+        assert values(unit, "Service", "Group") == []
+
+    def test_reads_the_repos_own_env_file(self, unit):
+        (env,) = values(unit, "Service", "EnvironmentFile")
+        assert env == f"{REPO_DIR}/.env"
+        assert values(unit, "Service", "NoNewPrivileges") == ["true"]
+
+    def test_execstart_is_a_real_stk_command(self, unit):
+        (line,) = values(unit, "Service", "ExecStart")
+        argv = shlex.split(line)
+        exe = argv[0]
+        assert exe == f"{REPO_DIR}/.venv/bin/stk"
+        result = CliRunner().invoke(app, [*argv[1:], "--help"])
+        assert result.exit_code == 0, f"{line}\n{result.output}"
+
+    def test_may_only_write_under_the_repo(self, unit):
+        assert values(unit, "Service", "ProtectSystem") == ["strict"]
+        assert values(unit, "Service", "ReadWritePaths") == [REPO_DIR]
+        # And NOT the VM's ProtectHome=true, which would hide the repo living under $HOME.
+        assert values(unit, "Service", "ProtectHome") == []
+
+    def test_installable_under_default_target_not_multi_user(self, unit):
+        """--user units attach to default.target (the user's own session), never
+        multi-user.target (a system boot target they cannot see)."""
+        assert values(unit, "Install", "WantedBy") == ["default.target"]
+
+
+def test_user_nightly_uses_catch_up_not_a_bare_run():
+    (line,) = values(USER_SYSTEMD / "stk-nightly.service", "Service", "ExecStart")
+    assert shlex.split(line) == [f"{REPO_DIR}/.venv/bin/stk", "nightly", "--catch-up"]
+
+
+def test_user_nightly_has_a_memory_guard_the_vm_unit_does_not_need():
+    unit = USER_SYSTEMD / "stk-nightly.service"
+    (high,) = values(unit, "Service", "MemoryHigh")
+    (mx,) = values(unit, "Service", "MemoryMax")
+    assert high.endswith("G") and mx.endswith("G")
+    assert int(high[:-1]) < int(mx[:-1])  # throttle strictly before the hard kill
+
+
+def test_user_scheduled_jobs_are_oneshot_and_long_running_ones_restart():
+    for name in ("nightly", "weekly"):
+        assert values(USER_SYSTEMD / f"stk-{name}.service", "Service", "Type") == ["oneshot"]
+    for name in ("poller", "ai-worker", "api"):
+        assert values(USER_SYSTEMD / f"stk-{name}.service", "Service", "Restart")
+
+
+@pytest.mark.parametrize("timer", user_timers(), ids=lambda p: p.name)
+class TestUserTimers:
+    def test_has_a_matching_service(self, timer):
+        assert timer.with_suffix(".service") in user_services()
+
+    def test_is_installable_persistent_and_in_kolkata_time(self, timer):
+        assert values(timer, "Install", "WantedBy") == ["timers.target"]
+        assert values(timer, "Timer", "Persistent") == ["true"]
+        calendars = values(timer, "Timer", "OnCalendar")
+        assert calendars and all(c.endswith("Asia/Kolkata") for c in calendars)
+
+    @pytest.mark.skipif(shutil.which("systemd-analyze") is None, reason="needs systemd-analyze")
+    def test_calendar_expression_is_valid(self, timer):
+        for c in values(timer, "Timer", "OnCalendar"):
+            r = subprocess.run(
+                ["systemd-analyze", "calendar", c], capture_output=True, text=True, check=False
+            )
+            assert r.returncode == 0, f"{c}: {r.stderr}"
+
+
+def test_api_service_is_shipped_but_left_unenabled():
+    """Present as a file (so it is a one-command opt-in later) but never enabled here -- it
+    would fight the terminal `stk api serve` this repo is normally run from by hand."""
+    assert (USER_SYSTEMD / "stk-api.service").exists()

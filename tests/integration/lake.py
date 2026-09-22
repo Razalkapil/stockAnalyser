@@ -35,6 +35,10 @@ def adjusted_table(
     series: str = "EQ",
     volume: int = 1000,
     factor: float = 1.0,
+    opens: list[float] | None = None,
+    highs: list[float] | None = None,
+    lows: list[float] | None = None,
+    prev_closes: list[float | None] | None = None,
 ) -> pa.Table:
     n = len(days)
     return pa.table(
@@ -46,8 +50,12 @@ def adjusted_table(
             "isin": pa.array([None] * n, type=pa.string()),
             "series": pa.array([series] * n).dictionary_encode(),
             "instrument_type": pa.array(["EQ"] * n).dictionary_encode(),
-            "open": closes, "high": closes, "low": closes, "close": closes,
-            "prev_close": pa.array([None] * n, type=pa.float64()),
+            "open": opens if opens is not None else closes,
+            "high": highs if highs is not None else closes,
+            "low": lows if lows is not None else closes,
+            "close": closes,
+            "prev_close": pa.array(prev_closes if prev_closes is not None else [None] * n,
+                                   type=pa.float64()),
             "last": closes,
             "vwap": pa.array([None] * n, type=pa.float64()),
             "volume": pa.array([volume] * n, type=pa.int64()),
@@ -63,6 +71,36 @@ def adjusted_table(
         },
         schema=BARS_DAILY_ADJUSTED_SCHEMA,
     )
+
+
+def write_bars_daily_only(
+    root, symbol: str, days: list[date], closes: list[float], *,
+    opens: list[float] | None = None, highs: list[float] | None = None,
+    lows: list[float] | None = None, prev_closes: list[float | None] | None = None,
+) -> None:
+    """Write ONLY ``bars_daily`` (not the adjusted series) for one symbol, with full control over
+    OHLC and ``prev_close`` -- what a circuit-lock test needs and ``write_panel_by_year`` cannot
+    give it (it always writes ``prev_close=NULL`` and flat OHLC).
+
+    Same overwrite-by-date-across-the-whole-partition caveat as ``write_panel_by_year``: any
+    other symbol's row for these exact dates in this year's partition is dropped. Fine for a
+    fixture built fresh per test; do not mix with a shared multi-symbol day.
+    """
+    for year in sorted({d.year for d in days}):
+        idx = [i for i, d in enumerate(days) if d.year == year]
+        yd = [days[i] for i in idx]
+        table = adjusted_table(
+            symbol, yd, [closes[i] for i in idx],
+            opens=[opens[i] for i in idx] if opens else None,
+            highs=[highs[i] for i in idx] if highs else None,
+            lows=[lows[i] for i in idx] if lows else None,
+            prev_closes=[prev_closes[i] for i in idx] if prev_closes else None,
+        )
+        upsert_partition(
+            bars_daily_partition(root, "NSE", year),
+            table.select(BARS_DAILY_SCHEMA.names).cast(BARS_DAILY_SCHEMA),
+            schema=BARS_DAILY_SCHEMA, replace_dates=set(yd),
+        )
 
 
 def index_table(code: str, name: str, days: list[date], closes: list[float]) -> pa.Table:

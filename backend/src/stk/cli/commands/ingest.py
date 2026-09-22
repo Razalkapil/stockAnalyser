@@ -126,9 +126,11 @@ def daily(
                 parquet_root=settings.paths.parquet,
             )
             if adj.degraded:
+                permanent = f", {adj.excluded_permanent} permanently unadjustable" \
+                    if adj.excluded_permanent else ""
                 typer.secho(
                     f"{exch} adjustments DEGRADED: {adj.excluded_actions} unusable, "
-                    f"{adj.unresolved_actions} unresolved -- see `stk doctor`",
+                    f"{adj.unresolved_actions} unresolved{permanent} -- see `stk doctor`",
                     fg="yellow",
                 )
 
@@ -445,10 +447,14 @@ def adjustments(
         )
         if result.degraded:
             degraded = True
+            permanent = f" ({result.excluded_permanent} more are permanently unadjustable -- " \
+                "a demerger/capital reduction, never a gap this run can close.)" \
+                if result.excluded_permanent else ""
             typer.secho(
                 f"{exch} DEGRADED: {result.excluded_actions} action(s) had no usable "
-                f"factor, {result.unresolved_actions} could not be resolved to a security. "
-                "Those symbols' histories are NOT fully adjusted -- see `stk doctor`.",
+                f"factor, {result.unresolved_actions} could not be resolved to a security."
+                f"{permanent} Those symbols' histories are NOT fully adjusted -- "
+                "see `stk doctor`.",
                 fg="yellow",
                 bold=True,
             )

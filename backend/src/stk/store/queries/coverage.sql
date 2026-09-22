@@ -9,6 +9,11 @@ FROM bars_daily
 WHERE exchange = ?
 ORDER BY date
 
+-- name: latest_date
+-- The newest date with at least one bar, for one exchange -- the starting point for a
+-- catch-up run to compute what has been missed since.
+SELECT max(date) FROM bars_daily WHERE exchange = ?
+
 -- name: dates_present_in_range
 SELECT DISTINCT date
 FROM bars_daily

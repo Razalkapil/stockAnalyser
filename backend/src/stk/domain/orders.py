@@ -14,7 +14,14 @@ the part that is easy to get subtly, favourably wrong, so it is spelled out:
 
 Only SELL-side stop-loss / target exist: this is a long-only delivery playground (no shorting),
 so protective exits are sells. A candle counts only if it STARTS at or after the order was
-created -- an order cannot fill on price action that happened before it existed.
+created -- an order cannot fill on price action that happened before it existed. The one
+exception is MARKET: if the order was created *during* a candle (``candle.start < created_at <
+candle.end`` -- the poller was down and this is the day's EOD bar), it fills at that candle's
+CLOSE instead, reason ``market_close``. That is not look-ahead -- the close happened strictly
+after the order was placed -- and it is what lets a same-day market order placed mid-session
+still execute that evening instead of silently rolling to the next session at a different price.
+A MARKET order that reaches its OWN session's close unfilled is cancelled
+(``market_order_expired``), the way a real broker treats a day order, rather than carried forward.
 
 A candle frozen at a circuit limit does not trade: no buy at an upper lock, no sell at a lower
 lock (the same rule, and the same heuristic, as the backtest).
@@ -120,18 +127,31 @@ class Candle:
     low: Decimal
     close: Decimal
     volume: int = 0
+    #: When this candle ends. Only used to decide whether a MARKET order was created *during*
+    #: this candle (see the module docstring). None means "unknown" -- callers that do not care
+    #: about that distinction (most tests, the intraday-poller's older call sites) are unaffected,
+    #: and a MARKET order simply keeps the old open-only behaviour.
+    end: datetime | None = None
 
 
 @dataclass(frozen=True)
 class Fill:
     price: Decimal  # before slippage
-    reason: str  # 'market_open' | 'limit_touch' | 'limit_gap' | 'stop_touch' | 'stop_gap' | ...
+    reason: str  # market_open/market_close/limit_touch/limit_gap/stop_touch/stop_gap/...
+
+
+def _created_during(order: Order, candle: Candle) -> bool:
+    """True when the order was placed strictly inside this candle's window -- only meaningful
+    for MARKET, since a LIMIT/STOP's fill depends on the candle's high/low, which the order could
+    not have influenced no matter when inside the candle it was placed."""
+    return candle.end is not None and candle.start < order.created_at < candle.end
 
 
 def _blocked(order: Order, candle: Candle, lock: Lock) -> bool:
     if order.status not in (OrderStatus.OPEN, OrderStatus.PENDING_EOD):
         return True
-    if candle.start < order.created_at:
+    market_mid_candle = order.type is OrderType.MARKET and _created_during(order, candle)
+    if candle.start < order.created_at and not market_mid_candle:
         return True  # price action from before the order existed
     return not (can_buy(lock) if order.side is Side.BUY else can_sell(lock))
 
@@ -161,10 +181,25 @@ def try_fill(order: Order, candle: Candle, lock: Lock = Lock.NONE) -> Fill | Non
     if _blocked(order, candle, lock):
         return None
     if order.type is OrderType.MARKET:
+        if candle.start < order.created_at:
+            # Placed mid-candle (the poller missed it): the close is strictly after the order,
+            # so it is a legitimate fill price -- see the module docstring.
+            return Fill(candle.close, "market_close")
         return Fill(candle.open, "market_open")
     if order.type is OrderType.LIMIT:
         return _limit_fill(order, candle)
     return _trigger_fill(order, candle)
+
+
+def market_order_expired(order: Order, session_close: datetime) -> bool:
+    """A MARKET order still active once its OWN session has closed is a day order that missed
+    its window -- cancel it rather than silently carry it into a later session at a different
+    price. Call this AFTER the fill attempt for the day's bar; an order this identifies as
+    expired will already have been given its chance to fill at that bar's close.
+    """
+    return (order.type is OrderType.MARKET
+            and order.status in (OrderStatus.OPEN, OrderStatus.PENDING_EOD)
+            and order.created_at <= session_close)
 
 
 def resolve_oco(orders: list[Order], candle: Candle, lock: Lock = Lock.NONE

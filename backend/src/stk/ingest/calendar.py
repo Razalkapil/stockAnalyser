@@ -257,6 +257,17 @@ def expected_data_date(conn: sqlite3.Connection, now: datetime) -> date:
     return d
 
 
+def latest_ingested_trading_day(parquet_root: Path, exchange: str) -> date | None:
+    """The newest date with at least one bar in the lake, for one exchange.
+
+    The starting point for ``stk nightly --catch-up``: everything strictly after this, up to
+    ``expected_data_date``, is what was missed. None on a fresh install (bars_daily empty).
+    """
+    with duck.connect(parquet_root) as session:
+        row = session.sql("latest_date", [exchange]).fetchone()
+    return row[0] if row and row[0] else None
+
+
 def trading_days_between(
     conn: sqlite3.Connection, start: date, end: date, exchange: str
 ) -> list[date] | None:

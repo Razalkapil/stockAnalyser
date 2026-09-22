@@ -118,15 +118,20 @@ def _job_alerts(conn: sqlite3.Connection, today: date) -> list[s.JobAlert]:
 def _alert_message(error_message: str | None, metrics_json: str | None, status: str) -> str:
     """Why a job alerts. A failure carries an error; a DEGRADED run finished but knows it is
     incomplete and says how in its metrics (``excluded_actions=293``) -- surfacing those beats a
-    banner that reads "degraded: degraded"."""
+    banner that reads "degraded: degraded". A non-empty string metric (e.g.
+    ``failed_symbols="RELIANCE"``) is shown too, not just numbers -- "which one" is often the
+    whole point of a degraded-run metric."""
     if error_message:
         return error_message[:300]
     try:
         metrics = json.loads(metrics_json) if metrics_json else {}
     except ValueError:
         metrics = {}
-    facts = [f"{k}={v}" for k, v in metrics.items()
-             if isinstance(v, int | float) and not isinstance(v, bool) and v]
+    facts = [
+        f"{k}={v}" for k, v in metrics.items()
+        if (isinstance(v, int | float) and not isinstance(v, bool) and v)
+        or (isinstance(v, str) and v)
+    ]
     return (", ".join(facts) or status)[:300]
 
 

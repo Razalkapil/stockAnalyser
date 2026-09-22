@@ -76,11 +76,25 @@ from stk.store.parquet.writer import upsert_partition
 #: Action types that do NOT move a price series and so legitimately carry no price factor:
 #: cash to the holder (dividends, InvIT/REIT distributions, bond interest), and events with no
 #: price effect at all (buybacks -- shares are extinguished, the exchange applies no adjustment
-#: -- and AGMs, which are purely informational). Anything else without a factor (rights,
-#: demergers, an unparsed split...) is a known hole in the adjusted series and counts as
-#: degradation. Real counts over ~15 months: 202 distributions, 35 buybacks, 1 AGM -- flagging
-#: those would raise a permanent false alarm.
-NON_PRICE_EVENT_TYPES = frozenset({"DIVIDEND", "DISTRIBUTION", "BUYBACK", "AGM"})
+#: -- and AGMs, which are purely informational). BONUS_NON_EQUITY is the same shape as a
+#: dividend: recognised, understood, and by design has no equity price/volume factor (a bonus of
+#: preference shares does not dilute equity -- see ingest.corpactions). Anything else without a
+#: factor (rights, demergers, an unparsed split...) is a known hole in the adjusted series and
+#: counts as degradation. Real counts over ~15 months: 202 distributions, 35 buybacks, 1 AGM,
+#: 1 non-equity bonus -- flagging those would raise a permanent false alarm.
+NON_PRICE_EVENT_TYPES = frozenset({"DIVIDEND", "DISTRIBUTION", "BUYBACK", "AGM",
+                                   "BONUS_NON_EQUITY"})
+
+#: Price events this module can structurally never compute a factor for, given the data sources
+#: it has -- not "not implemented yet". A DEMERGER needs the spun-off entity's own traded value,
+#: which no free NSE feed gives; a CAPITAL_REDUCTION's subject never carries a ratio at all (see
+#: ingest.corpactions.ActionType). Counted and named (so nothing goes invisible) but excluded
+#: from `degraded`, whose job is to flag a hole THIS RUN could plausibly close -- a permanent gap
+#: that alerts every run forever is a flag nobody reads, exactly the trap BONUS_NON_EQUITY above
+#: fell into before it got its own type. RIGHTS stays OUTSIDE this set on purpose: most rights DO
+#: get a computed factor (see rights_factors), and one that does not (no cum-rights price in the
+#: lake, or no premium stated) is a real, closeable hole, not a permanent one.
+PERMANENTLY_UNADJUSTABLE_TYPES = frozenset({"DEMERGER", "CAPITAL_REDUCTION"})
 
 #: Price columns scaled by the cumulative price factor.
 PRICE_COLUMNS = ("open", "high", "low", "close", "prev_close", "last", "vwap", "settle_price")
@@ -264,16 +278,26 @@ class AdjustmentResult:
         excluded_actions: int,
         unresolved_actions: int,
         rights_applied: int = 0,
+        excluded_permanent: int = 0,
+        unresolved_symbols: tuple[str, ...] = (),
     ) -> None:
         self.exchange = exchange
         self.actions_applied = actions_applied
         self.factor_rows = factor_rows
         self.bars_written = bars_written
+        #: Actionable holes -- a price-affecting action this module structurally COULD compute a
+        #: factor for (given more data, a fixed parser, a re-ingested security master...) but
+        #: currently has not. This is what `degraded` is about.
         self.excluded_actions = excluded_actions
         self.unresolved_actions = unresolved_actions
         #: Rights issues whose theoretical ex-rights factor was derived from the lake. Reported
         #: because it is the one number here that says a KNOWN hole got smaller.
         self.rights_applied = rights_applied
+        #: Demergers/capital reductions: this module can never compute a factor for these given
+        #: its data sources (see PERMANENTLY_UNADJUSTABLE_TYPES). Reported so nothing is hidden,
+        #: but does NOT feed `degraded` -- a gap that can never close must not alert forever.
+        self.excluded_permanent = excluded_permanent
+        self.unresolved_symbols = unresolved_symbols
 
     @property
     def degraded(self) -> bool:
@@ -371,8 +395,18 @@ def factors_for_bar(rows: list[FactorRow], bar_date: date) -> tuple[Decimal, Dec
 
 class _LoadedActions(BaseModel):
     actions: list[ActionFactor]
+    #: A price-affecting action we could not turn into a factor, and structurally MIGHT be able
+    #: to (an unparsed subject, a rights issue missing price history or a premium) -- this is
+    #: what `degraded` counts.
     excluded: int
+    #: The same shape of gap, but for an action type this module can never compute a factor for
+    #: given its data sources (see PERMANENTLY_UNADJUSTABLE_TYPES). Reported, never hidden, but
+    #: does not itself degrade the run.
+    excluded_permanent: int
     unresolved: int
+    #: Symbols behind `unresolved` (capped for the metrics line -- see the sweep's failed_symbols
+    #: for the same convention), so a person does not have to query the DB to find who.
+    unresolved_symbols: list[str] = []
 
 
 def _symbols_for_security(
@@ -443,7 +477,9 @@ def load_actions(
 
     deduped: dict[tuple, tuple[sqlite3.Row, int | None, float, float | None]] = {}
     excluded = 0
+    excluded_permanent = 0
     unresolved = 0
+    unresolved_symbols: list[str] = []
 
     rights = rights or {}
     for row in rows:
@@ -460,8 +496,12 @@ def load_actions(
         if row["parse_status"] != "parsed" or price_factor is None:
             # A dividend legitimately has no price factor under this
             # project's convention and is not a degradation; anything
-            # else we could not parse IS one.
-            if row["action_type"] not in NON_PRICE_EVENT_TYPES:
+            # else we could not parse IS one -- unless it is a type this
+            # module can never compute a factor for regardless (counted
+            # separately so it does not masquerade as a closeable gap).
+            if row["action_type"] in PERMANENTLY_UNADJUSTABLE_TYPES:
+                excluded_permanent += 1
+            elif row["action_type"] not in NON_PRICE_EVENT_TYPES:
                 excluded += 1
             continue
 
@@ -494,6 +534,7 @@ def load_actions(
             # one of a renamed security's symbols is a real, if partial,
             # gap.
             unresolved += 1
+            unresolved_symbols.append(symbol)
             key = f"sym:{exchange}:{symbol}"
             symbols = (symbol,)
 
@@ -508,7 +549,9 @@ def load_actions(
             )
         )
 
-    return _LoadedActions(actions=actions, excluded=excluded, unresolved=unresolved)
+    return _LoadedActions(actions=actions, excluded=excluded,
+                          excluded_permanent=excluded_permanent, unresolved=unresolved,
+                          unresolved_symbols=unresolved_symbols)
 
 
 # --- Materialisation -------------------------------------------------------
@@ -643,6 +686,8 @@ def rebuild_adjusted_bars(
         excluded_actions=loaded.excluded,
         unresolved_actions=loaded.unresolved,
         rights_applied=len(rights),
+        excluded_permanent=loaded.excluded_permanent,
+        unresolved_symbols=tuple(loaded.unresolved_symbols),
     )
 
 
@@ -671,8 +716,15 @@ def rebuild_adjusted_bars_job(
                     "rights_applied": result.rights_applied,
                     "excluded_actions": result.excluded_actions,
                     "unresolved_actions": result.unresolved_actions,
+                    "excluded_permanent": result.excluded_permanent,
                 }
             )
+            if result.unresolved_symbols:
+                shown = result.unresolved_symbols[:10]
+                more = len(result.unresolved_symbols) - len(shown)
+                handle.metrics["unresolved_symbols"] = (
+                    ", ".join(shown) + (f" (+{more} more)" if more else "")
+                )
             # Wrote data, and knows that data is incomplete. Not a
             # failure (the rest of the series is correct and useful),
             # not a success (some symbol's history is unadjusted).

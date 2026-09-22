@@ -56,6 +56,30 @@ def _next_attempt(conn: sqlite3.Connection, job_name: str, business_date_str: st
     return prior["max_attempt"] + 1
 
 
+def _reap_stale_running(
+    conn: sqlite3.Connection, job_name: str, next_attempt: int, started_at: datetime
+) -> None:
+    """Close out any earlier ``running`` row of this job that never reached a terminal status.
+
+    A ``running`` row only stays that way forever if the process that owned it was killed --
+    OOM, a crash, a power loss -- before job_run() could write success/failed/skipped_holiday.
+    Left alone it is invisible to ``_job_alerts``/``stk doctor`` (both look only at
+    failed/degraded) and inflates the attempt sequence for no reason. Scoped to job_name alone,
+    not (job_name, business_date): this app never runs the same job concurrently by design (each
+    ``stk`` invocation is a separate subprocess run in sequence), so an old ``running`` row found
+    here is presumptively abandoned, not a legitimate parallel run.
+    """
+    conn.execute(
+        """UPDATE job_runs SET status='failed', finished_at=?, error_type='Interrupted',
+               error_message=?
+           WHERE job_name=? AND status='running'""",
+        (started_at.isoformat(),
+         f"interrupted -- process ended without a terminal status; "
+         f"superseded by attempt {next_attempt}",
+         job_name),
+    )
+
+
 class JobRunHandle:
     """Mutable state a job body can update; flushed to the DB on exit."""
 
@@ -97,6 +121,7 @@ def job_run(
     started_at = datetime.now(UTC)
     business_date_str = business_date.isoformat() if business_date else None
     next_attempt = _next_attempt(conn, job_name, business_date_str)
+    _reap_stale_running(conn, job_name, next_attempt, started_at)
 
     cursor = conn.execute(
         """INSERT INTO job_runs

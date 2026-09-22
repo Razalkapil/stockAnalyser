@@ -1,0 +1,17 @@
+[Unit]
+Description=stk nightly, weekdays after the close (+ a late retry)
+
+[Timer]
+# The 23:00 slot is preferred as the PRIMARY run on this machine, not just a retry: the desktop
+# is likelier idle by then (CLAUDE.md's memory caveat), and --catch-up (see the .service file)
+# means the exact firing time no longer matters for correctness -- only for how promptly a gap
+# closes.
+OnCalendar=Mon..Fri 20:30 Asia/Kolkata
+OnCalendar=Mon..Fri 23:00 Asia/Kolkata
+# Fire on next boot/login if the laptop was off or asleep at both scheduled times -- this is
+# what makes the timer's exact firing time not matter, together with --catch-up in the .service.
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

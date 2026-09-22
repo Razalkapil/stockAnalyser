@@ -16,6 +16,7 @@ from stk.domain.orders import (
     OrderError,
     OrderStatus,
     OrderType,
+    market_order_expired,
     resolve_oco,
     transition,
     try_fill,
@@ -119,6 +120,74 @@ class TestTiming:
     def test_a_pending_eod_order_can_still_fill(self):
         o = order(type_=OrderType.MARKET, status=OrderStatus.PENDING_EOD)
         assert try_fill(o, candle(100, 101, 99)) is not None
+
+
+class TestMarketMidCandle:
+    """A MARKET order placed inside a candle's window (the poller missed it; this is the day's
+    EOD bar) fills at that candle's CLOSE -- the close happened strictly after the order, so this
+    is not look-ahead. LIMIT/STOP keep the strict start-only rule since their fill depends on the
+    candle's high/low, which the order could not have influenced regardless of timing."""
+
+    def eod_candle(self, start=T0, end=T0 + timedelta(hours=5, minutes=15)):
+        return Candle(start, D("100"), D("105"), D("98"), D("102"), end=end)
+
+    def mkt(self, created_at, **kw):
+        return Order(1, Side.BUY, OrderType.MARKET, 10, created_at, **kw)
+
+    def test_market_order_created_mid_candle_fills_at_the_close(self):
+        o = self.mkt(T0 + timedelta(hours=1))
+        f = try_fill(o, self.eod_candle())
+        assert (f.price, f.reason) == (D("102"), "market_close")
+
+    def test_market_order_created_after_the_candle_ends_does_not_fill(self):
+        """It belongs to the NEXT session's bar, not this one."""
+        end = T0 + timedelta(hours=5, minutes=15)
+        o = self.mkt(end + timedelta(hours=5))
+        assert try_fill(o, self.eod_candle(end=end)) is None
+
+    def test_limit_order_created_mid_candle_still_does_not_fill(self):
+        """Regression: only MARKET gets the mid-candle exception."""
+        o = Order(1, Side.BUY, OrderType.LIMIT, 10, T0 + timedelta(hours=1),
+                  limit_price=D("95"))
+        assert try_fill(o, self.eod_candle()) is None
+
+    def test_stop_order_created_mid_candle_still_does_not_fill(self):
+        o = Order(1, Side.SELL, OrderType.STOP_LOSS, 10, T0 + timedelta(hours=1),
+                  trigger_price=D("99"))
+        assert try_fill(o, self.eod_candle()) is None
+
+    def test_a_candle_with_no_end_falls_back_to_the_old_start_only_rule(self):
+        """Callers that never pass ``end`` (most call sites) see unchanged behaviour."""
+        c = Candle(T0, D("100"), D("105"), D("98"), D("102"))
+        o = self.mkt(T0 + timedelta(hours=1))
+        assert try_fill(o, c) is None
+
+
+class TestMarketOrderExpiry:
+    def mkt(self, created_at, **kw):
+        return Order(1, Side.BUY, OrderType.MARKET, 10, created_at, **kw)
+
+    def test_an_unfilled_market_order_is_expired_once_its_session_has_closed(self):
+        close = T0 + timedelta(hours=5, minutes=15)
+        assert market_order_expired(self.mkt(T0), close) is True
+
+    def test_an_order_placed_after_that_sessions_close_is_not_expired_by_it(self):
+        """It belongs to the next session, so this session's close must not cancel it."""
+        close = T0 + timedelta(hours=5, minutes=15)
+        assert market_order_expired(self.mkt(close + timedelta(hours=5)), close) is False
+
+    def test_a_filled_order_is_never_expired(self):
+        close = T0 + timedelta(hours=5, minutes=15)
+        o = self.mkt(T0, status=OrderStatus.FILLED)
+        assert market_order_expired(o, close) is False
+
+    def test_limit_and_stop_orders_are_never_expired_by_this_rule(self):
+        """Only MARKET is a same-day-only order here; LIMIT/STOP wait indefinitely (GTT-style)."""
+        close = T0 + timedelta(hours=5, minutes=15)
+        lim = Order(1, Side.BUY, OrderType.LIMIT, 10, T0, limit_price=D("95"))
+        stop = Order(1, Side.SELL, OrderType.STOP_LOSS, 10, T0, trigger_price=D("95"))
+        assert market_order_expired(lim, close) is False
+        assert market_order_expired(stop, close) is False
 
 
 class TestCircuitLocks:

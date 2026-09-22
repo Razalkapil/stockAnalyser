@@ -87,6 +87,60 @@ class TestJobRun:
         assert [r["attempt"] for r in rows] == [1, 2]
 
 
+class TestStaleRunningReaper:
+    """A ``running`` row that never reached a terminal status means the process that owned it
+    was killed (OOM, crash, power loss) before job_run() could record an outcome -- observed for
+    real: an ``ingest_xbrl`` attempt stuck ``running`` from 2026-09-19, never cleaned up."""
+
+    def _stick_running(self, conn, job_name: str, business_date: date | None = None) -> None:
+        """Simulate an interrupted run: a 'running' row with no terminal status, as job_run()
+        leaves behind if the process dies mid-body (a real ``with`` block can't be killed from
+        inside a test, so this crafts the row job_run() itself would have inserted)."""
+        conn.execute(
+            """INSERT INTO job_runs (job_name, business_date, status, started_at, attempt,
+                   code_version)
+               VALUES (?, ?, 'running', '2026-09-19T16:54:30+00:00', 3, 'deadbeef')""",
+            (job_name, business_date.isoformat() if business_date else None),
+        )
+
+    def test_a_stuck_running_row_is_closed_as_failed_when_the_job_runs_again(self, conn):
+        self._stick_running(conn, "ingest_xbrl")
+        with job_run(conn, "ingest_xbrl") as handle:
+            handle.rows_written = 1
+
+        rows = conn.execute(
+            "SELECT attempt, status, error_type, error_message FROM job_runs "
+            "WHERE job_name='ingest_xbrl' ORDER BY attempt"
+        ).fetchall()
+        assert [r["attempt"] for r in rows] == [3, 4]
+        stuck, fresh = rows
+        assert stuck["status"] == "failed"
+        assert stuck["error_type"] == "Interrupted"
+        assert "attempt 4" in stuck["error_message"]
+        assert fresh["status"] == "success"
+
+    def test_a_finished_run_is_never_touched_by_the_reaper(self, conn):
+        with job_run(conn, "test_job", business_date=date(2026, 9, 17)):
+            pass
+        with job_run(conn, "test_job", business_date=date(2026, 9, 17)):
+            pass
+
+        rows = conn.execute(
+            "SELECT status FROM job_runs WHERE job_name='test_job'"
+        ).fetchall()
+        assert [r["status"] for r in rows] == ["success", "success"]
+
+    def test_the_reaper_is_scoped_to_the_job_name_not_other_jobs(self, conn):
+        self._stick_running(conn, "ingest_xbrl")
+        with job_run(conn, "ingest_fundamentals_sweep"):
+            pass
+
+        row = conn.execute(
+            "SELECT status FROM job_runs WHERE job_name='ingest_xbrl'"
+        ).fetchone()
+        assert row["status"] == "running"  # untouched -- a different job started, not this one
+
+
 class TestJobSkipped:
     def test_records_skipped_status_and_does_not_propagate(self, conn):
         with job_run(conn, "test_job", business_date=date(2026, 1, 26)) as handle:

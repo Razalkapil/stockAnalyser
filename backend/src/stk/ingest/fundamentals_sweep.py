@@ -32,6 +32,11 @@ class SweepResult:
         self.securities = 0
         self.filings_upserted = 0
         self.failures = 0
+        #: Symbols with at least one failed fetch, so `failures=1` in the job's metrics can be
+        #: traced back to a security without grepping the log. Bounded to a handful in the
+        #: metrics -- a run with everything failing would otherwise blow the metrics_json past
+        #: anything worth reading.
+        self.failed_symbols: list[str] = []
 
 
 def sweep_liquid_universe(
@@ -70,6 +75,7 @@ def sweep_liquid_universe(
                         log.warning("fundamentals_sweep_failed", symbol=security.symbol,
                                     period=period.value, error=str(exc))
                         result.failures += 1
+                        result.failed_symbols.append(security.symbol)
                         handle.degraded = True
                         continue
                     result.filings_upserted += sum(1 for s in snaps if upsert_snapshot(conn, s))
@@ -85,12 +91,22 @@ def sweep_liquid_universe(
                     log.warning("fundamentals_sweep_failed", symbol=security.symbol,
                                 period="integrated", error=str(exc))
                     result.failures += 1
+                    result.failed_symbols.append(security.symbol)
                     handle.degraded = True
                     snaps = []
                 result.filings_upserted += sum(1 for s in snaps if upsert_snapshot(conn, s))
                 time.sleep(throttle_s)
             handle.rows_written = result.filings_upserted
             handle.metrics = {"securities": result.securities, "failures": result.failures}
+            if result.failed_symbols:
+                # Capped: metrics_json is meant to stay a glance-able one-liner in the banner,
+                # not a dump. "which symbol" beats "how many" -- if there are more than the cap
+                # names, that itself is worth showing instead of a longer list.
+                shown = result.failed_symbols[:10]
+                more = len(result.failed_symbols) - len(shown)
+                handle.metrics["failed_symbols"] = (
+                    ", ".join(shown) + (f" (+{more} more)" if more else "")
+                )
         return result
     finally:
         conn.close()

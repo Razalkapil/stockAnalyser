@@ -391,17 +391,50 @@ class TestDegradation:
             exchange="NSE", sqlite_path=sqlite_path, parquet_root=parquet_root)
         assert result.excluded_actions == 0 and not result.degraded
 
-    @pytest.mark.parametrize("action_type", ["RIGHTS", "DEMERGER", "CONSOLIDATION", "SPLIT",
-                                             "BONUS"])
+    def test_a_non_equity_bonus_does_not_degrade_the_run(self, env):
+        """A bonus of preference shares ("Bonus Ncrps 1:116") is recognised, understood, and by
+        design has no equity factor -- unlike a real BONUS lacking a factor (below), this is not
+        a gap. Real data: this was the ONE false alarm making `rebuild_adjustments_nse` cry wolf
+        in the category (BONUS) that must never be ignored."""
+        sqlite_path, parquet_root = env
+        _write_bars(parquet_root, "AAA", [BEFORE, AFTER])
+        _insert_action(sqlite_path, action_type="BONUS_NON_EQUITY", price_factor=None,
+                       volume_factor=None)
+        result = rebuild_adjusted_bars_job(
+            exchange="NSE", sqlite_path=sqlite_path, parquet_root=parquet_root)
+        assert result.excluded_actions == 0 and not result.degraded
+
+    @pytest.mark.parametrize("action_type", ["RIGHTS", "CONSOLIDATION", "SPLIT", "BONUS"])
     def test_price_affecting_events_with_no_factor_still_degrade_the_run(self, env, action_type):
-        """The other side of the line: these DO move prices, so lacking a factor is a real hole."""
+        """The other side of the line: these DO move prices AND this module could in principle
+        still compute a factor for them (a parser fix, more price history...), so lacking one is
+        an actionable hole, not a permanent one."""
         sqlite_path, parquet_root = env
         _write_bars(parquet_root, "AAA", [BEFORE, AFTER])
         _insert_action(sqlite_path, parse_status="ambiguous", action_type=action_type,
                        price_factor=None, volume_factor=None)
         result = rebuild_adjusted_bars_job(
             exchange="NSE", sqlite_path=sqlite_path, parquet_root=parquet_root)
-        assert result.excluded_actions == 1 and result.degraded
+        assert result.excluded_actions == 1 and result.excluded_permanent == 0
+        assert result.degraded
+
+    @pytest.mark.parametrize("action_type", ["DEMERGER", "CAPITAL_REDUCTION"])
+    def test_permanently_unadjustable_events_are_counted_but_never_degrade_the_run(
+        self, env, action_type
+    ):
+        """A demerger needs the spun-off entity's own traded value (no free NSE feed gives it);
+        a capital reduction's subject never carries a ratio at all. Neither can EVER get a
+        factor from this module's data sources -- reported so nothing is invisible, but a gap
+        that can never close must not keep the banner red forever (that is what happened to the
+        one BONUS_NON_EQUITY false alarm before it got its own type)."""
+        sqlite_path, parquet_root = env
+        _write_bars(parquet_root, "AAA", [BEFORE, AFTER])
+        _insert_action(sqlite_path, parse_status="ambiguous", action_type=action_type,
+                       price_factor=None, volume_factor=None)
+        result = rebuild_adjusted_bars_job(
+            exchange="NSE", sqlite_path=sqlite_path, parquet_root=parquet_root)
+        assert result.excluded_actions == 0 and result.excluded_permanent == 1
+        assert not result.degraded
 
     def test_unresolved_security_still_adjusts_but_degrades(self, env):
         """With no securities master, the factor still applies to the
@@ -415,6 +448,7 @@ class TestDegradation:
         )
 
         assert result.unresolved_actions == 1
+        assert result.unresolved_symbols == ("AAA",)  # which symbol, not just how many
         assert result.degraded
         assert _adjusted(parquet_root)[("AAA", BEFORE)]["close"] == 50.0
 

@@ -1,0 +1,19 @@
+[Unit]
+Description=stk weekly run (master, calendar, filings + XBRL, AI strategy lab)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/Projects/Personal/stockAnalyser
+EnvironmentFile=%h/Projects/Personal/stockAnalyser/.env
+ExecStart=%h/Projects/Personal/stockAnalyser/.venv/bin/stk weekly
+TimeoutStartSec=8h
+Nice=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=%h/Projects/Personal/stockAnalyser
+
+[Install]
+WantedBy=default.target

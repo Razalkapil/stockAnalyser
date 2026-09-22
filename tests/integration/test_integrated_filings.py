@@ -114,10 +114,12 @@ def test_an_integrated_endpoint_failure_degrades_the_sweep_but_keeps_the_legacy_
     respx.get(LIST_URL).mock(return_value=httpx.Response(503))
     res = sweep_liquid_universe(sqlite_path=db, throttle_s=0)
     assert res.failures == 1
+    assert res.failed_symbols == ["RELIANCE"]  # which security failed, not just how many
     conn = connect(db)
-    row = conn.execute("SELECT status FROM job_runs WHERE job_name='ingest_fundamentals_sweep'"
-                       ).fetchone()
+    row = conn.execute("SELECT status, metrics_json FROM job_runs "
+                       "WHERE job_name='ingest_fundamentals_sweep'").fetchone()
     assert row["status"] == "degraded"
+    assert "RELIANCE" in json.loads(row["metrics_json"])["failed_symbols"]
 
 
 # --- which filings are worth downloading -------------------------------------------------------

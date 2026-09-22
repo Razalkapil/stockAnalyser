@@ -25,6 +25,11 @@ PARSE_CASES = [
     ("Final Dividend - Rs 10 Per Share", "parsed", [ActionType.DIVIDEND]),
     ("Bonus 1:1", "parsed", [ActionType.BONUS]),
     ("Bonus Issue 3:5", "parsed", [ActionType.BONUS]),
+    # A preference-share bonus does not dilute equity -- fully understood, not a gap. Real
+    # subject (TVSHLTD): "Bonus Ncrps 1:116".
+    ("Bonus Ncrps 1:116", "parsed", [ActionType.BONUS_NON_EQUITY]),
+    ("Bonus Non Convertible Redeemable Preference Shares", "parsed",
+     [ActionType.BONUS_NON_EQUITY]),
     ("Face Value Split From Rs 10 To Rs 2", "parsed", [ActionType.SPLIT]),
     ("Face Value Split From Rs.10/- To Rs.1/-", "parsed", [ActionType.SPLIT]),
     ("Consolidation of shares", "parsed", [ActionType.CONSOLIDATION]),
@@ -287,7 +292,6 @@ def test_a_bonus_written_with_a_dash_is_a_real_bonus():
 
 
 @pytest.mark.parametrize("subject", [
-    "Bonus Ncrps 1:116",  # TVSHLTD: preference shares -- not an equity share ratio
     "Capital Reduction",
     "Capital Reduction Pursuant To Nclt Order",
 ])
@@ -295,6 +299,24 @@ def test_price_events_without_a_computable_factor_are_ambiguous_never_guessed(su
     r = parse_subject(subject)
     assert r.status == "ambiguous", subject
     assert r.actions[0].price_factor is None
+
+
+def test_a_non_equity_bonus_has_no_factor_but_is_not_ambiguous():
+    """Unlike a real bonus this parser failed to extract a ratio from, a preference-share bonus
+    is fully understood -- there IS no equity factor, so "parsed" is the honest status, not
+    "ambiguous" (which would suggest a gap this parser should eventually close)."""
+    r = parse_subject("Bonus Ncrps 1:116")
+    assert r.status == "parsed"
+    (a,) = r.actions
+    assert a.action_type is ActionType.BONUS_NON_EQUITY
+    assert a.price_factor is None and a.volume_factor is None
+
+
+def test_a_real_equity_bonus_in_an_unfamiliar_wording_stays_ambiguous_not_swallowed():
+    """The non-equity check must not shadow a real bonus just because both start with "Bonus"."""
+    r = parse_subject("Bonus Shares 1:1 (Unfamiliar Wording)")
+    assert r.status == "ambiguous"
+    assert r.actions[0].action_type is ActionType.BONUS
 
 
 @pytest.mark.parametrize("subject", [
