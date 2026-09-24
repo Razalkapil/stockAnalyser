@@ -184,11 +184,18 @@ BriefState = Literal["ready", "pending", "queued", "running", "skipped", "failed
                      "invalid_output"]
 
 
+#: What a ready brief covers. "preview" = written with no picks to rank (nothing is promoted):
+#: market, open positions and what unapproved rules would have picked -- never recommendations.
+#: None while pending: a brief that does not exist has no coverage.
+BriefCoverage = Literal["picks", "preview"]
+
+
 class BriefListItem(Wire):
     date: str
     pending: bool
     state: BriefState
     state_reason: str | None = None
+    coverage: BriefCoverage | None = None
 
 
 class Brief(Wire):
@@ -196,6 +203,7 @@ class Brief(Wire):
     pending: bool
     state: BriefState
     state_reason: str | None
+    coverage: BriefCoverage | None = None
     generated_at: str | None
     overview: str
     notable_picks: list[dict[str, str]]

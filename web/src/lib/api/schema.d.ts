@@ -443,6 +443,8 @@ export interface components {
         Brief: {
             /** Conflicts */
             conflicts: string[];
+            /** Coverage */
+            coverage?: ("picks" | "preview") | null;
             /** Date */
             date: string;
             /** Generatedat */
@@ -469,6 +471,8 @@ export interface components {
         };
         /** BriefListItem */
         BriefListItem: {
+            /** Coverage */
+            coverage?: ("picks" | "preview") | null;
             /** Date */
             date: string;
             /** Pending */

@@ -105,6 +105,13 @@ export function Brief() {
               }}
             >
               {fmtDate(b.date)}
+              {!b.pending && b.coverage === "preview" && (
+                <span
+                  style={{ marginLeft: 8, color: color.textMuted, font: `500 10px ${font.mono}` }}
+                >
+                  preview
+                </span>
+              )}
               {b.pending && (
                 <span
                   style={{
@@ -165,6 +172,25 @@ export function Brief() {
                 </div>
               )}
             </div>
+            {brief.coverage === "preview" && (
+              <div
+                role="note"
+                style={{
+                  font: `400 11.5px ${font.sans}`,
+                  color: color.textFaint,
+                  lineHeight: 1.5,
+                  background: color.inset,
+                  border: `1px solid ${color.border}`,
+                  borderRadius: 6,
+                  padding: "8px 10px",
+                }}
+              >
+                No strategy has passed the promotion gate, so there were no picks to rank. This
+                brief covers the market, your open positions, and what the <em>unapproved</em>{" "}
+                strategies would have bought. Nothing here is a recommendation, and none of it is
+                tracked.
+              </div>
+            )}
             <div style={card}>
               <div style={cardTitle}>Overview</div>
               <div style={{ font: `400 12.5px ${font.sans}`, color: color.textSecondary, lineHeight: 1.6 }}>
@@ -172,7 +198,9 @@ export function Brief() {
               </div>
             </div>
             <div style={card}>
-              <div style={cardTitle}>Notable picks</div>
+              <div style={cardTitle}>
+                {brief.coverage === "preview" ? "Notable names" : "Notable picks"}
+              </div>
               {brief.notablePicks.length === 0 && (
                 <EmptyList title="None called out ">for this day.</EmptyList>
               )}

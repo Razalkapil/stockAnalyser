@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from decimal import Decimal
+from typing import ClassVar
 
 import numpy as np
 import pandas as pd
@@ -388,6 +389,70 @@ class TestStatusAndBriefs:
         b = client.get(f"/api/briefs/{day}").json()
         assert b["state"] == "skipped" and b["stateReason"] == "no picks today"
         assert b["pending"] is True  # still not a brief, and old clients still see that
+
+    def store_brief(self, db_path, day, payload):
+        conn = connect(db_path)
+        conn.execute("INSERT INTO ai_runs (kind, business_date, model, status, started_at) "
+                     "VALUES ('evening_review', ?, 'm', 'success', '2026-01-01T00:00:00+00:00')",
+                     (day,))
+        rid = conn.execute("SELECT max(run_id) FROM ai_runs").fetchone()[0]
+        conn.execute("INSERT INTO ai_outputs (run_id, kind, business_date, payload_json, "
+                     "created_at) VALUES (?, 'brief', ?, ?, '2026-01-01T00:00:00+00:00')",
+                     (rid, day, json.dumps(payload)))
+        conn.close()
+
+    BASE: ClassVar[dict] = {"overview": "o", "notable_picks": [], "conflicts": [],
+                            "position_notes": []}
+
+    def test_a_preview_sourced_brief_is_labelled_as_such(self, world):
+        client, db_path, _t, _ = world
+        day = client.get("/api/briefs").json()[0]["date"]
+        self.store_brief(db_path, day, {**self.BASE, "horizons": []})
+        assert client.get(f"/api/briefs/{day}").json()["coverage"] == "preview"
+        item = next(b for b in client.get("/api/briefs").json() if b["date"] == day)
+        assert item["coverage"] == "preview" and item["pending"] is False
+
+    def test_a_brief_that_ranked_picks_is_labelled_picks(self, world):
+        client, db_path, _t, _ = world
+        day = client.get("/api/briefs").json()[0]["date"]
+        ranked = [{"horizon": "swing", "ranked": [{"pick_id": 1, "rank": 1, "explanation": "x"}]}]
+        self.store_brief(db_path, day, {**self.BASE, "horizons": ranked})
+        assert client.get(f"/api/briefs/{day}").json()["coverage"] == "picks"
+
+    def test_a_horizon_with_no_ranked_picks_is_still_preview_coverage(self, world):
+        client, db_path, _t, _ = world
+        day = client.get("/api/briefs").json()[0]["date"]
+        self.store_brief(db_path, day,
+                         {**self.BASE, "horizons": [{"horizon": "swing", "ranked": []}]})
+        assert client.get(f"/api/briefs/{day}").json()["coverage"] == "preview"
+
+    def test_a_pending_brief_has_no_coverage(self, world):
+        client = world[0]
+        day = client.get("/api/briefs").json()[0]["date"]
+        assert client.get(f"/api/briefs/{day}").json()["coverage"] is None
+
+    def test_a_disabled_ai_says_so_instead_of_a_bare_pending(self, world):
+        """A review that returned before logging a run leaves its reason ONLY on the request."""
+        client, db_path, _t, _ = world
+        day = client.get("/api/briefs").json()[0]["date"]
+        conn = connect(db_path)
+        conn.execute("INSERT INTO ai_requests (kind, business_date, status, requested_by, "
+                     "requested_at, error) VALUES ('evening_review', ?, 'done', 'dashboard', "
+                     "'2026-01-01T00:00:00+00:00', 'AI is disabled in config/ai.yaml')", (day,))
+        conn.close()
+        b = client.get(f"/api/briefs/{day}").json()
+        assert b["state"] == "skipped" and "disabled" in b["stateReason"]
+
+    def test_a_run_that_stored_no_brief_says_so(self, world):
+        client, db_path, _t, _ = world
+        day = client.get("/api/briefs").json()[0]["date"]
+        conn = connect(db_path)
+        conn.execute("INSERT INTO ai_runs (kind, business_date, model, status, started_at) "
+                     "VALUES ('evening_review', ?, 'm', 'success', '2026-01-01T00:00:00+00:00')",
+                     (day,))
+        conn.close()
+        b = client.get(f"/api/briefs/{day}").json()
+        assert b["state"] == "pending" and b["stateReason"] == "the review ran but stored no brief"
 
     def test_generate_queues_a_request_and_calls_no_model(self, world):
         client, db_path, _t, _ = world

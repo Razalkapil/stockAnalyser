@@ -48,6 +48,21 @@
             "title": "Conflicts",
             "type": "array"
           },
+          "coverage": {
+            "anyOf": [
+              {
+                "enum": [
+                  "picks",
+                  "preview"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Coverage"
+          },
           "date": {
             "title": "Date",
             "type": "string"
@@ -132,6 +147,21 @@
       },
       "BriefListItem": {
         "properties": {
+          "coverage": {
+            "anyOf": [
+              {
+                "enum": [
+                  "picks",
+                  "preview"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Coverage"
+          },
           "date": {
             "title": "Date",
             "type": "string"

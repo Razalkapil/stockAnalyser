@@ -7,11 +7,24 @@ strategy lost is often in the names it wants to buy today.
 
 So this is the scan's read-only shadow. It shares `scan`'s evaluation verbatim
 (`evaluate_strategies`) over the strategies `scan` skips, and writes to
-`strategy_previews` -- a separate table, never `picks`. That separation is the whole
-safety argument: tracking, out-of-sample stats and the AI evening review all read
-`picks`, so none of them can see a preview even by mistake. Nothing here promotes
+`strategy_previews` -- a separate table, never `picks`. Nothing here promotes
 anything, and a preview row carries the strategy's status at the time it was made so
 it can never be read as something that earned its place.
+
+WHAT MAY SEE A PREVIEW. Tracking and out-of-sample stats read `picks` only, so a
+preview can never become a tracked position or flatter a backtest. The AI evening
+review is the one deliberate exception: on a day with NO picks it is shown previews as
+READ-ONLY CONTEXT, so the market brief is not permanently empty (the market overview
+and open-position notes never needed picks -- docs/PROJECT_BRIEF.md section 9). Three
+properties keep that safe, all in stk/ai/inputs.py::_previews:
+
+  * previews travel with NO identifiers, so the model cannot rank one and
+    ai/evening.py::_store -- which writes AI reasons by pick_id -- cannot reach one;
+  * they are included only when `picks` is empty, so they never compete with a real
+    recommendation;
+  * the brief they produce is labelled coverage="preview" through to the screen.
+
+Nothing writes back here, and nothing here is ever tracked.
 """
 
 from __future__ import annotations

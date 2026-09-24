@@ -18,6 +18,10 @@ class Price(BaseModel):
 class EveningReviewConfig(BaseModel):
     max_picks_per_horizon: int = 10
     max_positions: int = 25
+    #: With nothing promoted there are no picks, and the brief falls back to what the non-promoted
+    #: rules WOULD have picked. Read-only context, so only the prompt budget bounds them.
+    max_previews_per_strategy: int = 3
+    max_previews_total: int = 30
 
 
 class ProviderSettings(BaseModel):

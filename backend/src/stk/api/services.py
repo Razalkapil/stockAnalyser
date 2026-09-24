@@ -21,7 +21,7 @@ from stk.domain.dsl.evaluate import explain
 from stk.ingest.calendar import expected_data_date, is_trading_day
 from stk.ingest.fundamentals_metrics import load_metric_frame
 from stk.store import duck
-from stk.store.db.repos import ai_requests
+from stk.store.db.repos import ai_briefs, ai_requests
 from stk.strategies.proposals import list_proposals
 from stk.strategies.repo import StrategyRow, get_strategy, list_strategies, load_spec
 from stk.strategies.stats import BacktestStats, LiveStats, backtest_stats, live_stats
@@ -464,9 +464,11 @@ _RUN_STATES: dict[str, s.BriefState] = {
 _REQUEST_STATES: dict[str, s.BriefState] = {"queued": "queued", "running": "running"}
 
 
-def _brief_dates(conn: sqlite3.Connection) -> set[str]:
-    return {r["business_date"] for r in conn.execute(
-        "SELECT DISTINCT business_date FROM ai_outputs WHERE kind='brief'")}
+#: A CLOSED ai_requests status -> the state to report. Consulted only when neither an open request
+#: nor an ai_runs row can answer -- exactly the case that used to read as a bare "pending": a
+#: review that returned before it logged a run (AI disabled in config/ai.yaml) leaves its reason
+#: HERE and nowhere else.
+_CLOSED_REQUEST_STATES: dict[str, s.BriefState] = {"done": "skipped", "error": "failed"}
 
 
 def _unready_state(conn: sqlite3.Connection, day: str) -> tuple[s.BriefState, str | None]:
@@ -483,23 +485,28 @@ def _unready_state(conn: sqlite3.Connection, day: str) -> tuple[s.BriefState, st
     run = conn.execute(
         "SELECT status, error FROM ai_runs WHERE kind=? AND business_date=? "
         "ORDER BY run_id DESC LIMIT 1", (REVIEW_KIND, day)).fetchone()
-    if run is None:
-        return "pending", None
-    state = _RUN_STATES.get(run["status"])
-    if state is None:  # a 'success' run with no stored output: nothing to show, but it ran
-        return "pending", None
-    return state, run["error"]
+    if run is not None:
+        state = _RUN_STATES.get(run["status"])
+        if state is not None:
+            return state, run["error"]
+        # A 'success' run with no stored output: it ran, and there is nothing to show.
+        return "pending", "the review ran but stored no brief"
+    last = ai_requests.latest(conn, REVIEW_KIND, day)
+    if last is not None and last.error:
+        return _CLOSED_REQUEST_STATES.get(last.status, "pending"), last.error
+    return "pending", None
 
 
 def list_briefs(conn: sqlite3.Connection) -> list[s.BriefListItem]:
-    have = _brief_dates(conn)
     today = now_ist().date()
     days = [today - timedelta(days=i) for i in range(BRIEF_DAYS_SHOWN)]
+    have = ai_briefs.coverage_since(conn, days[-1].isoformat())
     out: list[s.BriefListItem] = []
     for d in days:
         iso = d.isoformat()
         if iso in have:
-            out.append(s.BriefListItem(date=iso, pending=False, state="ready"))
+            out.append(s.BriefListItem(date=iso, pending=False, state="ready",
+                                       coverage=have[iso]))
         elif is_trading_day(conn, d, EXCHANGE) is not False and d.weekday() < 5:
             state, reason = _unready_state(conn, iso)
             out.append(s.BriefListItem(date=iso, pending=True, state=state, state_reason=reason))
@@ -513,12 +520,12 @@ def get_brief(conn: sqlite3.Connection, day: str) -> s.Brief:
     if row is None:
         state, reason = _unready_state(conn, day)
         return s.Brief(date=day, pending=True, state=state, state_reason=reason,
-                       generated_at=None, overview="", notable_picks=[], conflicts=[],
-                       position_notes=[])
+                       coverage=None, generated_at=None, overview="", notable_picks=[],
+                       conflicts=[], position_notes=[])
     p = json.loads(row["payload_json"])
     return s.Brief(
         date=day, pending=False, state="ready", state_reason=None,
-        generated_at=row["created_at"], overview=p["overview"],
+        coverage=ai_briefs.coverage_of(p), generated_at=row["created_at"], overview=p["overview"],
         notable_picks=[{"symbol": n["symbol"], "note": n["note"]} for n in p["notable_picks"]],
         conflicts=list(p["conflicts"]),
         position_notes=[{"symbol": n["symbol"], "note": n["note"]} for n in p["position_notes"]],

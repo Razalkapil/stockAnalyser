@@ -36,3 +36,8 @@ pricing_usd_per_mtok:
 evening_review:
   max_picks_per_horizon: 10
   max_positions: 25
+  # When nothing is promoted there are no picks, and the brief falls back to what the non-promoted
+  # rules WOULD have picked. These are read-only context, never ranked, so the only thing bounding
+  # them is the prompt budget (Groq's free tier refuses >8,000 tokens/min; ~290 chars a row).
+  max_previews_per_strategy: 3   # breadth over depth: every strategy's best names
+  max_previews_total: 30

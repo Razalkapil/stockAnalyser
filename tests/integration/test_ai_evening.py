@@ -15,6 +15,8 @@ from stk.backtest.setup import make_rates_fn
 from stk.config.ai import AiConfig, Price, load_ai_config
 from stk.playground.context import PlayCtx
 from stk.store.db.engine import connect
+from stk.strategies.preview import preview
+from stk.strategies.repo import set_status
 
 DAY = DAYS[60]
 
@@ -60,6 +62,29 @@ def env(world):  # noqa: F811
     conn.close()
 
 
+@pytest.fixture
+def preview_env(env):
+    """The real situation: nothing is promoted, so there are no picks -- only previews."""
+    conn, ctx, ai, world_ = env
+    sid = conn.execute("SELECT strategy_id FROM strategies").fetchone()[0]
+    conn.execute("DELETE FROM pick_marks")
+    conn.execute("DELETE FROM pick_outcomes")
+    conn.execute("DELETE FROM picks")
+    conn.commit()
+    set_status(conn, sid, "rejected", actor="gate",
+               reason="failed the promotion gate: beats_benchmark_after_costs")
+    preview(conn, parquet_root=ctx.parquet_root, cfg=ctx.cfg, scan_date=DAY)
+    return conn, ctx, ai, world_
+
+
+def pickless_reply(inp, *, horizons=None) -> LlmReply:
+    payload = {
+        "overview": "Indices were flat.", "horizons": horizons if horizons is not None else [],
+        "notable_picks": [{"symbol": sorted(inp.symbols)[0], "note": "flagged, not promoted"}],
+        "conflicts": [], "position_notes": []}
+    return LlmReply(json.dumps(payload), "claude-sonnet-5", 900, 200, "end_turn")
+
+
 def runs(conn):
     return [dict(r) for r in conn.execute("SELECT * FROM ai_runs ORDER BY run_id")]
 
@@ -82,9 +107,60 @@ class TestInput:
             update={"max_picks_per_horizon": 1})})
         assert len(build_input(conn, ctx, small, DAY).pick_ids) == 1
 
-    def test_a_day_with_no_picks_has_none(self, env):
+    def test_a_day_with_no_picks_and_no_previews_has_nothing_to_say(self, env):
         conn, ctx, ai, _ = env
-        assert build_input(conn, ctx, ai, DAYS[5]).pick_ids == {}
+        inp = build_input(conn, ctx, ai, DAYS[5])
+        assert inp.pick_ids == {} and inp.preview_count == 0
+        assert inp.has_content is False and "strategy_previews" not in inp.payload
+
+    def test_previews_fill_in_for_picks_when_nothing_is_promoted(self, preview_env):
+        conn, ctx, ai, _ = preview_env
+        inp = build_input(conn, ctx, ai, DAY)
+        assert inp.pick_ids == {} and inp.is_preview and inp.preview_count > 0
+        assert inp.has_content and inp.payload["picks"] == []
+        assert set(inp.payload["strategy_previews"]) == {"strategies", "would_be_picks"}
+
+    def test_a_preview_carries_no_identifier_the_model_could_rank(self, preview_env):
+        """Hazard 1: preview ids and pick ids are unrelated sequences, and `_store` writes an AI
+        reason onto a pick BY id. Nothing a model could echo back may name a row."""
+        conn, ctx, ai, _ = preview_env
+        block = build_input(conn, ctx, ai, DAY).payload["strategy_previews"]
+        for p in [*block["would_be_picks"], *block["strategies"].values()]:
+            assert not any(k.endswith("_id") or k == "id" for k in p)
+
+    def test_a_preview_strategy_says_why_it_is_not_promoted_and_shows_no_live_record(
+            self, preview_env):
+        conn, ctx, ai, _ = preview_env
+        strategies = build_input(conn, ctx, ai, DAY).payload["strategy_previews"]["strategies"]
+        assert strategies
+        for st in strategies.values():
+            assert st["not_promoted_because"] and "live" not in st
+
+    def test_previews_are_not_shown_when_there_are_real_picks(self, env):
+        conn, ctx, ai, _ = env
+        assert "strategy_previews" not in build_input(conn, ctx, ai, DAY).payload
+
+    def test_previews_are_capped_per_strategy_and_in_total(self, preview_env):
+        conn, ctx, ai, _ = preview_env
+        def cfg(**kw):
+            return ai.model_copy(update={"evening_review": ai.evening_review.model_copy(update=kw)})
+        one = build_input(conn, ctx, cfg(max_previews_per_strategy=1), DAY)
+        rows = one.payload["strategy_previews"]["would_be_picks"]
+        assert len(rows) == len({r["strategy"] for r in rows})
+        assert build_input(conn, ctx, cfg(max_previews_total=1), DAY).preview_count == 1
+
+    def test_only_this_days_previews_are_used(self, preview_env):
+        """strategy_previews is cumulative: 106 rows live, 36 for one day."""
+        conn, ctx, ai, _ = preview_env
+        conn.execute("INSERT INTO strategy_previews (strategy_id, strategy_version_id, "
+                     "status_at_preview, exchange, symbol, horizon, signal_date, ref_price, "
+                     "hold_days, window_end, score, rank_in_strategy, reason, created_at) "
+                     "SELECT strategy_id, strategy_version_id, status_at_preview, exchange, "
+                     "'OLDDAY', horizon, '2000-01-03', ref_price, hold_days, window_end, score, "
+                     "rank_in_strategy, reason, created_at FROM strategy_previews LIMIT 1")
+        conn.commit()
+        inp = build_input(conn, ctx, ai, DAY)
+        assert "OLDDAY" not in inp.symbols
 
 
 class TestSemanticChecks:
@@ -135,6 +211,27 @@ class TestSemanticChecks:
         r = self.review(horizons=[self.ranked((pid, 1), (pid, 2))])
         assert any("ranked twice" in p for p in semantic_problems(r, inp))
 
+    def test_a_ranked_pick_on_a_preview_day_is_rejected(self, preview_env):
+        """The collision hazard as a test: a real preview_id offered as a pick_id."""
+        conn, ctx, ai, _ = preview_env
+        inp = build_input(conn, ctx, ai, DAY)
+        preview_id = conn.execute("SELECT min(preview_id) FROM strategy_previews").fetchone()[0]
+        r = self.review(horizons=[self.ranked((preview_id, 1))])
+        assert any(f"pick_id {preview_id} was not in the input" in p
+                   for p in semantic_problems(r, inp))
+
+    def test_an_empty_horizon_list_is_clean_on_a_preview_day(self, preview_env):
+        conn, ctx, ai, _ = preview_env
+        inp = build_input(conn, ctx, ai, DAY)
+        assert semantic_problems(self.review(horizons=[]), inp) == []
+
+    def test_a_preview_symbol_may_be_named_in_a_note(self, preview_env):
+        conn, ctx, ai, _ = preview_env
+        inp = build_input(conn, ctx, ai, DAY)
+        sym = inp.payload["strategy_previews"]["would_be_picks"][0]["symbol"]
+        r = self.review(notable_picks=[{"symbol": sym, "note": "flagged"}])
+        assert semantic_problems(r, inp) == []
+
     def test_an_invented_symbol_in_a_note_is_caught(self, env):
         inp = self.inp(env)
         r = EveningReview.model_validate_json(good_reply(inp).text)
@@ -167,6 +264,7 @@ class TestRun:
         run_evening_review(conn, ctx, ai, m, DAY)
         seen = json.loads(m.seen_user)
         assert set(seen) == {"date", "index_moves", "picks", "strategies", "open_positions"}
+        assert "strategy_previews" not in seen
 
     def test_the_brief_reaches_the_api_and_the_pick_cards(self, env):
         conn, ctx, ai, (client, *_rest) = env
@@ -234,12 +332,45 @@ class TestRun:
         assert run_evening_review(conn, ctx, ai, m, DAY, force=True).status == "success"
         assert m.calls == 1
 
-    def test_no_picks_means_no_model_call(self, env):
+    def test_a_day_with_nothing_at_all_to_say_makes_no_call(self, env):
         conn, ctx, ai, _ = env
         m = Model()
         r = run_evening_review(conn, ctx, ai, m, DAYS[5])
         assert r.status == "skipped" and m.calls == 0
-        assert runs(conn)[0]["error"] == "no picks today"
+        assert runs(conn)[0]["error"].startswith("nothing to review")
+
+    def test_a_pickless_brief_is_written_from_previews_and_writes_back_to_nothing(
+            self, preview_env):
+        conn, ctx, ai, _ = preview_env
+        inp = build_input(conn, ctx, ai, DAY)
+        m = Model(pickless_reply(inp))
+        r = run_evening_review(conn, ctx, ai, m, DAY)
+        assert r.status == "success" and m.calls == 1
+        assert conn.execute("SELECT COUNT(*) FROM ai_outputs WHERE kind='brief'"
+                            ).fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM picks WHERE ai_reason IS NOT NULL"
+                            ).fetchone()[0] == 0
+        assert "strategy_previews" in json.loads(m.seen_user)
+
+    def test_a_pickless_brief_never_settles_the_day(self, preview_env):
+        conn, ctx, ai, _ = preview_env
+        inp = build_input(conn, ctx, ai, DAY)
+        for _ in range(2):  # no --force: both must actually call the model
+            m = Model(pickless_reply(inp))
+            assert run_evening_review(conn, ctx, ai, m, DAY).status == "success"
+            assert m.calls == 1
+
+    def test_a_horizon_entry_with_no_ranked_picks_does_not_settle_the_day(self, preview_env):
+        """Hazard 2: `[{"horizon":"swing","ranked":[]}]` passes every semantic check, so a
+        non-empty `horizons` must not be read as 'this brief ranked picks'."""
+        conn, ctx, ai, _ = preview_env
+        inp = build_input(conn, ctx, ai, DAY)
+        empty = [{"horizon": "swing", "ranked": []}]
+        assert run_evening_review(conn, ctx, ai, Model(pickless_reply(inp, horizons=empty)),
+                                  DAY).status == "success"
+        again = Model(pickless_reply(inp))
+        assert run_evening_review(conn, ctx, ai, again, DAY).status == "success"
+        assert again.calls == 1
 
     def test_disabled_ai_does_nothing(self, env):
         conn, ctx, ai, _ = env

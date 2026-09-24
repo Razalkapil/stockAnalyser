@@ -67,9 +67,9 @@ class TestDrain:
         result = drain(conn, ctx, ai, model)
 
         assert result.outcomes == [(req.request_id, "skipped")]
-        assert model.calls == 0  # no picks, so no spend
+        assert model.calls == 0  # nothing at all to say, so no spend
         row = state(conn, req.request_id)
-        assert row["status"] == "done" and row["error"] == "no picks to review"
+        assert row["status"] == "done" and row["error"] == "nothing to review"
 
     def test_a_forced_request_regenerates_an_existing_brief(self, env):
         conn, ctx, ai, _ = env

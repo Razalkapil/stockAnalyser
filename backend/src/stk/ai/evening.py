@@ -10,8 +10,16 @@ NEVER BLOCKS. Any failure -- no key, a network error, an invalid reply -- is rec
 ``ai_runs`` row with its reason and returned as a result; it is never raised. The nightly pipeline
 carries on and the UI shows the brief as pending, which is honest.
 
-IDEMPOTENT PER DAY: a successful review for a date is not repeated (that would be spend for
-nothing) unless ``force``. A failed one is retried on the next run.
+IDEMPOTENT PER DAY, BUT ONLY FOR A DAY THAT RANKED PICKS. A review that ranked the day's picks is
+not repeated (that would be spend for nothing) unless ``force``. A pick-less brief -- written from
+index moves, open positions and what the NOT-promoted strategies would have picked -- is always
+re-runnable: it describes a moving target and nothing about it was settled. A failed one is
+retried on the next run.
+
+PREVIEWS ARE CONTEXT, NEVER CANDIDATES. When nothing is promoted the input carries would-be picks
+from ``strategy_previews`` with NO identifiers, so there is nothing for the model to rank and
+nothing ``_store`` (which writes by pick_id) can write back onto. ``semantic_problems`` closes the
+loop: with ``pick_ids`` empty, any ranked entry at all fails "was not in the input".
 """
 
 from __future__ import annotations
@@ -29,6 +37,7 @@ from stk.ai.schemas import EveningReview
 from stk.config.ai import AiConfig
 from stk.playground.context import PlayCtx
 from stk.store.db.engine import transaction
+from stk.store.db.repos import ai_briefs
 
 
 @dataclass
@@ -86,16 +95,25 @@ def _store(conn: sqlite3.Connection, run_id: int, day: date, review: EveningRevi
                          (rp.explanation, rp.conflict, rp.pick_id))
 
 
+def _already_reviewed(conn: sqlite3.Connection, day: date) -> bool:
+    """Is the day DONE, or only written up? Only a brief that actually ranked picks settles it.
+
+    Derived from the stored payload rather than a column: nothing needs writing to know this,
+    and a second copy is a second thing that can be wrong.
+    """
+    payload = ai_briefs.latest_payload(conn, day.isoformat())
+    return payload is not None and ai_briefs.ranked_pick_count(payload) > 0
+
+
 def run_evening_review(conn: sqlite3.Connection, ctx: PlayCtx, ai: AiConfig, client: LlmClient,
                        day: date, *, force: bool = False) -> ReviewResult:
     started = datetime.now(UTC)
     if not ai.enabled:
         return ReviewResult("skipped", None, "AI is disabled in config/ai.yaml")
 
-    if not force and conn.execute(
-        "SELECT 1 FROM ai_runs WHERE kind='evening_review' AND business_date=? "
-        "AND status='success'", (day.isoformat(),)).fetchone():
-        return ReviewResult("skipped", None, f"a review for {day} already exists (use --force)")
+    if not force and _already_reviewed(conn, day):
+        return ReviewResult("skipped", None,
+                            f"a review that ranked picks already exists for {day} (use --force)")
 
     try:
         inp = build_input(conn, ctx, ai, day)
@@ -106,14 +124,15 @@ def run_evening_review(conn: sqlite3.Connection, ctx: PlayCtx, ai: AiConfig, cli
                              status="failed", error=f"could not assemble input: {exc}")
         return ReviewResult("failed", rid, f"could not assemble input: {exc}")
 
-    if not inp.pick_ids:
-        # Nothing was flagged today: there is nothing to rank, and a model call would only
-        # invite an invented commentary. Record the skip so the day is accounted for.
+    if not inp.has_content:
+        # No picks, no previews, no open positions, no index moves: a call could only produce
+        # invented commentary. Record the skip so the day is accounted for.
         with transaction(conn):
             rid, _ = _record(conn, ai, day, StructuredResult(None, 0, 0, 0, ai.model, ""),
                              prompt_sha="", started=started, status="skipped",
-                             error="no picks today")
-        return ReviewResult("skipped", rid, "no picks to review")
+                             error="nothing to review: no picks, no strategy previews, "
+                                   "no open positions and no index moves")
+        return ReviewResult("skipped", rid, "nothing to review")
 
     user = prompt_json(inp.payload)
     prompt_sha = hashlib.sha256((EVENING_SYSTEM + user).encode()).hexdigest()

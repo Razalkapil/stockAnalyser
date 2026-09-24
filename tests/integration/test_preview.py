@@ -9,6 +9,10 @@ from __future__ import annotations
 import pytest
 
 from integration.test_picks_pipeline import SPEC, build_lake, days, load_backtest_config
+from stk.ai.inputs import build_input
+from stk.backtest.setup import make_rates_fn
+from stk.config.ai import load_ai_config
+from stk.playground.context import PlayCtx
 from stk.store.db.engine import connect, migrate
 from stk.strategies.preview import preview
 from stk.strategies.repo import register_spec, set_status
@@ -38,8 +42,9 @@ class TestPreview:
         assert r.strategies == 1 and r.rows_created == 2  # max_new_per_day
 
     def test_a_preview_is_never_a_pick(self, db, tmp_parquet_root):
-        """The whole safety argument: tracking, stats and the AI evening review all read
-        `picks`, so a preview that landed there would become a recommendation by accident."""
+        """Tracking and out-of-sample stats read `picks`, so a preview that landed there would
+        become a tracked recommendation by accident. The AI review may read previews, but only as
+        context and with no ids -- see stk/ai/inputs.py::_previews."""
         conn, sid = db
         build_lake(tmp_parquet_root)
         set_status(conn, sid, "rejected", actor="gate", reason="nope")
@@ -47,6 +52,20 @@ class TestPreview:
                 scan_date=days()[60])
         assert count(conn, "strategy_previews") > 0
         assert count(conn, "picks") == 0
+
+    def test_the_ai_input_may_read_a_preview_but_never_as_a_rankable_item(
+            self, db, tmp_parquet_root):
+        """The narrowed invariant, pinned as code: context only, and nothing to rank."""
+        conn, sid = db
+        build_lake(tmp_parquet_root)
+        set_status(conn, sid, "rejected", actor="gate", reason="nope")
+        cfg = load_backtest_config()
+        preview(conn, parquet_root=tmp_parquet_root, cfg=cfg, scan_date=days()[60])
+        inp = build_input(conn, PlayCtx(tmp_parquet_root, cfg, make_rates_fn()), load_ai_config(),
+                          days()[60])
+        assert inp.pick_ids == {} and inp.preview_count > 0
+        for p in inp.payload["strategy_previews"]["would_be_picks"]:
+            assert not any(k.endswith("_id") or k == "id" for k in p)
 
     def test_a_promoted_strategy_is_not_previewed(self, db, tmp_parquet_root):
         """Exactly the complement of the scan: never both tables for the same strategy-day."""

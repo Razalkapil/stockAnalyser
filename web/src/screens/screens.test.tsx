@@ -272,7 +272,8 @@ describe("StrategyLab", () => {
 });
 
 const unreadyBrief = (state: string, stateReason: string | null = null) => ({
-  date: "2026-09-18", pending: true, state, stateReason, generatedAt: null, overview: "",
+  date: "2026-09-18", pending: true, state, stateReason, coverage: null, generatedAt: null,
+  overview: "",
   notablePicks: [], conflicts: [], positionNotes: [],
 });
 
@@ -289,12 +290,15 @@ describe("Brief", () => {
 
   it("says WHY there is no brief instead of a bare 'pending'", async () => {
     mockApi({
-      "/api/briefs/2026-09-18": unreadyBrief("skipped", "no picks today"),
+      "/api/briefs/2026-09-18": unreadyBrief(
+        "skipped",
+        "nothing to review: no picks, no strategy previews, no open positions and no index moves",
+      ),
       "/api/briefs": [{ date: "2026-09-18", pending: true, state: "skipped" }],
     });
     renderWith(<Brief />);
     expect(await screen.findByText("Nothing to review")).toBeInTheDocument();
-    expect(screen.getByText(/no picks today/)).toBeInTheDocument();
+    expect(screen.getByText(/nothing to review: no picks/)).toBeInTheDocument();
   });
 
   it("queues a review rather than calling a model from the browser", async () => {
@@ -350,6 +354,43 @@ describe("Brief (written)", () => {
     expect(screen.getByText(/Momentum names look stretched/)).toBeInTheDocument();
     expect(screen.getByText(/stop untouched/)).toBeInTheDocument();
     expect(screen.queryByText("pending")).not.toBeInTheDocument();
+  });
+});
+
+describe("Brief (coverage)", () => {
+  const written = (coverage?: "picks" | "preview") => ({
+    date: "2026-09-18", pending: false, state: "ready", stateReason: null,
+    ...(coverage ? { coverage } : {}),
+    generatedAt: "2026-09-18T18:47:00+00:00", overview: "Indices were flat.",
+    notablePicks: [{ symbol: "RELIANCE", note: "flagged by an unapproved rule" }],
+    conflicts: [], positionNotes: [],
+  });
+  const list = (coverage?: "picks" | "preview") => [
+    { date: "2026-09-18", pending: false, state: "ready", ...(coverage ? { coverage } : {}) },
+  ];
+
+  it("labels a brief written without picks so it cannot read as a recommendation", async () => {
+    mockApi({ "/api/briefs/2026-09-18": written("preview"), "/api/briefs": list("preview") });
+    renderWith(<Brief />);
+    const note = await screen.findByRole("note");
+    expect(note).toHaveTextContent(/unapproved/);
+    expect(note).toHaveTextContent(/Nothing here is a recommendation/);
+    expect(screen.getByText("Notable names")).toBeInTheDocument();
+    expect(screen.getByText("preview")).toBeInTheDocument();
+  });
+
+  it("does not label a brief that ranked real picks", async () => {
+    mockApi({ "/api/briefs/2026-09-18": written("picks"), "/api/briefs": list("picks") });
+    renderWith(<Brief />);
+    expect(await screen.findByText("Notable picks")).toBeInTheDocument();
+    expect(screen.queryByRole("note")).not.toBeInTheDocument();
+  });
+
+  it("treats a missing coverage as a normal brief", async () => {
+    mockApi({ "/api/briefs/2026-09-18": written(), "/api/briefs": list() });
+    renderWith(<Brief />);
+    expect(await screen.findByText("Notable picks")).toBeInTheDocument();
+    expect(screen.queryByRole("note")).not.toBeInTheDocument();
   });
 });
 

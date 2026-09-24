@@ -14,6 +14,7 @@ export type Bar = S["Bar"];
 export type BriefListItem = S["BriefListItem"];
 export type Brief = S["Brief"];
 export type BriefState = Brief["state"];
+export type BriefCoverage = NonNullable<Brief["coverage"]>;
 export type PortfolioSummary = S["PortfolioSummary"];
 export type PortfolioDetail = S["PortfolioDetail"];
 export type OrderOut = S["OrderOut"];
