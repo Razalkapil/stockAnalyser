@@ -82,22 +82,82 @@ describe("Today", () => {
     expect(screen.getByText(/Preview — not promoted/)).toBeInTheDocument();
   });
 
-  it("keeps preview cards collapsed until asked, and marks the strategy's status", async () => {
+  it("shows previews without a click when nothing is promoted, and marks the strategy's status", async () => {
     mockApi({ "/api/picks": [], "/api/previews": [preview()] });
     renderWith(<Today />);
-    await screen.findByText(/Preview — not promoted/);
-    expect(screen.queryByTestId("preview-card")).not.toBeInTheDocument();
-    await userEvent.click(screen.getByText(/Preview — not promoted/));
-    expect(screen.getByTestId("preview-card")).toBeInTheDocument();
+    expect(await screen.findByTestId("preview-card")).toBeInTheDocument();
     expect(screen.getByText("TATASTEEL")).toBeInTheDocument();
     expect(screen.getByText("rejected")).toBeInTheDocument();
   });
 
-  it("never renders a preview as a pick card", async () => {
-    mockApi({ "/api/picks": [], "/api/previews": [preview()] });
+  it("keeps previews collapsed when real picks exist, until asked", async () => {
+    mockApi({ "/api/picks": picks, "/api/previews": [preview({ horizon: "short_term" })] });
     renderWith(<Today />);
-    await userEvent.click(await screen.findByText(/Preview — not promoted/));
-    expect(screen.queryAllByTestId("pick-card")).toHaveLength(0);
+    await screen.findByText("AAA");
+    expect(screen.queryByTestId("preview-card")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByText(/Preview — not promoted/));
+    expect(screen.getByTestId("preview-card")).toBeInTheDocument();
+  });
+
+  it("files each preview under its own horizon tab", async () => {
+    mockApi({
+      "/api/picks": [],
+      "/api/previews": [
+        preview({ symbol: "SWINGY", horizon: "swing", strategyId: "s1" }),
+        preview({ symbol: "MOMO", horizon: "momentum", strategyId: "s2" }),
+      ],
+    });
+    renderWith(<Today />);
+    // lands on the first horizon that has content (swing), not an empty short-term tab
+    expect(await screen.findByText("SWINGY")).toBeInTheDocument();
+    expect(screen.queryByText("MOMO")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("tab", { name: /Momentum/ }));
+    expect(screen.getByText("MOMO")).toBeInTheDocument();
+    expect(screen.queryByText("SWINGY")).not.toBeInTheDocument();
+  });
+
+  it("counts previews on the tab, so a tab with only previews does not read as empty", async () => {
+    mockApi({ "/api/picks": [], "/api/previews": [preview({ horizon: "swing" })] });
+    renderWith(<Today />);
+    await screen.findByTestId("preview-card");
+    expect(screen.getByRole("tab", { name: /Swing\s*0\s*\+1 preview/ })).toBeInTheDocument();
+  });
+
+  it("says why a horizon has previews but no promoted picks", async () => {
+    mockApi({ "/api/picks": [], "/api/previews": [preview({ horizon: "swing" })] });
+    renderWith(<Today />);
+    await screen.findByTestId("preview-card");
+    expect(screen.getByText("No promoted picks for this horizon")).toBeInTheDocument();
+    expect(screen.queryByText("No qualifying picks today")).not.toBeInTheDocument();
+  });
+
+  it("never renders a preview as a pick card, and never inside the picks grid", async () => {
+    mockApi({
+      "/api/picks": [pick({ id: 1, symbol: "AAA", horizon: "swing" })],
+      "/api/previews": [preview({ horizon: "swing" })],
+    });
+    renderWith(<Today />);
+    await screen.findByText("AAA");
+    await userEvent.click(screen.getByText(/Preview — not promoted/));
+    const card = screen.getByTestId("preview-card");
+    expect(screen.getAllByTestId("pick-card")).toHaveLength(1);
+    expect(screen.getByTestId("pick-card").contains(card)).toBe(false);
+    // the preview sits inside its own labelled block
+    expect(screen.getByTestId("preview-block").contains(card)).toBe(true);
+  });
+
+  it("shows previews in the columns layout too", async () => {
+    localStorage.setItem("stk.todayLayout", "columns");
+    mockApi({
+      "/api/picks": [],
+      "/api/previews": [
+        preview({ symbol: "SWINGY", horizon: "swing", strategyId: "s1" }),
+        preview({ symbol: "MOMO", horizon: "momentum", strategyId: "s2" }),
+      ],
+    });
+    renderWith(<Today />);
+    expect(await screen.findByText("SWINGY")).toBeInTheDocument();
+    expect(screen.getByText("MOMO")).toBeInTheDocument();
   });
 
   it("reports a failed load instead of an empty page", async () => {
@@ -139,6 +199,27 @@ describe("StrategyLab", () => {
     await screen.findByText("W1");
     expect(screen.getByText("W2").getAttribute("title")).toMatch(/fail/);
     expect(screen.getByText("W3").getAttribute("title")).toMatch(/no benchmark/);
+  });
+
+  it("shows how far a rejected strategy is from the gate, per check", async () => {
+    mockApi({ "/api/strategies/a": detail({ id: "a" }), "/api/strategies": rows, "/api/proposals": [] });
+    renderWith(<StrategyLab />);
+    const block = await screen.findByTestId("gate-checks");
+    expect(block).toHaveTextContent("beat the benchmark in 3/7 windows (43%), need >= 60%");
+    expect(block).toHaveTextContent("120 trades, need >= 30");
+    expect(screen.getByLabelText("failed")).toBeInTheDocument();
+    expect(screen.getByLabelText("passed")).toBeInTheDocument();
+  });
+
+  it("omits the gate block for a strategy that was never backtested", async () => {
+    mockApi({
+      "/api/strategies/a": detail({ id: "a", gateChecks: [] }),
+      "/api/strategies": rows,
+      "/api/proposals": [],
+    });
+    renderWith(<StrategyLab />);
+    await screen.findByText("W1");
+    expect(screen.queryByTestId("gate-checks")).not.toBeInTheDocument();
   });
 
   it("will not approve a candidate that has not passed the gate", async () => {

@@ -105,6 +105,12 @@ class TradeRow(Wire):
     ret: float
 
 
+class GateCheckOut(Wire):
+    name: str
+    passed: bool
+    detail: str
+
+
 class StrategyDetail(StrategySummary):
     notes: str
     rules: list[str]
@@ -113,6 +119,7 @@ class StrategyDetail(StrategySummary):
     equity_curve: list[float]
     nifty_curve: list[float]
     walk_forward: list[WalkForwardWindow]
+    gate_checks: list[GateCheckOut]
     trade_list: list[TradeRow]
     trade_list_source: str  # 'live' | 'backtest' | 'none'
 

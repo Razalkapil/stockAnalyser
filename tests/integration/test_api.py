@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from decimal import Decimal
 
 import numpy as np
@@ -213,6 +214,25 @@ class TestStrategies:
         assert d["rules"][0] == "bar_count > 30"
         assert d["tradeListSource"] == "live" and len(d["tradeList"]) == 2
         assert d["equityCurve"] == [] and "not yet backtested" in d["approxReasons"]
+        assert d["gateChecks"] == []  # never backtested: nothing to show, not a made-up pass
+
+    def test_detail_carries_the_stored_gate_checks_verbatim(self, world):
+        client, db_path, _t, _ = world
+        report = {"verdict": "fail", "checks": [
+            {"name": "beats_benchmark_after_costs", "passed": False,
+             "detail": "beat the benchmark in 3/7 windows (43%), need >= 60%"},
+            {"name": "enough_trades", "passed": True, "detail": "356 trades, need >= 30"}]}
+        conn = connect(db_path)
+        conn.execute(
+            """INSERT INTO backtest_runs (strategy_ref, kind, status, exchange, data_start,
+                   data_end, started_at, gate_verdict, gate_report_json, approx_reasons_json)
+               VALUES ('always_on','walk_forward','success','NSE','2024-01-01','2024-12-31',
+                       '2025-01-01','fail',?,'[]')""", (json.dumps(report),))
+        conn.close()
+        d = client.get("/api/strategies/always_on").json()
+        assert d["gateChecks"] == report["checks"]
+        # the list endpoint's payload is unchanged: checks live on the detail only
+        assert "gateChecks" not in client.get("/api/strategies").json()[0]
 
     def test_unknown_strategy_is_404(self, world):
         assert world[0].get("/api/strategies/nope").status_code == 404

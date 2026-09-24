@@ -12,6 +12,7 @@ import { color, font, horizons, type HorizonId } from "../lib/theme";
 type Layout = "tabs" | "columns";
 type Sort = "score" | "strategy";
 const LAYOUT_KEY = "stk.todayLayout";
+const PREVIEWS_KEY = "stk.todayPreviews";
 
 // A remembered layout is a per-viewer convenience; storage may be unavailable, so it is optional.
 function readLayout(): Layout {
@@ -19,6 +20,16 @@ function readLayout(): Layout {
     return localStorage.getItem(LAYOUT_KEY) === "columns" ? "columns" : "tabs";
   } catch {
     return "tabs";
+  }
+}
+
+// Whether previews are expanded is a per-viewer convenience; null means "never chosen".
+function readPreviewsOpen(): boolean | null {
+  try {
+    const v = localStorage.getItem(PREVIEWS_KEY);
+    return v === "open" ? true : v === "closed" ? false : null;
+  } catch {
+    return null;
   }
 }
 
@@ -34,8 +45,83 @@ const noPicks = (
   </EmptyState>
 );
 
+// Setups DID pass here; the strategy that found them has not passed the promotion gate.
+const noPicksButPreviews = (
+  <EmptyState title="No promoted picks for this horizon">
+    No strategy for this horizon has passed the promotion gate, so there is nothing to recommend.
+    What the unapproved ones would have picked is listed below.
+  </EmptyState>
+);
+
 function sortPreviews(rows: PreviewPick[]): PreviewPick[] {
   return [...rows].sort((a, b) => b.score - a.score);
+}
+
+const cardGrid = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fill,minmax(340px,1fr))",
+  gap: 14,
+} as const;
+
+/**
+ * The previews for ONE horizon, kept as their own labelled block after the picks -- never
+ * interleaved with them. The separation is what stops a preview reading as a recommendation.
+ */
+function PreviewBlock({
+  rows,
+  open,
+  onToggle,
+  onOpen,
+  stacked,
+}: {
+  rows: PreviewPick[];
+  open: boolean;
+  onToggle: () => void;
+  onOpen: (symbol: string) => void;
+  stacked?: boolean;
+}) {
+  if (rows.length === 0) return null;
+  return (
+    <div data-testid="preview-block" style={{ marginTop: stacked ? 4 : 24 }}>
+      <div
+        role="button"
+        onClick={onToggle}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          cursor: "pointer",
+          paddingBottom: 8,
+          borderBottom: `1px solid ${color.border}`,
+        }}
+      >
+        <span style={{ font: `600 12px ${font.sans}`, color: color.textSecondary }}>
+          {open ? "▾" : "▸"} Preview — not promoted
+        </span>
+        <span style={{ font: `500 10.5px ${font.mono}`, color: color.textFaint }}>{rows.length}</span>
+      </div>
+      {open && (
+        <>
+          <div
+            style={{
+              font: `400 11.5px ${font.sans}`,
+              color: color.textFaint,
+              margin: "8px 0 12px",
+              lineHeight: 1.5,
+            }}
+          >
+            What strategies that have <em>not</em> passed the promotion gate would buy. Not
+            recommendations, and not tracked.
+          </div>
+          <div style={stacked ? { display: "flex", flexDirection: "column", gap: 10 } : cardGrid}>
+            {sortPreviews(rows).map((p) => (
+              <PreviewCard key={`${p.strategyId}-${p.symbol}`} pick={p} onOpen={onOpen} />
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
 }
 
 export function Today() {
@@ -43,9 +129,9 @@ export function Today() {
   const { data: previewData } = usePreviews();
   const nav = useNavigate();
   const [layout, setLayout] = useState<Layout>(readLayout);
-  const [active, setActive] = useState<HorizonId>("short_term");
+  const [chosenTab, setChosenTab] = useState<HorizonId | null>(null);
   const [sort, setSort] = useState<Sort>("score");
-  const [showPreviews, setShowPreviews] = useState(false);
+  const [chosenOpen, setChosenOpen] = useState<boolean | null>(readPreviewsOpen);
 
   const changeLayout = (l: Layout) => {
     setLayout(l);
@@ -59,7 +145,31 @@ export function Today() {
   const picks = data ?? [];
   const previews = previewData ?? [];
   const byHorizon = (h: HorizonId) => sortPicks(picks.filter((p) => p.horizon === h), sort);
+  const previewsBy = (h: HorizonId) => previews.filter((p) => p.horizon === h);
   const signalDate = picks[0]?.signalDate ?? previews[0]?.signalDate;
+
+  // With nothing promoted the previews ARE the page, so they start open; once real picks
+  // exist they are secondary and start closed. An explicit choice always wins.
+  const previewsOpen = chosenOpen ?? picks.length === 0;
+  const togglePreviews = () => {
+    const next = !previewsOpen;
+    setChosenOpen(next);
+    try {
+      localStorage.setItem(PREVIEWS_KEY, next ? "open" : "closed");
+    } catch {
+      /* not remembered */
+    }
+  };
+
+  // Land on a tab that has something in it rather than an empty default.
+  const firstWith = (n: (h: HorizonId) => number) => horizons.find((h) => n(h.id) > 0)?.id;
+  const active: HorizonId =
+    chosenTab ??
+    firstWith((h) => picks.filter((p) => p.horizon === h).length) ??
+    firstWith((h) => previewsBy(h).length) ??
+    "short_term";
+
+  const hasRows = picks.length > 0 || previews.length > 0;
 
   return (
     <div style={{ padding: "20px 24px 40px" }}>
@@ -117,12 +227,12 @@ export function Today() {
       {!isLoading && !error && picks.length === 0 && (
         <EmptyState title="No picks yet">
           {previews.length > 0
-            ? "No strategy has passed the promotion gate, so nothing here is a recommendation. The preview below shows what the strategies that did not pass would have bought."
+            ? "No strategy has beaten the Nifty 500 in enough out-of-sample windows to pass the promotion gate, so nothing here is a recommendation. What the strategies that did not pass would have bought is listed under each horizon."
             : "Nothing has been scanned. Promote a strategy, then run `stk scan` — or run `stk strategies preview` to see what the unapproved ones would pick."}
         </EmptyState>
       )}
 
-      {picks.length > 0 && layout === "tabs" && (
+      {hasRows && layout === "tabs" && (
         <>
           <div
             style={{
@@ -137,7 +247,7 @@ export function Today() {
                 key={h.id}
                 role="tab"
                 aria-selected={active === h.id}
-                onClick={() => setActive(h.id)}
+                onClick={() => setChosenTab(h.id)}
                 style={{
                   padding: "9px 4px",
                   marginRight: 20,
@@ -151,28 +261,36 @@ export function Today() {
                 <span style={{ opacity: 0.6, font: `500 10.5px ${font.mono}` }}>
                   {byHorizon(h.id).length}
                 </span>
+                {previewsBy(h.id).length > 0 && (
+                  <span style={{ opacity: 0.45, font: `500 10.5px ${font.mono}` }}>
+                    {" "}
+                    +{previewsBy(h.id).length} preview
+                  </span>
+                )}
               </div>
             ))}
           </div>
           {byHorizon(active).length ? (
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fill,minmax(340px,1fr))",
-                gap: 14,
-              }}
-            >
+            <div style={cardGrid}>
               {byHorizon(active).map((p) => (
                 <PickCard key={p.id} pick={p} onOpen={(s) => nav(`/stocks/${s}`)} />
               ))}
             </div>
+          ) : previewsBy(active).length ? (
+            noPicksButPreviews
           ) : (
             noPicks
           )}
+          <PreviewBlock
+            rows={previewsBy(active)}
+            open={previewsOpen}
+            onToggle={togglePreviews}
+            onOpen={(s) => nav(`/stocks/${s}`)}
+          />
         </>
       )}
 
-      {picks.length > 0 && layout === "columns" && (
+      {hasRows && layout === "columns" && (
         <div
           style={{
             display: "grid",
@@ -214,61 +332,15 @@ export function Today() {
                   No picks today
                 </div>
               )}
+              <PreviewBlock
+                stacked
+                rows={previewsBy(h.id)}
+                open={previewsOpen}
+                onToggle={togglePreviews}
+                onOpen={(s) => nav(`/stocks/${s}`)}
+              />
             </div>
           ))}
-        </div>
-      )}
-
-      {previews.length > 0 && (
-        <div style={{ marginTop: picks.length > 0 ? 28 : 20 }}>
-          <div
-            role="button"
-            onClick={() => setShowPreviews((v) => !v)}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              cursor: "pointer",
-              paddingBottom: 10,
-              borderBottom: `1px solid ${color.border}`,
-            }}
-          >
-            <span style={{ font: `600 12.5px ${font.sans}`, color: color.textSecondary }}>
-              {showPreviews ? "▾" : "▸"} Preview — not promoted
-            </span>
-            <span style={{ font: `500 10.5px ${font.mono}`, color: color.textFaint }}>
-              {previews.length}
-            </span>
-          </div>
-          <div
-            style={{
-              font: `400 11.5px ${font.sans}`,
-              color: color.textFaint,
-              margin: "8px 0 14px",
-              lineHeight: 1.5,
-            }}
-          >
-            What strategies that have <em>not</em> passed the promotion gate would buy today.
-            These are not recommendations and are not tracked — they exist so a rejected rule can
-            still be watched. Generated by <code>stk strategies preview</code>.
-          </div>
-          {showPreviews && (
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fill,minmax(340px,1fr))",
-                gap: 14,
-              }}
-            >
-              {sortPreviews(previews).map((p) => (
-                <PreviewCard
-                  key={`${p.strategyId}-${p.symbol}`}
-                  pick={p}
-                  onOpen={(sym) => nav(`/stocks/${sym}`)}
-                />
-              ))}
-            </div>
-          )}
         </div>
       )}
     </div>

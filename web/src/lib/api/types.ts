@@ -7,6 +7,7 @@ export type Pick = S["Pick"];
 export type PreviewPick = S["PreviewPick"];
 export type StrategySummary = S["StrategySummary"];
 export type StrategyDetail = S["StrategyDetail"];
+export type GateCheck = S["GateCheckOut"];
 export type StockHit = S["StockHit"];
 export type StockDetail = S["StockDetail"];
 export type Bar = S["Bar"];

@@ -558,6 +558,15 @@ export interface components {
             /** Salescagr3 */
             salesCagr3: number | null;
         };
+        /** GateCheckOut */
+        GateCheckOut: {
+            /** Detail */
+            detail: string;
+            /** Name */
+            name: string;
+            /** Passed */
+            passed: boolean;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -944,6 +953,8 @@ export interface components {
             curveDates: string[];
             /** Equitycurve */
             equityCurve: number[];
+            /** Gatechecks */
+            gateChecks: components["schemas"]["GateCheckOut"][];
             /** Gateverdict */
             gateVerdict: string | null;
             /** Hitrate */

@@ -126,6 +126,35 @@ function Detail({ d }: { d: StrategyDetail }) {
         ))}
       </ul>
 
+      {d.gateChecks.length > 0 && (
+        <>
+          <div style={section}>Promotion gate</div>
+          <div
+            data-testid="gate-checks"
+            style={{ display: "grid", gap: 4, marginBottom: 16, font: `400 12px ${font.sans}` }}
+          >
+            {d.statusReason && (
+              <div style={{ color: color.textMuted, marginBottom: 2 }}>{d.statusReason}</div>
+            )}
+            {d.gateChecks.map((c) => (
+              <div key={c.name} style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
+                <span
+                  aria-label={c.passed ? "passed" : "failed"}
+                  style={{
+                    font: `700 11px ${font.mono}`,
+                    color: c.passed ? color.positive : color.negative,
+                    minWidth: 30,
+                  }}
+                >
+                  {c.passed ? "PASS" : "FAIL"}
+                </span>
+                <span style={{ color: c.passed ? color.textSecondary : color.text }}>{c.detail}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
       <div style={section}>Equity curve vs Nifty 500 (out-of-sample)</div>
       <EquityChart strategy={d.equityCurve} benchmark={d.niftyCurve} benchmarkName="Nifty 500" />
 

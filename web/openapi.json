@@ -392,6 +392,29 @@
         "title": "Fundamentals",
         "type": "object"
       },
+      "GateCheckOut": {
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "passed": {
+            "title": "Passed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "passed",
+          "detail"
+        ],
+        "title": "GateCheckOut",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -1794,6 +1817,13 @@
             "title": "Equitycurve",
             "type": "array"
           },
+          "gateChecks": {
+            "items": {
+              "$ref": "#/components/schemas/GateCheckOut"
+            },
+            "title": "Gatechecks",
+            "type": "array"
+          },
           "gateVerdict": {
             "anyOf": [
               {
@@ -1961,6 +1991,7 @@
           "equityCurve",
           "niftyCurve",
           "walkForward",
+          "gateChecks",
           "tradeList",
           "tradeListSource"
         ],

@@ -81,6 +81,10 @@ export const detail = (over: Partial<StrategyDetail> = {}): StrategyDetail => ({
     { label: "W2", result: "fail", testStart: "2024-07-01", testEnd: "2024-12-31", stratReturn: -0.02, benchReturn: 0.03 },
     { label: "W3", result: "no_benchmark", testStart: "2025-01-01", testEnd: "2025-06-30", stratReturn: 0.04, benchReturn: null },
   ],
+  gateChecks: [
+    { name: "beats_benchmark_after_costs", passed: false, detail: "beat the benchmark in 3/7 windows (43%), need >= 60%" },
+    { name: "enough_trades", passed: true, detail: "120 trades, need >= 30" },
+  ],
   tradeList: [{ symbol: "TITAN", date: "2026-09-10", ret: 0.031 }],
   tradeListSource: "live",
   ...over,

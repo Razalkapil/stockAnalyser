@@ -52,6 +52,7 @@ class BacktestStats:
     curve_dates: list[str] = field(default_factory=list)
     windows: list[dict[str, Any]] = field(default_factory=list)
     gate_verdict: str | None = None
+    gate_checks: list[dict[str, Any]] = field(default_factory=list)
 
 
 def live_stats(conn: sqlite3.Connection, strategy_id: int) -> LiveStats:
@@ -116,6 +117,7 @@ def backtest_stats(conn: sqlite3.Connection, slug: str) -> BacktestStats:
                           gate_verdict=run["gate_verdict"],
                           is_approximate=bool(run["is_approximate"]))
     stats.approx_reasons = json.loads(run["approx_reasons_json"] or "[]")
+    stats.gate_checks = json.loads(run["gate_report_json"] or "{}").get("checks", [])
 
     trades = conn.execute(
         """SELECT COUNT(*) AS n, AVG(holding_days) AS hold,

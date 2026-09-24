@@ -221,6 +221,8 @@ def strategy_detail(conn: sqlite3.Connection, slug: str) -> s.StrategyDetail | N
                                 bench_return=w["bench_return"])
             for w in bt.windows
         ],
+        gate_checks=[s.GateCheckOut(name=c["name"], passed=c["passed"], detail=c["detail"])
+                     for c in bt.gate_checks],
         trade_list=trades, trade_list_source=source,
     )
 
