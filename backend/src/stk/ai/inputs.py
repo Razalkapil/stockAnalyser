@@ -11,17 +11,13 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass, field
 from datetime import date
-from pathlib import Path
 from typing import Any
 
-from stk.backtest.data import load_benchmark
 from stk.config.ai import AiConfig
-from stk.config.backtest import BacktestConfig
 from stk.playground.context import PlayCtx
 from stk.playground.performance import summarise
+from stk.store.market import BRIEF_INDICES, IndexMoves, index_moves
 from stk.strategies.stats import backtest_stats, live_stats
-
-INDICES = ("NIFTY_50", "NIFTY_500")
 
 
 @dataclass
@@ -35,6 +31,9 @@ class ReviewInput:
     preview_count: int = 0
     position_count: int = 0
     index_count: int = 0
+    #: The index closes as the lake holds them, WITH the date each is from. The caller compares
+    #: that to ``day``: "the latest row" is not "today's row".
+    moves: IndexMoves = field(default_factory=IndexMoves)
 
     @property
     def is_preview(self) -> bool:
@@ -48,21 +47,19 @@ class ReviewInput:
                     or self.index_count)
 
 
+def _pct(fraction: float | None) -> float | None:
+    """A fraction as a percent, so every percentage in the payload shares one unit."""
+    return None if fraction is None else fraction * 100
+
+
 def _round(v: float | None, n: int = 4) -> float | None:
     return None if v is None else round(float(v), n)
 
 
-def _index_moves(parquet_root: Path, cfg: BacktestConfig, day: date) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
-    for code in INDICES:
-        df = load_benchmark(parquet_root, index_code=code,
-                            start=date.fromordinal(day.toordinal() - 10), end=day)
-        if len(df) >= 2:
-            last, prev = float(df["close"].iloc[-1]), float(df["close"].iloc[-2])
-            out.append({"index": code, "close": round(last, 2),
-                        "change_pct": round((last / prev - 1) * 100, 2),
-                        "as_of": str(df["date"].iloc[-1])[:10]})
-    return out
+def _index_payload(moves: IndexMoves) -> list[dict[str, Any]]:
+    return [{"index": m.index_code, "close": m.close, "change_pct": m.change_pct,
+             "as_of": m.as_of.isoformat(), "prev_as_of": m.prev_date.isoformat()}
+            for m in moves.rows]
 
 
 def _previews(conn: sqlite3.Connection, ai: AiConfig, day: date
@@ -169,20 +166,21 @@ def build_input(conn: sqlite3.Connection, ctx: PlayCtx, ai: AiConfig, day: date)
 
     positions: list[dict[str, Any]] = []
     for (pid,) in conn.execute("SELECT portfolio_id FROM portfolios WHERE archived_at IS NULL"):
-        s = summarise(conn, ctx, pid)
+        s = summarise(conn, ctx, pid, day)
         for p in s.positions[: ai.evening_review.max_positions]:
             inp.symbols.add(p.symbol)
             positions.append({
                 "portfolio": s.name, "symbol": p.symbol, "qty": p.qty,
                 "avg_cost": float(p.avg_cost), "last_price": _round(float(p.ltp), 2) if p.ltp
-                else None, "return": _round(p.unrealised_pct), "days_held": p.days_held})
+                else None, "return_pct": _round(_pct(p.unrealised_pct), 2),
+                "days_held": p.days_held})
 
     inp.position_count = len(positions)
-    index_moves = _index_moves(ctx.parquet_root, ctx.cfg, day)
-    inp.index_count = len(index_moves)
+    inp.moves = index_moves(ctx.parquet_root, day, BRIEF_INDICES)
+    inp.index_count = len(inp.moves.rows)
     payload: dict[str, Any] = {
         "date": day.isoformat(),
-        "index_moves": index_moves,
+        "index_moves": _index_payload(inp.moves),
         "picks": picks, "strategies": strategies, "open_positions": positions,
     }
     # Only when there is nothing to rank: beside real picks, previews would be noise competing

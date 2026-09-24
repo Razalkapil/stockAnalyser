@@ -10,6 +10,7 @@ store/ needs it too and store/ must not import ingest/.
 from __future__ import annotations
 
 import subprocess
+from pathlib import Path
 
 _CACHE: str | None = None
 
@@ -31,3 +32,26 @@ def code_version() -> str:
         except (OSError, subprocess.SubprocessError):
             _CACHE = "unknown"
     return _CACHE
+
+
+def source_fingerprint() -> int:
+    """Max mtime_ns across the installed ``stk`` package's .py files.
+
+    Deliberately NOT cached, and deliberately not ``code_version()``: the point is to notice a
+    change from INSIDE a long-running process, and a git SHA cannot do that. A worker that had
+    been up for two days once served pre-fix code for a full day because the fix was edited in
+    the working tree and only committed later -- a SHA check would have missed it too.
+
+    Never raises: a file that vanishes mid-walk, or an unreadable tree, is a degraded signal
+    (no reload) rather than a reason to kill a worker that is otherwise doing its job.
+    """
+    newest = 0
+    try:
+        for path in Path(__file__).resolve().parent.parent.rglob("*.py"):
+            try:
+                newest = max(newest, path.stat().st_mtime_ns)
+            except OSError:  # removed between the walk and the stat
+                continue
+    except OSError:
+        return 0
+    return newest

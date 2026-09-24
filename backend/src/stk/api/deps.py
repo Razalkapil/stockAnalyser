@@ -35,7 +35,11 @@ def get_ctx(request: Request) -> ApiContext:
 
 
 def get_conn(ctx: Annotated[ApiContext, Depends(get_ctx)]) -> Iterator[sqlite3.Connection]:
-    conn = connect(ctx.sqlite_path)
+    # FastAPI runs a sync generator dependency's setup and teardown as separate threadpool jobs,
+    # which may land on different threads -- so close() raised ProgrammingError and turned a
+    # successful response into a 500. The connection is still used by one request at a time
+    # (setup -> endpoint -> teardown), never concurrently, so lifting the thread check is safe.
+    conn = connect(ctx.sqlite_path, check_same_thread=False)
     try:
         yield conn
     finally:

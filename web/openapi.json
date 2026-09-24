@@ -78,6 +78,25 @@
             ],
             "title": "Generatedat"
           },
+          "market": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/IndexMove"
+            },
+            "title": "Market",
+            "type": "array"
+          },
+          "marketAsOf": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Marketasof"
+          },
           "notablePicks": {
             "items": {
               "additionalProperties": {
@@ -458,6 +477,50 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "IndexMove": {
+        "description": "One benchmark's close, read from the lake -- never text a model wrote.",
+        "properties": {
+          "asOf": {
+            "title": "Asof",
+            "type": "string"
+          },
+          "changePct": {
+            "title": "Changepct",
+            "type": "number"
+          },
+          "close": {
+            "title": "Close",
+            "type": "number"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "prevClose": {
+            "title": "Prevclose",
+            "type": "number"
+          },
+          "prevDate": {
+            "title": "Prevdate",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "name",
+          "close",
+          "changePct",
+          "asOf",
+          "prevClose",
+          "prevDate"
+        ],
+        "title": "IndexMove",
+        "type": "object"
+      },
       "JobAlert": {
         "description": "A scheduled step whose latest run failed or ended degraded.",
         "properties": {
@@ -505,6 +568,67 @@
           "note"
         ],
         "title": "JournalUpdate",
+        "type": "object"
+      },
+      "LabRun": {
+        "description": "Where the weekly strategy lab stands for a day (see services.get_lab_run).",
+        "properties": {
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "lastRunAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lastrunat"
+          },
+          "lastRunStatus": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lastrunstatus"
+          },
+          "state": {
+            "enum": [
+              "ready",
+              "pending",
+              "queued",
+              "running",
+              "skipped",
+              "failed",
+              "invalid_output"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "stateReason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Statereason"
+          }
+        },
+        "required": [
+          "date",
+          "state"
+        ],
+        "title": "LabRun",
         "type": "object"
       },
       "NewOrder": {
@@ -2979,6 +3103,76 @@
           }
         ],
         "summary": "Proposals"
+      }
+    },
+    "/api/proposals/generate": {
+      "post": {
+        "description": "Queue a strategy-lab run for today. Only writes a row: `stk ai worker` runs it, so a web\nrequest still cannot reach a model. Pressing twice returns the request already in flight.",
+        "operationId": "lab_generate_api_proposals_generate_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "force",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Force",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LabRun"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Lab Generate"
+      }
+    },
+    "/api/proposals/lab": {
+      "get": {
+        "description": "Where today's strategy-lab run stands. Declared before ``/{pid}`` routes so the literal\npath is never read as a proposal id.",
+        "operationId": "lab_status_api_proposals_lab_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LabRun"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Lab Status"
       }
     },
     "/api/proposals/{pid}/approve": {

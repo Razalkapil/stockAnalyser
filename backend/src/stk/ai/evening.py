@@ -20,11 +20,19 @@ PREVIEWS ARE CONTEXT, NEVER CANDIDATES. When nothing is promoted the input carri
 from ``strategy_previews`` with NO identifiers, so there is nothing for the model to rank and
 nothing ``_store`` (which writes by pick_id) can write back onto. ``semantic_problems`` closes the
 loop: with ``pick_ids`` empty, any ranked entry at all fails "was not in the input".
+
+A BRIEF FOR DAY D DESCRIBES D OR DOES NOT EXIST. The index closes come from the lake, which the
+nightly fills at 20:30 IST; a review run before that would receive D-1's row and, told to describe
+"today", present it as D's. So a trading day whose index rows are not from D is a SKIP with the
+reason named (zero tokens, no brief stored, re-runnable once the ingest lands). The figures the
+user reads are rendered from the lake by the API, not typed by the model, and
+``_overview_problems`` rejects a reply that restates them or invents data it was never given.
 """
 
 from __future__ import annotations
 
 import hashlib
+import re
 import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
@@ -35,9 +43,20 @@ from stk.ai.prompts import EVENING_SYSTEM
 from stk.ai.runs import record_run
 from stk.ai.schemas import EveningReview
 from stk.config.ai import AiConfig
+from stk.ingest.calendar import is_trading_day
 from stk.playground.context import PlayCtx
 from stk.store.db.engine import transaction
 from stk.store.db.repos import ai_briefs
+
+EXCHANGE = "NSE"
+
+_PERCENT = re.compile(r"%|\bper\s?cent\b|\bpercent\b", re.IGNORECASE)
+# 23,446.8 / 23446.8 -- an index-level-shaped number, once the index names are removed.
+_LEVEL = re.compile(r"\b\d{1,3}(?:,\d{3})+(?:\.\d+)?\b|\b\d{4,}(?:\.\d+)?\b")
+# The payload has no breadth, volume or turnover; the model has invented "breadth" before.
+_NOT_GIVEN = re.compile(
+    r"\bbreadth\b|\badvanc(?:ers|es)\b|\bdecliners\b|\badvance[-/ ]decline\b"
+    r"|\bvolumes?\b|\bturnover\b", re.IGNORECASE)
 
 
 @dataclass
@@ -50,8 +69,29 @@ class ReviewResult:
     output_tokens: int = 0
 
 
-def semantic_problems(review: EveningReview, inp: ReviewInput) -> list[str]:
+def _overview_problems(overview: str, inp: ReviewInput) -> list[str]:
+    """The overview is prose, not a data table: the figures are shown beside it from the lake.
+
+    Deliberately narrow. It enforces "do not restate figures" and "do not describe data you were
+    not given", not "detect every fabrication". Index names are removed first so "NIFTY 500" is
+    not read as the number 500.
+    """
+    text = overview
+    for m in inp.moves.rows:
+        name = re.escape(m.index_code).replace("_", r"[\s_\-]*")
+        text = re.sub(name, " ", text, flags=re.IGNORECASE)
     problems: list[str] = []
+    if _PERCENT.search(text) or _LEVEL.search(text):
+        problems.append("overview must not state index levels or percentage moves -- they are "
+                        "displayed from the data beside your text; describe the session in words")
+    if _NOT_GIVEN.search(text):
+        problems.append("overview mentions market breadth / advances-declines / volume, none of "
+                        "which was given; describe only the index moves in the input")
+    return problems
+
+
+def semantic_problems(review: EveningReview, inp: ReviewInput) -> list[str]:
+    problems: list[str] = _overview_problems(review.overview, inp)
     seen: set[int] = set()
     for h in review.horizons:
         ranks = sorted(rp.rank for rp in h.ranked)
@@ -105,6 +145,23 @@ def _already_reviewed(conn: sqlite3.Connection, day: date) -> bool:
     return payload is not None and ai_briefs.ranked_pick_count(payload) > 0
 
 
+def _cannot_review(conn: sqlite3.Connection, inp: ReviewInput, day: date) -> str | None:
+    """Why a call would be worthless right now, or None. Every reason is a SKIP, never a failure."""
+    if not inp.has_content:
+        # No picks, no previews, no open positions, no index moves: a call could only produce
+        # invented commentary. Record the skip so the day is accounted for. Checked FIRST: with
+        # nothing to say, a missing index ingest is not the reason.
+        return ("nothing to review: no picks, no strategy previews, no open positions and no "
+                "index moves")
+    # An unknown calendar (None) counts as a trading day: the conservative direction. The index
+    # rows are not from `day`, so anything written would describe another session.
+    if inp.moves.is_stale_for(day) and is_trading_day(conn, day, EXCHANGE) is not False:
+        have = inp.moves.latest
+        return (f"index data for {day} is not ingested yet (latest: {have if have else 'none'})"
+                f" -- run `stk ingest indices --date {day}`, then generate again")
+    return None
+
+
 def run_evening_review(conn: sqlite3.Connection, ctx: PlayCtx, ai: AiConfig, client: LlmClient,
                        day: date, *, force: bool = False) -> ReviewResult:
     started = datetime.now(UTC)
@@ -124,15 +181,13 @@ def run_evening_review(conn: sqlite3.Connection, ctx: PlayCtx, ai: AiConfig, cli
                              status="failed", error=f"could not assemble input: {exc}")
         return ReviewResult("failed", rid, f"could not assemble input: {exc}")
 
-    if not inp.has_content:
-        # No picks, no previews, no open positions, no index moves: a call could only produce
-        # invented commentary. Record the skip so the day is accounted for.
+    reason = _cannot_review(conn, inp, day)
+    if reason is not None:
         with transaction(conn):
             rid, _ = _record(conn, ai, day, StructuredResult(None, 0, 0, 0, ai.model, ""),
-                             prompt_sha="", started=started, status="skipped",
-                             error="nothing to review: no picks, no strategy previews, "
-                                   "no open positions and no index moves")
-        return ReviewResult("skipped", rid, "nothing to review")
+                             prompt_sha="", started=started, status="skipped", error=reason)
+        return ReviewResult("skipped", rid,
+                            reason if inp.has_content else "nothing to review")
 
     user = prompt_json(inp.payload)
     prompt_sha = hashlib.sha256((EVENING_SYSTEM + user).encode()).hexdigest()

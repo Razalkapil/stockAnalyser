@@ -28,10 +28,15 @@ _PRAGMAS = (
 )
 
 
-def connect(db_path: Path) -> sqlite3.Connection:
-    """Open a connection with the app's standard pragmas applied."""
+def connect(db_path: Path, *, check_same_thread: bool = True) -> sqlite3.Connection:
+    """Open a connection with the app's standard pragmas applied.
+
+    `check_same_thread=False` is for a caller that hands ONE connection between threads strictly
+    one at a time (the API's per-request dependency); it does not make concurrent use safe.
+    """
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path, isolation_level=None)  # autocommit; callers use explicit tx
+    # autocommit; callers use explicit tx
+    conn = sqlite3.connect(db_path, isolation_level=None, check_same_thread=check_same_thread)
     conn.row_factory = sqlite3.Row
     for pragma in _PRAGMAS:
         conn.execute(pragma)

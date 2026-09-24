@@ -22,6 +22,7 @@ from stk.ingest.calendar import expected_data_date, is_trading_day
 from stk.ingest.fundamentals_metrics import load_metric_frame
 from stk.store import duck
 from stk.store.db.repos import ai_briefs, ai_requests
+from stk.store.market import index_moves
 from stk.strategies.proposals import list_proposals
 from stk.strategies.repo import StrategyRow, get_strategy, list_strategies, load_spec
 from stk.strategies.stats import BacktestStats, LiveStats, backtest_stats, live_stats
@@ -454,6 +455,7 @@ def stock_bars(parquet_root: Path, cfg: BacktestConfig, symbol: str, start: date
 # state below says WHICH, so the screen can say what to do about it.
 
 REVIEW_KIND = "evening_review"
+LAB_KIND = "strategy_lab"
 
 #: An ai_runs status -> the state to report, with the run's own error as the reason.
 _RUN_STATES: dict[str, s.BriefState] = {
@@ -471,27 +473,28 @@ _REQUEST_STATES: dict[str, s.BriefState] = {"queued": "queued", "running": "runn
 _CLOSED_REQUEST_STATES: dict[str, s.BriefState] = {"done": "skipped", "error": "failed"}
 
 
-def _unready_state(conn: sqlite3.Connection, day: str) -> tuple[s.BriefState, str | None]:
-    """Why there is no brief for ``day`` -- checked most-recent-intent first.
+def _unready_state(conn: sqlite3.Connection, day: str, kind: str = REVIEW_KIND
+                   ) -> tuple[s.BriefState, str | None]:
+    """Why there is no result of ``kind`` for ``day`` -- checked most-recent-intent first.
 
     An open request outranks the last run: having just pressed Generate, "queued" is the true
     answer even though yesterday's attempt failed.
     """
-    req = ai_requests.open_request(conn, REVIEW_KIND, day)
+    req = ai_requests.open_request(conn, kind, day)
     if req is not None:
         return (_REQUEST_STATES.get(req.status, "queued"),
                 "waiting for `stk ai worker`" if req.status == "queued"
                 else "the review is running")
     run = conn.execute(
         "SELECT status, error FROM ai_runs WHERE kind=? AND business_date=? "
-        "ORDER BY run_id DESC LIMIT 1", (REVIEW_KIND, day)).fetchone()
+        "ORDER BY run_id DESC LIMIT 1", (kind, day)).fetchone()
     if run is not None:
         state = _RUN_STATES.get(run["status"])
         if state is not None:
             return state, run["error"]
         # A 'success' run with no stored output: it ran, and there is nothing to show.
         return "pending", "the review ran but stored no brief"
-    last = ai_requests.latest(conn, REVIEW_KIND, day)
+    last = ai_requests.latest(conn, kind, day)
     if last is not None and last.error:
         return _CLOSED_REQUEST_STATES.get(last.status, "pending"), last.error
     return "pending", None
@@ -513,7 +516,7 @@ def list_briefs(conn: sqlite3.Connection) -> list[s.BriefListItem]:
     return out
 
 
-def get_brief(conn: sqlite3.Connection, day: str) -> s.Brief:
+def get_brief(conn: sqlite3.Connection, parquet_root: Path, day: str) -> s.Brief:
     row = conn.execute(
         "SELECT payload_json, created_at FROM ai_outputs WHERE kind='brief' AND business_date=? "
         "ORDER BY output_id DESC LIMIT 1", (day,)).fetchone()
@@ -523,16 +526,24 @@ def get_brief(conn: sqlite3.Connection, day: str) -> s.Brief:
                        coverage=None, generated_at=None, overview="", notable_picks=[],
                        conflicts=[], position_notes=[])
     p = json.loads(row["payload_json"])
+    moves = index_moves(parquet_root, date.fromisoformat(day))
     return s.Brief(
         date=day, pending=False, state="ready", state_reason=None,
-        coverage=ai_briefs.coverage_of(p), generated_at=row["created_at"], overview=p["overview"],
+        coverage=ai_briefs.coverage_of(p), generated_at=row["created_at"],
+        market=[s.IndexMove(code=m.index_code, name=m.name, close=m.close,
+                            change_pct=m.change_pct, as_of=m.as_of.isoformat(),
+                            prev_close=m.prev_close, prev_date=m.prev_date.isoformat())
+                for m in moves.rows],
+        market_as_of=moves.as_of.isoformat() if moves.as_of else None,
+        overview=p["overview"],
         notable_picks=[{"symbol": n["symbol"], "note": n["note"]} for n in p["notable_picks"]],
         conflicts=list(p["conflicts"]),
         position_notes=[{"symbol": n["symbol"], "note": n["note"]} for n in p["position_notes"]],
     )
 
 
-def request_brief(conn: sqlite3.Connection, day: str, *, force: bool = False) -> s.Brief:
+def request_brief(conn: sqlite3.Connection, parquet_root: Path, day: str, *,
+                  force: bool = False) -> s.Brief:
     """Ask for an evening review. Returns the day's brief with its new state.
 
     This inserts a row and nothing else -- no model is called here and none can be. Pressing
@@ -540,4 +551,41 @@ def request_brief(conn: sqlite3.Connection, day: str, *, force: bool = False) ->
     """
     ai_requests.enqueue(conn, kind=REVIEW_KIND, business_date=day, force=force,
                         requested_by="dashboard")
-    return get_brief(conn, day)
+    return get_brief(conn, parquet_root, day)
+
+
+# --- strategy lab --------------------------------------------------------------------------
+# The lab is the other AI job. Same rule as the brief: the API can only ASK (an ai_requests row)
+# and `stk ai worker` runs it out of process. A run is one model call plus hours of local
+# backtests, so what the screen must be able to say -- queued, running, already done today -- is
+# the whole point of this status.
+
+
+def get_lab_run(conn: sqlite3.Connection, day: str) -> s.LabRun:
+    """Where the strategy lab stands for ``day``."""
+    last = conn.execute(
+        "SELECT status, COALESCE(finished_at, started_at) AS at FROM ai_runs "
+        "WHERE kind=? ORDER BY run_id DESC LIMIT 1", (LAB_KIND,)).fetchone()
+    done = conn.execute(
+        "SELECT 1 FROM ai_runs WHERE kind=? AND business_date=? AND status='success' LIMIT 1",
+        (LAB_KIND, day)).fetchone()
+    # An open request outranks an earlier success: having just pressed the button (with force),
+    # "queued" is the true answer.
+    open_req = ai_requests.open_request(conn, LAB_KIND, day)
+    if open_req is None and done is not None:
+        state: s.BriefState = "ready"
+        reason: str | None = None
+    else:
+        state, reason = _unready_state(conn, day, LAB_KIND)
+    return s.LabRun(
+        date=day, state=state, state_reason=reason,
+        last_run_at=last["at"] if last else None,
+        last_run_status=last["status"] if last else None,
+    )
+
+
+def request_lab(conn: sqlite3.Connection, day: str, *, force: bool = False) -> s.LabRun:
+    """Ask for a strategy-lab run. Inserts a row and nothing else -- no model is called here."""
+    ai_requests.enqueue(conn, kind=LAB_KIND, business_date=day, force=force,
+                        requested_by="dashboard")
+    return get_lab_run(conn, day)

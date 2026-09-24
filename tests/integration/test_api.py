@@ -11,7 +11,7 @@ import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
-from integration.lake import write_panel_by_year
+from integration.lake import write_index_by_year, write_panel_by_year
 from stk.api import auth
 from stk.api.app import create_app
 from stk.config.backtest import load_backtest_config as _load_cfg
@@ -426,6 +426,28 @@ class TestStatusAndBriefs:
                          {**self.BASE, "horizons": [{"horizon": "swing", "ranked": []}]})
         assert client.get(f"/api/briefs/{day}").json()["coverage"] == "preview"
 
+    def test_the_brief_carries_the_index_closes_of_its_own_day_from_the_lake(self, world):
+        """The figures on screen must be data, not model prose -- and they must be the brief's own
+        day's, not the latest row (the 2026-09-24 defect showed 09-23's close on 09-24)."""
+        client, db_path, _t, app = world
+        span = DAYS[50:62]
+        write_index_by_year(app.state.ctx.parquet_root, "NIFTY_50", "Nifty 50", span,
+                            [23000.0 + 100.0 * i for i in range(len(span))])
+        day = DAYS[61].isoformat()
+        self.store_brief(db_path, day, {**self.BASE, "overview": "A firm session.",
+                                        "horizons": []})
+        b = client.get(f"/api/briefs/{day}").json()
+        (m,) = b["market"]
+        assert m["code"] == "NIFTY_50" and m["asOf"] == day and b["marketAsOf"] == day
+        assert m["close"] == 24100.0 and m["prevDate"] == DAYS[60].isoformat()
+        assert m["changePct"] == pytest.approx((24100.0 / 24000.0 - 1) * 100, abs=0.01)
+
+        # A brief for a day the lake has no index row for is labelled with the OLDER date.
+        later = DAYS[64].isoformat()
+        self.store_brief(db_path, later, {**self.BASE, "horizons": []})
+        b2 = client.get(f"/api/briefs/{later}").json()
+        assert b2["marketAsOf"] == DAYS[61].isoformat() != later
+
     def test_a_pending_brief_has_no_coverage(self, world):
         client = world[0]
         day = client.get("/api/briefs").json()[0]["date"]
@@ -485,6 +507,63 @@ class TestStatusAndBriefs:
         n = conn.execute("SELECT count(*) AS n FROM ai_requests").fetchone()["n"]
         conn.close()
         assert n == 0
+
+
+class TestLabButton:
+    def test_generate_queues_a_lab_request_and_calls_no_model(self, world):
+        client, db_path, _t, _ = world
+        r = client.post("/api/proposals/generate")
+        assert r.status_code == 200 and r.json()["state"] == "queued"
+        conn = connect(db_path)
+        rows = conn.execute("SELECT kind, status, requested_by FROM ai_requests").fetchall()
+        runs = conn.execute("SELECT count(*) AS n FROM ai_runs").fetchone()["n"]
+        conn.close()
+        assert [tuple(x) for x in rows] == [("strategy_lab", "queued", "dashboard")]
+        assert runs == 0
+
+    def test_pressing_it_twice_queues_one_request(self, world):
+        client, db_path, _t, _ = world
+        assert client.post("/api/proposals/generate").status_code == 200
+        assert client.post("/api/proposals/generate").status_code == 200
+        conn = connect(db_path)
+        n = conn.execute("SELECT count(*) AS n FROM ai_requests").fetchone()["n"]
+        conn.close()
+        assert n == 1
+
+    def test_status_says_never_run_then_queued_then_ready(self, world):
+        client, db_path, _t, _ = world
+        assert client.get("/api/proposals/lab").json()["state"] == "pending"
+        client.post("/api/proposals/generate")
+        assert client.get("/api/proposals/lab").json()["state"] == "queued"
+
+        conn = connect(db_path)
+        day = client.get("/api/proposals/lab").json()["date"]
+        conn.execute("UPDATE ai_requests SET status='done'")
+        conn.execute(
+            "INSERT INTO ai_runs (kind, business_date, model, status, started_at) "
+            "VALUES ('strategy_lab', ?, 'm', 'success', '2026-01-01T00:00:00+00:00')", (day,))
+        conn.close()
+        body = client.get("/api/proposals/lab").json()
+        assert body["state"] == "ready" and body["lastRunStatus"] == "success"
+
+    def test_a_forced_rerun_reads_as_queued_not_ready(self, world):
+        """Having just pressed the button, 'queued' is the truth even though today succeeded."""
+        client, db_path, _t, _ = world
+        day = client.get("/api/proposals/lab").json()["date"]
+        conn = connect(db_path)
+        conn.execute(
+            "INSERT INTO ai_runs (kind, business_date, model, status, started_at) "
+            "VALUES ('strategy_lab', ?, 'm', 'success', '2026-01-01T00:00:00+00:00')", (day,))
+        conn.close()
+        assert client.get("/api/proposals/lab").json()["state"] == "ready"
+        assert client.post("/api/proposals/generate?force=true").json()["state"] == "queued"
+
+    def test_the_brief_state_machine_is_unchanged_by_the_lab(self, world):
+        """_unready_state is shared by kind: a lab run must never leak into a day's brief."""
+        client = world[0]
+        client.post("/api/proposals/generate")
+        day = client.get("/api/briefs").json()[0]["date"]
+        assert client.get(f"/api/briefs/{day}").json()["state"] == "pending"
 
 
 class TestPreviews:

@@ -19,6 +19,7 @@ from stk.api import schemas as s
 from stk.api.deps import ApiContext, Conn, Ctx, require_token
 from stk.backtest.setup import make_rates_fn
 from stk.config.backtest import BacktestConfig, load_backtest_config
+from stk.core.time import now_ist
 from stk.playground.context import PlayCtx
 from stk.strategies.proposals import ProposalError
 from stk.strategies.proposals import approve as approve_proposal
@@ -110,6 +111,20 @@ def proposals(conn: Conn) -> list[s.ProposalOut]:
     return services.proposal_list(conn)
 
 
+@router.get("/api/proposals/lab", response_model=s.LabRun)
+def lab_status(conn: Conn) -> s.LabRun:
+    """Where today's strategy-lab run stands. Declared before ``/{pid}`` routes so the literal
+    path is never read as a proposal id."""
+    return services.get_lab_run(conn, now_ist().date().isoformat())
+
+
+@router.post("/api/proposals/generate", response_model=s.LabRun)
+def lab_generate(conn: Conn, force: bool = False) -> s.LabRun:
+    """Queue a strategy-lab run for today. Only writes a row: `stk ai worker` runs it, so a web
+    request still cannot reach a model. Pressing twice returns the request already in flight."""
+    return services.request_lab(conn, now_ist().date().isoformat(), force=force)
+
+
 @router.post("/api/proposals/{pid}/approve", response_model=list[s.ProposalOut])
 def proposal_approve(pid: int, conn: Conn, body: s.DecisionRequest | None = None
                      ) -> list[s.ProposalOut]:
@@ -160,12 +175,12 @@ def briefs(conn: Conn) -> list[s.BriefListItem]:
 
 
 @router.get("/api/briefs/{day}", response_model=s.Brief)
-def brief(day: str, conn: Conn) -> s.Brief:
-    return services.get_brief(conn, _day(day))
+def brief(day: str, conn: Conn, ctx: Ctx) -> s.Brief:
+    return services.get_brief(conn, ctx.parquet_root, _day(day))
 
 
 @router.post("/api/briefs/{day}/generate", response_model=s.Brief)
-def generate_brief(day: str, conn: Conn, force: bool = False) -> s.Brief:
+def generate_brief(day: str, conn: Conn, ctx: Ctx, force: bool = False) -> s.Brief:
     """Queue an evening review for a day.
 
     The only thing this writes is a row in ``ai_requests``; ``stk ai worker`` does the work.
@@ -173,7 +188,7 @@ def generate_brief(day: str, conn: Conn, force: bool = False) -> s.Brief:
     ``stk.api`` -- and this route is what makes that restriction bearable rather than a dead
     end. Idempotent: a day already queued or running is returned as-is, not queued twice.
     """
-    return services.request_brief(conn, _day(day), force=force)
+    return services.request_brief(conn, ctx.parquet_root, _day(day), force=force)
 
 
 def create_app(*, sqlite_path: Path, parquet_root: Path, cfg: BacktestConfig | None = None,

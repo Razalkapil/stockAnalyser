@@ -54,11 +54,16 @@ class Summary:
     positions: list[PositionView] = field(default_factory=list)
 
 
-def _marks(ctx: PlayCtx, symbols: list[str]) -> dict[str, tuple[date, Decimal]]:
-    return marketdata.last_closes(ctx.parquet_root, ctx.cfg, symbols, today_ist())
+def _marks(ctx: PlayCtx, symbols: list[str], on: date) -> dict[str, tuple[date, Decimal]]:
+    return marketdata.last_closes(ctx.parquet_root, ctx.cfg, symbols, on)
 
 
-def summarise(conn: sqlite3.Connection, ctx: PlayCtx, portfolio_id: int) -> Summary:
+def summarise(conn: sqlite3.Connection, ctx: PlayCtx, portfolio_id: int,
+              day: date | None = None) -> Summary:
+    """A portfolio as of ``day`` (default: today). A report ABOUT a past day (the evening brief
+    for 2026-09-18, re-run later) must pass that day: marks, days held and the XIRR end date all
+    follow it, so nothing quietly reads today's prices."""
+    on = day or today_ist()
     pf = conn.execute("SELECT * FROM portfolios WHERE portfolio_id=?", (portfolio_id,)).fetchone()
     if pf is None:
         raise KeyError(f"no portfolio {portfolio_id}")
@@ -68,7 +73,7 @@ def summarise(conn: sqlite3.Connection, ctx: PlayCtx, portfolio_id: int) -> Summ
     held = conn.execute(
         "SELECT * FROM positions WHERE portfolio_id=? AND qty>0 ORDER BY symbol",
         (portfolio_id,)).fetchall()
-    marks = _marks(ctx, [r["symbol"] for r in held])
+    marks = _marks(ctx, [r["symbol"] for r in held], on)
     views: list[PositionView] = []
     invested = market_value = unrealised = ZERO
     as_of: date | None = None
@@ -89,7 +94,7 @@ def summarise(conn: sqlite3.Connection, ctx: PlayCtx, portfolio_id: int) -> Summ
         views.append(PositionView(
             r["symbol"], qty, avg, ltp, upnl,
             float(ltp / avg - 1) if ltp is not None and avg else None,
-            (today_ist() - opened).days))
+            (on - opened).days))
 
     realised = sum((Decimal(r[0]) for r in conn.execute(
         "SELECT realised_pnl FROM positions WHERE portfolio_id=?", (portfolio_id,))), ZERO)
@@ -106,7 +111,7 @@ def summarise(conn: sqlite3.Connection, ctx: PlayCtx, portfolio_id: int) -> Summ
         "SELECT ts, amount FROM cash_ledger WHERE portfolio_id=? AND kind='deposit'",
         (portfolio_id,)).fetchall()
     flows = [(date.fromisoformat(d["ts"][:10]), -float(Decimal(d["amount"]))) for d in deposits]
-    flows.append((today_ist(), float(value)))
+    flows.append((on, float(value)))
     rate = xirr(flows) if start > 0 else None
 
     daily = conn.execute(

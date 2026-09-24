@@ -190,12 +190,34 @@ BriefState = Literal["ready", "pending", "queued", "running", "skipped", "failed
 BriefCoverage = Literal["picks", "preview"]
 
 
+class LabRun(Wire):
+    """Where the weekly strategy lab stands for a day (see services.get_lab_run)."""
+
+    date: str
+    state: BriefState
+    state_reason: str | None = None
+    last_run_at: str | None = None
+    last_run_status: str | None = None
+
+
 class BriefListItem(Wire):
     date: str
     pending: bool
     state: BriefState
     state_reason: str | None = None
     coverage: BriefCoverage | None = None
+
+
+class IndexMove(Wire):
+    """One benchmark's close, read from the lake -- never text a model wrote."""
+
+    code: str
+    name: str
+    close: float
+    change_pct: float
+    as_of: str
+    prev_close: float
+    prev_date: str
 
 
 class Brief(Wire):
@@ -205,6 +227,11 @@ class Brief(Wire):
     state_reason: str | None
     coverage: BriefCoverage | None = None
     generated_at: str | None
+    #: Index closes for the brief's day, derived from ``indices_daily`` on every read.
+    market: list[IndexMove] = []
+    #: The date those figures are actually from; differs from ``date`` when the day's index
+    #: rows are not in the lake, so the screen can say so instead of implying they are.
+    market_as_of: str | None = None
     overview: str
     notable_picks: list[dict[str, str]]
     conflicts: list[str]

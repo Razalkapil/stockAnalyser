@@ -100,6 +100,36 @@ def run(conn, root, model, promo=None):
                             promo=promo or lenient(), day=DAY)
 
 
+class TestLabIsNotRepeatedByAccident:
+    """The partial unique index only stops a second OPEN request. Once one closes, nothing stops
+    the next -- and a lab run is a model call plus hours of local backtests."""
+
+    def test_a_day_that_already_succeeded_is_skipped_without_a_call(self, lab):
+        conn, root, _ = lab
+        first = Model(reply([idea()]))
+        assert run(conn, root, first).status == "success" and first.calls == 1
+
+        second = Model()
+        again = run(conn, root, second)
+        assert again.status == "skipped" and "already ran" in again.detail
+        assert second.calls == 0
+
+    def test_force_runs_it_again(self, lab):
+        conn, root, _ = lab
+        run(conn, root, Model(reply([idea()])))
+        model = Model(reply([]))
+        result = run_strategy_lab(conn, AI, model, parquet_root=root, cfg=cfg(),
+                                  promo=lenient(), day=DAY, force=True)
+        assert result.status == "success" and model.calls == 1
+
+    def test_a_failed_run_does_not_settle_the_day(self, lab):
+        """Only a success counts; a provider outage must stay retryable."""
+        conn, root, _ = lab
+        assert run(conn, root, Model(LlmError("down"))).status == "failed"
+        retry = Model(reply([]))
+        assert run(conn, root, retry).status == "success" and retry.calls == 1
+
+
 class TestSpecValidation:
     def existing(self):
         return {"seed_one"}

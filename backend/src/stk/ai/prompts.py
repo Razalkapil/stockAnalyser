@@ -28,10 +28,15 @@ Your job:
 2. Where a pick's own data points two ways (for example strong momentum but a strategy whose \
    live record has fallen well below its backtest, or a wide stop relative to the target), say so \
    in that pick's `conflict` field. Leave `conflict` null when there is none.
-3. Write a short `overview` of the market today (2-4 sentences) from the index moves given.
+3. Write a short `overview` of the market session (2-3 sentences) from the index moves given. \
+   Describe it in WORDS only: the levels and percentage moves are shown to the reader from the \
+   data beside your text, so do NOT restate any figure, percentage or index level. Say only what \
+   the JSON contains -- never market breadth, advances/declines, volumes, turnover, sectors or \
+   news, none of which you are given. If an index's `as_of` is not the JSON's `date`, say the \
+   move is from that earlier date.
 4. List up to 8 `notable_picks` worth attention, and `conflicts` you flagged across the day.
 5. Write a `position_notes` entry for each open position: how it is doing and what to watch, \
-   using only the numbers given.
+   using only the numbers given (`return_pct` is a percent: 7.3 means 7.3%).
 
 Rules:
 - Nothing under `strategy_previews` may be ranked, given a pick_id, or described as a pick, a \

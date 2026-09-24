@@ -88,7 +88,7 @@ def nightly_steps(day: date) -> list[Step]:
         Step("track", ("picks", "track"), needs=("prices",)),
         Step("playground_eod", ("playground", "eod", "--date", d), needs=("prices",)),
         # Never blocks and never fails the run (it exits 0); its failures live in ai_runs.
-        Step("ai_evening", ("ai", "evening", "--date", d), needs=("prices",)),
+        Step("ai_evening", ("ai", "evening", "--date", d), needs=("prices", "indices")),
     ]
 
 

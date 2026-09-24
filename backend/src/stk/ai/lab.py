@@ -97,6 +97,19 @@ def lab_problems(reply: LabReply, strategies: dict[str, str], horizons: dict[str
     return problems
 
 
+def _already_ran(conn: sqlite3.Connection, day: date) -> bool:
+    """Has the lab already produced proposals for ``day``?
+
+    The partial unique index only stops a second OPEN request; once one closes, nothing stops the
+    next. A lab run is a model call plus hours of local backtests, so a button must not be able
+    to repeat it by accident. Only a ``success`` settles the day: a failed or invalid run is
+    always worth retrying.
+    """
+    return conn.execute(
+        "SELECT 1 FROM ai_runs WHERE kind='strategy_lab' AND business_date=? AND status='success' "
+        "LIMIT 1", (day.isoformat(),)).fetchone() is not None
+
+
 def run_strategy_lab(
     conn: sqlite3.Connection,
     ai: AiConfig,
@@ -107,10 +120,15 @@ def run_strategy_lab(
     promo: PromotionConfig,
     day: date,
     exchange: str = "NSE",
+    force: bool = False,
 ) -> LabResult:
     started = datetime.now(UTC)
     if not ai.enabled:
         return LabResult("skipped", detail="AI is disabled in config/ai.yaml")
+
+    if not force and _already_ran(conn, day):
+        return LabResult("skipped",
+                         detail=f"the strategy lab already ran for {day} (use --force)")
 
     horizons = load_horizons()
     strategies = {s.slug: s.status for s in list_strategies(conn)}

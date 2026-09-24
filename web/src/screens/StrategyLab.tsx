@@ -1,11 +1,14 @@
-import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
 import { EmptyState } from "../components/EmptyState";
 import { EquityChart } from "../components/EquityChart";
 import { StatusPill } from "../components/StatusPill";
 import {
   usePreviews,
   useProposalAction,
+  useLabRun,
   useProposals,
+  useRunLab,
   useStrategies,
   useStrategy,
   useStrategyAction,
@@ -425,11 +428,82 @@ function ProposalCard({ p, onView, viewing }: { p: ProposalOut; onView: (slug: s
   );
 }
 
+/** Why the lab is not offering to run, or what it is doing. `pending` = never run today. */
+function labStatusLine(state: string | undefined, reason: string | null | undefined): string {
+  switch (state) {
+    case "queued":
+      return "Queued — waiting for stk ai worker to pick it up.";
+    case "running":
+      return "Running — one model call, then local backtests. This can take hours.";
+    case "ready":
+      return "The lab has already run today.";
+    case "failed":
+    case "invalid_output":
+      return `The last attempt did not complete${reason ? `: ${reason}` : ""}.`;
+    case "skipped":
+      return reason ?? "The last attempt was skipped.";
+    default:
+      return "Not run today.";
+  }
+}
+
+function RunLab() {
+  const qc = useQueryClient();
+  const { data: run } = useLabRun();
+  const start = useRunLab();
+  const state = run?.state;
+  const inFlight = state === "queued" || state === "running" || start.isPending;
+  const already = state === "ready";
+
+  // A run finishing is the moment new proposals appear; the list does not poll on its own.
+  const wasInFlight = useRef(false);
+  useEffect(() => {
+    if (wasInFlight.current && !inFlight) void qc.invalidateQueries({ queryKey: ["proposals"] });
+    wasInFlight.current = inFlight;
+  }, [inFlight, qc]);
+
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <button
+          type="button"
+          disabled={inFlight}
+          onClick={() => start.mutate(already)}
+          style={{
+            background: inFlight ? color.inset : tint.accent(0.18),
+            border: `1px solid ${inFlight ? color.border : color.accent}`,
+            color: inFlight ? color.textMuted : color.accentHover,
+            font: `500 12px ${font.sans}`,
+            borderRadius: 5,
+            padding: "7px 12px",
+            cursor: inFlight ? "default" : "pointer",
+          }}
+        >
+          {inFlight ? "Queued…" : already ? "Run again" : "Run lab now"}
+        </button>
+        <span style={{ font: `400 11.5px ${font.sans}`, color: color.textFaint }}>
+          {labStatusLine(state, run?.stateReason)}
+        </span>
+      </div>
+      <div style={{ font: `400 11px ${font.sans}`, color: color.textFaint, marginTop: 5 }}>
+        Costs one model call and runs walk-forward backtests locally. Nothing it proposes changes
+        anything until it passes the gate and you approve it.
+      </div>
+      {start.error && (
+        <div role="alert" style={{ color: color.negative, marginTop: 6, font: `400 12px ${font.sans}` }}>
+          {start.error.message}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Proposals({ selected, onView }: { selected: string | null; onView: (slug: string) => void }) {
   const { data, isLoading, error } = useProposals();
   return (
     <>
       <div style={{ font: `600 13px ${font.sans}`, marginBottom: 10 }}>AI proposals — weekly lab</div>
+      <RunLab />
       {isLoading && <div style={{ color: color.textFaint }}>Loading…</div>}
       {error && (
         <div role="alert" style={{ color: color.negative }}>

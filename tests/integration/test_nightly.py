@@ -106,8 +106,11 @@ def test_a_runner_that_raises_is_recorded_and_the_run_continues(conn):
 
     report = run_steps(conn, nightly_steps(DAY), prefix="nightly", business_date=DAY,
                        runner=runner)
-    assert report.failed == ["indices"]
+    # ai_evening declares `indices` as a dependency: a brief written without today's index close
+    # would describe another session (2026-09-24), so it is recorded as blocked, never omitted.
+    assert report.failed == ["indices", "ai_evening"]
     assert "cannot spawn" in rows(conn)["nightly.indices"]["error_message"]
+    assert "indices" in rows(conn)["nightly.ai_evening"]["error_message"]
 
 
 def test_a_timeout_is_a_failure(monkeypatch):

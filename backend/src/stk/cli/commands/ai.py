@@ -14,13 +14,14 @@ from stk.ai.inputs import build_input
 from stk.ai.lab import run_strategy_lab
 from stk.ai.lab_inputs import build_lab_input
 from stk.ai.prompts import EVENING_SYSTEM, LAB_SYSTEM
-from stk.ai.worker import drain
+from stk.ai.worker import WorkerDeps, drain
 from stk.backtest.setup import make_rates_fn
 from stk.config.ai import AiConfig, load_ai_config
 from stk.config.backtest import load_backtest_config
 from stk.config.promotion import load_promotion_config
 from stk.config.settings import get_settings
 from stk.core.time import today_ist
+from stk.core.version import source_fingerprint
 from stk.playground.context import PlayCtx
 from stk.store.db.engine import connect
 from stk.store.db.repos import ai_requests
@@ -91,6 +92,9 @@ def lab(
     dry_run: Annotated[
         bool, typer.Option("--dry-run", help="Print the prompt and call nothing")
     ] = False,
+    force: Annotated[
+        bool, typer.Option("--force", help="Re-run even if the lab already ran today")
+    ] = False,
 ) -> None:
     """Weekly strategy lab: ask for new strategy ideas and demotions.
 
@@ -118,7 +122,8 @@ def lab(
             raise typer.Exit(code=1) from exc
         result = run_strategy_lab(
             conn, ai, client, parquet_root=settings.paths.parquet,
-            cfg=load_backtest_config(), promo=load_promotion_config(), day=today_ist())
+            cfg=load_backtest_config(), promo=load_promotion_config(), day=today_ist(),
+            force=force)
     finally:
         conn.close()
     colour = {"success": "green", "skipped": "yellow"}.get(result.status, "red")
@@ -138,17 +143,27 @@ def worker(
     interval: Annotated[
         int, typer.Option("--interval", help="Seconds to wait between polls when looping")
     ] = 10,
+    reload: Annotated[
+        bool, typer.Option(
+            "--reload/--no-reload",
+            help="Exit cleanly when the stk source changes, so the supervisor restarts it")
+    ] = True,
 ) -> None:
-    """Run AI requests queued by the dashboard.
+    """Run AI requests queued by the dashboard (evening reviews first, then strategy labs).
 
     The API may ASK for a model call but can never make one (an import-linter contract keeps
     stk.ai out of stk.api), so the "Generate now" button only writes a row to ai_requests.
     This is what executes those rows. Run it alongside the API, or with --once after pressing
     the button.
+
+    A long-running process keeps the code it imported at startup, so by default this exits once
+    the queue is empty and the ``stk`` source has changed; systemd's ``Restart=always`` brings it
+    back on the new code. (It once served a fix two days stale.) It never exits with work queued.
     """
     settings = get_settings()
     ai = load_ai_config()
-    ctx = PlayCtx(settings.paths.parquet, load_backtest_config(), make_rates_fn())
+    backtest_cfg = load_backtest_config()
+    ctx = PlayCtx(settings.paths.parquet, backtest_cfg, make_rates_fn())
     conn = connect(settings.paths.sqlite)
     try:
         try:
@@ -156,9 +171,12 @@ def worker(
         except LlmError as exc:
             typer.secho(f"AI unavailable: {exc}", fg="red")
             raise typer.Exit(code=1) from exc
+        deps = WorkerDeps(ctx=ctx, ai=ai, client=client, promo=load_promotion_config(),
+                          backtest_cfg=backtest_cfg, parquet_root=settings.paths.parquet)
+        started_with = source_fingerprint()
 
         def claimed(req: ai_requests.AiRequest) -> None:
-            typer.echo(f"request #{req.request_id}: evening review for {req.business_date}"
+            typer.echo(f"request #{req.request_id}: {req.kind} for {req.business_date}"
                        + (" (forced)" if req.force else ""))
 
         def done(_req: ai_requests.AiRequest, status: str) -> None:
@@ -166,10 +184,15 @@ def worker(
             typer.secho(f"  {status}", fg=colour)
 
         while True:
-            result = drain(conn, ctx, ai, client, on_claim=claimed, on_done=done)
+            result = drain(conn, deps, on_claim=claimed, on_done=done)
             if once:
                 if not result.handled:
                     typer.echo("Nothing queued.")
+                return
+            # Only ever between drains, so a request can never be abandoned mid-run.
+            if reload and source_fingerprint() != started_with:
+                typer.echo("stk source changed since this worker started; exiting so it "
+                           "restarts on the new code.")
                 return
             time.sleep(interval)
     finally:

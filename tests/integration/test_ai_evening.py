@@ -6,9 +6,10 @@ import json
 
 import pytest
 
+from integration.lake import write_index_by_year
 from integration.test_api import DAYS, world  # noqa: F401 (fixture)
 from stk.ai.client import LlmError, LlmReply
-from stk.ai.evening import run_evening_review, semantic_problems
+from stk.ai.evening import _cannot_review, run_evening_review, semantic_problems
 from stk.ai.inputs import build_input
 from stk.ai.schemas import EveningReview
 from stk.backtest.setup import make_rates_fn
@@ -56,6 +57,13 @@ def env(world):  # noqa: F811
     _client, db_path, _token, app = world
     conn = connect(db_path)
     ctx = PlayCtx(app.state.ctx.parquet_root, app.state.ctx.cfg, make_rates_fn())
+    # Index closes around DAY only: the review must find a row FROM `DAY`, and the days far from
+    # it stay index-less so "nothing to review" remains reachable.
+    span = DAYS[50:71]
+    for code, name, base in (("NIFTY_50", "Nifty 50", 23000.0),
+                             ("NIFTY_500", "Nifty 500", 22000.0)):
+        write_index_by_year(ctx.parquet_root, code, name, span,
+                            [base + 10.0 * i for i in range(len(span))])
     ai = AiConfig(model="claude-sonnet-5",
                   pricing_usd_per_mtok={"claude-sonnet-5": Price(input=2.0, output=10.0)})
     yield conn, ctx, ai, world
@@ -395,3 +403,58 @@ class TestRun:
         assert cfg.estimate_cost_usd("mystery-model", 1, 1) is None
 
 
+
+
+class TestBriefDescribesItsOwnDay:
+    """The 2026-09-24 defect: a review run before that day's index ingest was handed D-1's row and
+    described it as D's. A brief for day D describes D or does not exist."""
+
+    def test_a_day_whose_index_rows_have_not_landed_is_refused_not_described(self, env):
+        conn, ctx, ai, _ = env
+        # Rows exist up to DAYS[70]; DAYS[71] is the day the nightly has not ingested yet.
+        day = DAYS[71]
+        m = Model()
+        r = run_evening_review(conn, ctx, ai, m, day)
+        assert r.status == "skipped" and m.calls == 0
+        assert "not ingested yet" in r.detail and str(DAYS[70]) in r.detail
+        assert conn.execute("SELECT COUNT(*) FROM ai_outputs").fetchone()[0] == 0
+
+    def test_the_same_day_is_reviewed_once_its_rows_exist(self, env):
+        conn, ctx, ai, _ = env
+        day = DAYS[71]
+        assert run_evening_review(conn, ctx, ai, Model(), day).status == "skipped"
+        write_index_by_year(ctx.parquet_root, "NIFTY_50", "Nifty 50", [day], [23500.0])
+        write_index_by_year(ctx.parquet_root, "NIFTY_500", "Nifty 500", [day], [22500.0])
+        inp = build_input(conn, ctx, ai, day)
+        assert not inp.moves.is_stale_for(day)
+        assert {m.as_of for m in inp.moves.rows} == {day}
+
+    def test_the_payload_says_which_day_each_figure_is_from(self, env):
+        conn, ctx, ai, _ = env
+        inp = build_input(conn, ctx, ai, DAY)
+        row = inp.payload["index_moves"][0]
+        assert row["as_of"] == DAY.isoformat() and row["prev_as_of"] < row["as_of"]
+
+    def test_a_confirmed_holiday_is_not_refused_for_want_of_an_index_row(self, env):
+        conn, ctx, ai, _ = env
+        day = DAYS[71]
+        conn.execute(
+            "INSERT INTO trading_calendar (cal_date, exchange, segment, is_trading_day, source, "
+            "captured_at) VALUES (?, 'NSE', 'CM', 0, 'test', '2025-01-01')", (day.isoformat(),))
+        conn.commit()
+        inp = build_input(conn, ctx, ai, day)
+        assert _cannot_review(conn, inp, day) is None
+
+    def test_an_overview_that_restates_figures_or_invents_breadth_is_rejected(self, env):
+        conn, ctx, ai, _ = env
+        inp = build_input(conn, ctx, ai, DAY)
+        base = json.loads(good_reply(inp).text)
+
+        def problems(overview):
+            return semantic_problems(EveningReview.model_validate({**base, "overview": overview}),
+                                     inp)
+        assert problems("The NIFTY 50 slipped 1.64% to 23,063.1.")
+        assert problems("Both indices fell, with breadth clearly negative.")
+        assert problems("Turnover was heavy.")
+        # Index NAMES are not figures: "NIFTY 500" must not be read as the number 500.
+        assert problems("The NIFTY 500 fell alongside the NIFTY_50 and Nifty 50.") == []

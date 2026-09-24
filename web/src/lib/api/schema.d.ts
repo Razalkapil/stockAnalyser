@@ -224,6 +224,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/proposals/generate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Lab Generate
+         * @description Queue a strategy-lab run for today. Only writes a row: `stk ai worker` runs it, so a web
+         *     request still cannot reach a model. Pressing twice returns the request already in flight.
+         */
+        post: operations["lab_generate_api_proposals_generate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/proposals/lab": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Lab Status
+         * @description Where today's strategy-lab run stands. Declared before ``/{pid}`` routes so the literal
+         *     path is never read as a proposal id.
+         */
+        get: operations["lab_status_api_proposals_lab_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/proposals/{pid}/approve": {
         parameters: {
             query?: never;
@@ -449,6 +491,13 @@ export interface components {
             date: string;
             /** Generatedat */
             generatedAt: string | null;
+            /**
+             * Market
+             * @default []
+             */
+            market: components["schemas"]["IndexMove"][];
+            /** Marketasof */
+            marketAsOf?: string | null;
             /** Notablepicks */
             notablePicks: {
                 [key: string]: string;
@@ -577,6 +626,26 @@ export interface components {
             detail?: components["schemas"]["ValidationError"][];
         };
         /**
+         * IndexMove
+         * @description One benchmark's close, read from the lake -- never text a model wrote.
+         */
+        IndexMove: {
+            /** Asof */
+            asOf: string;
+            /** Changepct */
+            changePct: number;
+            /** Close */
+            close: number;
+            /** Code */
+            code: string;
+            /** Name */
+            name: string;
+            /** Prevclose */
+            prevClose: number;
+            /** Prevdate */
+            prevDate: string;
+        };
+        /**
          * JobAlert
          * @description A scheduled step whose latest run failed or ended degraded.
          */
@@ -594,6 +663,25 @@ export interface components {
         JournalUpdate: {
             /** Note */
             note: string;
+        };
+        /**
+         * LabRun
+         * @description Where the weekly strategy lab stands for a day (see services.get_lab_run).
+         */
+        LabRun: {
+            /** Date */
+            date: string;
+            /** Lastrunat */
+            lastRunAt?: string | null;
+            /** Lastrunstatus */
+            lastRunStatus?: string | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "ready" | "pending" | "queued" | "running" | "skipped" | "failed" | "invalid_output";
+            /** Statereason */
+            stateReason?: string | null;
         };
         /** NewOrder */
         NewOrder: {
@@ -1485,6 +1573,57 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProposalOut"][];
+                };
+            };
+        };
+    };
+    lab_generate_api_proposals_generate_post: {
+        parameters: {
+            query?: {
+                force?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LabRun"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    lab_status_api_proposals_lab_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LabRun"];
                 };
             };
         };

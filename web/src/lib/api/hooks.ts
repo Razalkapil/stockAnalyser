@@ -5,6 +5,7 @@ import type {
   Brief,
   BriefListItem,
   CostPreview,
+  LabRun,
   NewOrder,
   Pick,
   PortfolioDetail,
@@ -98,6 +99,32 @@ export function useGenerateBrief(day: string | null) {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["brief", day] });
       void qc.invalidateQueries({ queryKey: ["briefs"] });
+    },
+  });
+}
+
+/** Where the weekly strategy lab stands today. Polled only while a run is in flight: the run is
+ *  executed by `stk ai worker` out of process, so this screen learns it finished by asking. */
+export const useLabRun = () =>
+  useQuery({
+    queryKey: ["lab-run"],
+    queryFn: () => apiGet<LabRun>("/api/proposals/lab"),
+    refetchInterval: (q) => {
+      const st = q.state.data?.state;
+      return st === "queued" || st === "running" ? 5_000 : false;
+    },
+  });
+
+/** Queue a strategy-lab run. The API cannot call a model or run a backtest -- this only asks. */
+export function useRunLab() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (force: boolean) =>
+      apiPost<LabRun>(`/api/proposals/generate${force ? "?force=true" : ""}`),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["lab-run"] });
+      // A finished run adds proposals; refetching here covers the queued -> done edge too.
+      void qc.invalidateQueries({ queryKey: ["proposals"] });
     },
   });
 }

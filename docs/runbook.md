@@ -14,7 +14,7 @@ uses commands that exist in the repo; the deploy files are in [`deploy/`](../dep
 |---|---|---|
 | `stk-api.service` | always | FastAPI on `127.0.0.1:8000`. Caddy is the only way in. |
 | `stk-poller.service` | always | Paper-trading poller. Idles outside 09:15–15:30 on trading days. Stale feed ⇒ orders wait for the EOD bar; nothing fills on stale data. |
-| `stk-ai-worker.service` | always | Runs briefs the dashboard's **Generate now** button queued. Polls a local table; calls a provider only when a request is waiting. |
+| `stk-ai-worker.service` | always | Runs what the dashboard's **Generate now** (Brief) and **Run lab now** (Strategy lab) buttons queued — reviews first, then labs. Polls a local table; calls a provider only when a request is waiting. Exits cleanly when the `stk` source changes so systemd restarts it on the new code (`--no-reload` disables that). |
 | `stk-nightly.timer` | Mon–Fri 20:30 and 23:00 (retry) | `stk nightly` |
 | `stk-weekly.timer` | Sun 10:00 | `stk weekly` |
 | `stk-backup.timer` | daily 23:45 | `deploy/backup.sh` |
@@ -156,6 +156,8 @@ remove those yourself once satisfied.
 | Banner: `nightly.prices failed` | Exchange not yet published, changed format, or the network is down. | `journalctl -u stk-nightly -e` / the `job_runs.error_message`. Re-run: `stk nightly` (safe any time). A `ContentValidationError` or a wrong-date file means the exchange served bad content — the pipeline refused it on purpose. Do not bypass; check `docs/data-sources.md` and probe with `stk doctor --check-endpoints`. |
 | `nightly.corpactions failed` — *unparsed subject* | A corporate action the parser doesn't know. **All rows are stored first**, then it fails so a split can't be silently missed. | Add a rule to the table in `ingest/corpactions.py` (+ a test using the real subject text), then re-run. Until then prices for that symbol may be mis-adjusted — the adjusted series is marked degraded. |
 | `orders_pending_eod` (info) | Delayed feed was down; orders are parked. | Nothing: the EOD pass decides them from the day's bar. |
+| Brief still reports an old skip reason after a fix | A worker started before the fix was still serving old code (this happened: it ran two days stale). Current workers reload themselves; an older one needs `systemctl --user restart stk-ai-worker`. | Check `journalctl --user -u stk-ai-worker` for the start time vs. your commit. |
+| Lab stuck on `running` for hours | Expected: one model call plus walk-forward backtests (~5 GB peak). While it runs the worker serves nothing else, so **Generate now** waits behind it. | If it was OOM-killed the request is closed as an error on the next start; re-press. |
 | Brief stuck on `queued` | Nothing is draining `ai_requests` — no worker is running. | `systemctl status stk-ai-worker`, or just `stk ai worker --once`. The request is not lost; it waits. |
 | Brief says `skipped — no picks today` | Correct, not a fault: no strategy is `live`, or none fired. Check the Strategy lab; `stk strategies preview` shows what the rejected ones would have bought. | Nothing. A day with no picks never calls a model. |
 | `ai_failing` | Last 3 evening/lab runs failed (key lapsed, model renamed, output invalid). | `stk ai models` (does the key work; is the configured model still offered), `stk ai usage`, `ai_runs.error`; `stk ai evening --dry-run` shows the prompt and its size. Everything else runs regardless. |

@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import { EmptyState } from "../components/EmptyState";
 import { useBrief, useBriefs, useGenerateBrief } from "../lib/api/hooks";
 import type { BriefState } from "../lib/api/types";
-import { fmtDate } from "../lib/format";
-import { color, font, tint } from "../lib/theme";
+import { fmtDate, fmtPct } from "../lib/format";
+import { color, font, pnlColor, tint } from "../lib/theme";
 
 const card = {
   background: color.panel,
@@ -189,6 +189,38 @@ export function Brief() {
                 brief covers the market, your open positions, and what the <em>unapproved</em>{" "}
                 strategies would have bought. Nothing here is a recommendation, and none of it is
                 tracked.
+              </div>
+            )}
+            {(brief.market ?? []).length > 0 && (
+              <div style={card} data-testid="brief-market">
+                <div style={cardTitle}>
+                  Market
+                  {brief.marketAsOf && (
+                    <span style={{ font: `400 11.5px ${font.sans}`, color: color.textMuted }}>
+                      {" "}
+                      · as of {fmtDate(brief.marketAsOf)}
+                      {brief.marketAsOf !== brief.date && " (not this brief's day)"}
+                    </span>
+                  )}
+                </div>
+                {(brief.market ?? []).map((m) => (
+                  <div
+                    key={m.code}
+                    style={{ display: "flex", gap: 14, font: `400 12.5px ${font.mono}`, marginBottom: 4 }}
+                  >
+                    <span style={{ minWidth: 110 }}>{m.name}</span>
+                    <span>
+                      {m.close.toLocaleString("en-IN", {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </span>
+                    <span style={{ color: pnlColor(m.changePct) }}>{fmtPct(m.changePct / 100, 2)}</span>
+                  </div>
+                ))}
+                <div style={{ font: `400 11px ${font.sans}`, color: color.textFaint, marginTop: 6 }}>
+                  Closing figures read from the price lake, not written by the model.
+                </div>
               </div>
             )}
             <div style={card}>

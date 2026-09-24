@@ -23,6 +23,7 @@ import pandas as pd
 
 from stk.backtest.view import MarketData
 from stk.store import duck
+from stk.store.market import benchmark_series
 
 
 def prepare_bars(bars: pd.DataFrame, adv_lookback_days: int) -> pd.DataFrame:
@@ -76,7 +77,4 @@ def load_market_data(
 
 def load_benchmark(parquet_root: Path, *, index_code: str, start: date, end: date) -> pd.DataFrame:
     """Benchmark closes keyed on the canonical index_code (never the printed name)."""
-    with duck.connect(parquet_root) as session:
-        return session.sql(
-            "benchmark_series", [index_code, start.isoformat(), end.isoformat()]
-        ).df()
+    return benchmark_series(parquet_root, index_code=index_code, start=start, end=end)

@@ -394,6 +394,35 @@ describe("Brief (coverage)", () => {
   });
 });
 
+describe("Brief (market figures)", () => {
+  const withMarket = (marketAsOf: string) => ({
+    date: "2026-09-24", pending: false, state: "ready", stateReason: null, coverage: "preview",
+    generatedAt: "2026-09-24T20:40:00+00:00", overview: "A broad decline across both benchmarks.",
+    market: [
+      { code: "NIFTY_50", name: "Nifty 50", close: 23063.1, changePct: -1.64,
+        asOf: marketAsOf, prevClose: 23446.8, prevDate: "2026-09-23" },
+    ],
+    marketAsOf, notablePicks: [], conflicts: [], positionNotes: [],
+  });
+  const list = [{ date: "2026-09-24", pending: false, state: "ready", coverage: "preview" }];
+
+  it("renders the closing figures from the data, beside the model's prose", async () => {
+    mockApi({ "/api/briefs/2026-09-24": withMarket("2026-09-24"), "/api/briefs": list });
+    renderWith(<Brief />);
+    const card = await screen.findByTestId("brief-market");
+    expect(card).toHaveTextContent("Nifty 50");
+    expect(card).toHaveTextContent("23,063.10");
+    expect(card).toHaveTextContent("-1.64%");
+    expect(card).not.toHaveTextContent("not this brief's day");
+  });
+
+  it("says so when the figures are from another day than the brief", async () => {
+    mockApi({ "/api/briefs/2026-09-24": withMarket("2026-09-23"), "/api/briefs": list });
+    renderWith(<Brief />);
+    expect(await screen.findByTestId("brief-market")).toHaveTextContent("not this brief's day");
+  });
+});
+
 describe("Login", () => {
   it("stores the token it is given", async () => {
     renderWith(<Login />);
