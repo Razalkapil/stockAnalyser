@@ -31,7 +31,13 @@ Oracle's free-tier signup has a reputation for being harder than it should be. E
 
 1. **Create the instance:** Compute → Instances → Create. Choose:
    - Image: **Ubuntu 24.04 LTS (ARM64)** — Ubuntu has the best-tested ARM wheel availability for the Python packages this project uses (duckdb, pyarrow, pydantic-core).
-   - Shape: **VM.Standard.A1.Flex**, 4 OCPU / 24 GB (the full Always Free allocation, if using it as a single instance).
+   - Shape: **VM.Standard.A1.Flex**, **2 OCPU / 12 GB** — the full Always Free Ampere allocation as of **2026-09-24**.
+     **Oracle halved this on 2026-06-15** (it was 4 OCPU / 24 GB) with no blog post, customer email or
+     documentation update, so older guides — and earlier versions of this file — still quote the old figure.
+     Re-check the current allocation before provisioning. 12 GB is still ample here: the nightly peaks at
+     ~3.9 GB and a single-slug `strategies promote` at ~5 GB. Reports differ on whether Pay-As-You-Go
+     tenancies keep 4/24; there is no official clarification. **Caveat:** an instance above the current
+     limit that is ever terminated (maintenance, outage, or mistake) may not be recreatable at the old size.
    - Boot volume: 100 GB is comfortable (15 years of price history is ~200MB; the rest is OS + logs + headroom).
    - Add your SSH public key during creation.
 2. **Networking:** the default VCN's default security list only opens SSH (22) inbound. Add ingress rules for **80** and **443** (Caddy will handle HTTP→HTTPS redirect and Let's Encrypt) once you're ready to expose the app. Keep everything else closed — this is a personal single-user app with no need for other open ports.

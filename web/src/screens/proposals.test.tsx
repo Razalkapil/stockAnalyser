@@ -85,7 +85,7 @@ describe("AI proposals", () => {
     mockApi(base([proposal({ id: 6, status: "invalid", statusNote: "rejected before any backtest: unknown indicator 'magic'", validationErrors: ["entry: unknown indicator 'magic'"], gateVerdict: null, rules: [] })]));
     renderLab();
     const card = await screen.findByTestId("proposal");
-    expect(within(card).queryByRole("button")).not.toBeInTheDocument();
+    expect(within(card).queryByRole("button", { name: /approve|reject/i })).not.toBeInTheDocument();
     expect(within(card).getByText(/Rejected: invalid strategy/)).toBeInTheDocument();
     expect(within(card).getByText("entry: unknown indicator 'magic'")).toBeInTheDocument();
   });

@@ -332,7 +332,8 @@ const STATUS_LABEL: Record<string, string> = {
   dismissed: "Dismissed",
 };
 
-function ProposalCard({ p }: { p: ProposalOut }) {
+function ProposalCard({ p, onView, viewing }: { p: ProposalOut; onView: (slug: string) => void; viewing: boolean }) {
+  const slug = p.strategyId ?? p.targetStrategy;
   const { approve, dismiss } = useProposalAction();
   const open = p.status === "awaiting_approval";
   const isNew = p.type === "new";
@@ -407,6 +408,14 @@ function ProposalCard({ p }: { p: ProposalOut }) {
       {p.approx && p.approxReasons.length > 0 && (
         <div style={{ marginTop: 6, font: `400 10.5px ${font.sans}`, color: color.warning }}>Approximate: {p.approxReasons[0]}</div>
       )}
+      {slug && (
+        <button
+          onClick={() => onView(slug)}
+          style={{ marginTop: 8, padding: "4px 10px", borderRadius: 5, background: viewing ? color.inset : "transparent", border: `1px solid ${color.border}`, color: color.accent, font: `600 11px ${font.sans}`, cursor: "pointer" }}
+        >
+          {viewing ? "Showing details →" : "View details →"}
+        </button>
+      )}
       {error && (
         <div role="alert" style={{ color: color.negative, font: `400 11.5px ${font.sans}`, marginTop: 6 }}>
           {error.message}
@@ -416,7 +425,7 @@ function ProposalCard({ p }: { p: ProposalOut }) {
   );
 }
 
-function Proposals() {
+function Proposals({ selected, onView }: { selected: string | null; onView: (slug: string) => void }) {
   const { data, isLoading, error } = useProposals();
   return (
     <>
@@ -430,7 +439,7 @@ function Proposals() {
       {data && data.length === 0 && <EmptyState title="No proposals">The weekly strategy lab has not run yet.</EmptyState>}
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {data?.map((p) => (
-          <ProposalCard key={p.id} p={p} />
+          <ProposalCard key={p.id} p={p} onView={onView} viewing={selected === (p.strategyId ?? p.targetStrategy)} />
         ))}
       </div>
     </>
@@ -513,7 +522,7 @@ export function StrategyLab() {
           </div>
         )}
 
-        <Proposals />
+        <Proposals selected={selected} onView={setSelected} />
       </div>
       {detail && <Detail d={detail} />}
     </div>
